@@ -190,7 +190,24 @@ The MVP is done when **all** of the following hold, verifiable by an automated e
 ## Next Phases
 
 - **Phase 9 — MVP Reduction**: this document.
-- **Phase 10 — Architecture Design**: pending — must resolve the storage-architecture question this phase's Definition of Done (§6, step 9) and Open Questions (§8) both depend on.
-- **Phase 11 — Red-Team Review**: pending — should specifically stress-test AISEC-REQ-001/002/004/005/006, kept in full by this phase precisely because the loop's own security boundary depends on them.
-- **Phase 12 — Stakeholder Validation**: pending.
-- **Phase 13 — Final Baseline**: pending — should adopt this document's Definition of Done (§6) as the literal MVP acceptance test, and resolve the two Product Decision open questions above (§8) as binding calls rather than carrying them forward again.
+- **Phase 10 — Architecture Design**: complete — resolved the storage-architecture question this phase's Definition of Done (§6, step 9) and Open Questions (§8) both depended on (single PostgreSQL instance, recursive-CTE traversal; see `phase10-architecture.md` §1).
+- **Phase 11 — Red-Team Review**: complete — stress-tested AISEC-REQ-001/002/004/005/006 as this phase anticipated, and surfaced 16 findings including 3 Critical (RT-10, RT-14, RT-17) against this document's own MVP scoping.
+- **Phase 12 — Stakeholder Validation** (delivered as UX Red-Team Review): complete.
+- **Phase 13 — Final Baseline**: complete — see [`./phase13-final-baseline.md`](./phase13-final-baseline.md).
+
+---
+
+## Addendum: Phase 13 MVP-scope amendments
+
+**[Phase 13, binding]** This document's MVP Cut List (§2) and Definition of Done (§6) remain the baseline, but Phase 13 dispositioned three Critical/High red-team findings by pulling minimal slices of previously-cut or previously-deferred requirements back into MVP scope. This addendum records the delta without rewriting the reasoning above, which remains correct for everything it covers — these are additions on top of it, not corrections to it.
+
+- **AI-REQ-002** (demoted to V1 by this document's §2): a **minimal cumulative AI-spend-visibility slice** is now MVP (Phase 13 disposition of RT-14) — a running total, not the full per-request dashboard. This document's load-bearing-for-loop-*completion* reasoning was correct and unchanged; RT-14 identified that "loop completes without it" is not the same claim as "shipping it unmetered is safe for the self-hosted-adopter persona who pays the bill directly," a distinct risk axis this document's test was never designed to catch.
+- **AI-REQ-005** (V1 in this document): its **architectural-discipline half** (Gateway abstraction provably swappable via a fitness-function test) is now MVP, mirroring the CLOUD-REQ-001 precedent this document itself established in §4 — Phase 13 (disposition of RT-02) applied that same precedent to AI-REQ-005, which this document did not.
+- **UX-REQ-002** (V1 in this document, per RT-01/RT-17's convergent finding): a **minimal fixed-region slice** (Phase 12's Stable Skeleton, populated with MVP-available data on the PR/Issue page reviewed at this document's own DoD step 7) is now MVP — the full context-assembly apparatus remains V1. This document's own §4 "one thing cut too far?" check tested the three Phase 5 differentiators for survival but never ran RT-17's distinct check ("which 3 things would make a user switch, and are they still here") — see `phase11-red-team.md` RT-17 for why these are different questions with different answers.
+- **A new requirement, AISEC-REQ-009** (Platform process integrity, disposition of RT-10) is MVP for its database-role-level append-only-`events` enforcement half — this document's Keep List (§3) correctly kept the full AISEC-REQ-001/002/004/005/006 set on the assumption the Platform process evaluating those gates is itself trustworthy; RT-10 found that assumption itself was the gap.
+- **This document's DoD step 10** (chaos test) gains an **informational, non-gating** measurement obligation: record peak concurrent RAM/CPU during the run (Phase 13 disposition of RT-11). OPS-REQ-005 itself remains V1-timed; this is a cheap addition to an already-required test, not a new gate.
+- **AISEC-REQ-005**'s MVP acceptance criterion (kept in full by this document's §3/§4) is rescoped, not cut: the Policy-scope-containment logic remains MVP, but the three-hop test this document implicitly assumed was testable is honestly deferred to V1 alongside AGT-REQ-009 (disposition of RT-03) — this document's own §5 footnote already modeled exactly this kind of draft-ambiguity correction for GRF-REQ-009/010; RT-03 found one more instance of the same pattern this document's first pass didn't catch.
+
+**Net MVP count**: 37 (this document's Phase 9 figure) → **43** after the above (net +4 new MVP-timed requirement IDs: AISEC-REQ-009, UX-REQ-005, UX-REQ-007, A11Y-REQ-001, plus scope amendments to already-MVP AI-REQ-002/AI-REQ-005/AISEC-REQ-005/UX-REQ-003 that do not change the ID count). Full accounting: `phase13-final-baseline.md` §3 (Changes After Review) and the master doc's §48 (as amended).
+
+This document's Cut List (§2), Keep List (§3), and Definition of Done (§6) otherwise stand as written — none of Phase 9's original reasoning was found wrong, only incomplete against checks (RT-02, RT-10, RT-14, RT-17) this document did not itself run.
