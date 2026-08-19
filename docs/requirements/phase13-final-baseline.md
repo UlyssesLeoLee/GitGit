@@ -1,6 +1,6 @@
 # AI-Native Engineering Platform — Requirements Research: Phase 13 (Final Baseline)
 
-**Status:** v1.0 — **this document closes the 13-phase program and declares Baseline v1.0.** **Scope:** Phase 13 only (Final Baseline, per original spec §48–50). Builds on and resolves every finding in `docs/requirements/phase11-red-team.md` (16 findings, RT-01 through RT-17) and `docs/requirements/phase12-ux-review.md` (9 findings, F-1 through F-9) — 25 findings total, verified by direct count against both source documents, not assumed. This document does not re-derive prior research; it disposes of open findings and makes binding calls on questions previous phases correctly left open.
+**Status:** v1.0 — **this document closes the 13-phase program and declares Baseline v1.0.** **Scope:** Phase 13 only (Final Baseline, per original spec §48–50). Builds on and resolves every finding in `docs/requirements/phase11-red-team.md` (17 findings, RT-01 through RT-17) and `docs/requirements/phase12-ux-review.md` (9 findings, F-1 through F-9) — **26 findings total**. *(Corrected during the Phase 15 final audit: this line previously said "16 findings … 25 findings total", inheriting a miscount from Phase 11's own severity rollup, which had omitted RT-08 from its table. Every individual finding, RT-08 and F-5 included, was written up in full and dispositioned in §1 below — the error was confined to the headline counts, not the substance. See `phase15-final-audit.md` finding A-3.)* This document does not re-derive prior research; it disposes of open findings and makes binding calls on questions previous phases correctly left open.
 
 **Tagging convention** (inherited unchanged): `[FACT]` / `[UNVERIFIED-FACT]` / `[INFERENCE]` / `[PROPOSAL]` / `[TBD]`.
 
@@ -12,11 +12,11 @@
 
 Section 1 dispositions every one of the 25 Phase 11/12 findings individually. Section 2 summarizes which master-doc edits were actually made (the edits themselves live in `00-requirements-definition.md` and `phase9-mvp-reduction.md`, not duplicated here). Section 3 is the Changes-After-Review log. Section 4 is the mandatory Three Moats analysis. Section 5 answers the governing question. Section 6 declares Baseline v1.0. Section 7 is the consolidated master Open Questions list.
 
-**Disposition counts** (25 findings total — 16 from Phase 11, 9 from Phase 12):
+**Disposition counts** (26 findings total — 17 from Phase 11, 9 from Phase 12):
 
 | Disposition | Count | Finding IDs |
 |---|---|---|
-| **Accepted-and-fixed** | 18 | RT-01, RT-02, RT-03, RT-08, RT-09, RT-10, RT-11, RT-12, RT-13, RT-14, RT-17, F-1, F-2, F-3, F-4, F-7, F-8, F-9 |
+| **Accepted-and-fixed** | 19 | RT-01, RT-02, RT-03, RT-08, RT-09, RT-10, RT-11, RT-12, RT-13, RT-14, RT-17, F-1, F-2, F-3, F-4, F-5, F-7, F-8, F-9 |
 | **Accepted-deferred** | 4 | RT-04, RT-05, RT-15, F-6 |
 | **Rejected** | 2 | RT-06, RT-07 |
 | **Needs-human-decision** | 1 | RT-16 |

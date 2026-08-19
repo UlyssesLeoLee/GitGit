@@ -10,7 +10,7 @@
 
 ## Method
 
-Each of the 17 angles from the original spec is attacked in turn. Findings are numbered RT-01 through RT-19 (some angles yield more than one finding where genuine adversarial effort surfaced multiple distinct problems). Severity is Critical / High / Medium / Low, assigned by potential damage to the program if the finding is real and ignored through Phase 13.
+Each of the 17 angles from the original spec is attacked in turn. Findings are numbered RT-01 through RT-17, one per angle. Severity is Critical / High / Medium / Low, assigned by potential damage to the program if the finding is real and ignored through Phase 13.
 
 ---
 
@@ -223,12 +223,12 @@ Now testing against the actual post-Phase-9 MVP scope (master doc §48, Phase 9 
 | Severity | Count | Finding IDs |
 |---|---|---|
 | **Critical** | 3 | RT-10, RT-14, RT-17 |
-| **High** | 6 | RT-02, RT-04, RT-12, RT-13, RT-15, RT-16 |
+| **High** | 7 | RT-02, RT-04, RT-08, RT-12, RT-13, RT-15, RT-16 |
 | **Medium** | 5 | RT-01, RT-03, RT-05, RT-09, RT-11 |
 | **Low** | 2 | RT-06, RT-07 |
-| **Total findings** | **16** | RT-01 through RT-17 (RT-08 counted; angle count 17 → 16 findings, one angle (6) resolved "no action needed" but retained as a numbered finding for traceability) |
+| **Total findings** | **17** | RT-01 through RT-17, one per attacked angle |
 
-*(Note: 17 angles were attacked; 16 numbered findings resulted because Angle 6 (RT-06) and Angle 7 (RT-07) both concluded "no action needed" after genuine adversarial effort and are counted as Low-severity process notes rather than Medium+ substantive findings, per the task's explicit allowance for a defensible "no action needed" verdict.)*
+*(Note: 17 angles were attacked and 17 numbered findings resulted, one per angle. RT-06 and RT-07 both concluded "no action needed" after genuine adversarial effort — they are retained as numbered Low-severity findings for traceability rather than dropped, per the task's explicit allowance for a defensible "no action needed" verdict, and Phase 13 dispositions both as Rejected-with-argument. **Corrected during Phase 15 final audit:** this rollup previously stated 16 total findings and omitted RT-08 (High) from the severity table, despite RT-08 being written up in full in §8 above and dispositioned by Phase 13; the finding itself was never lost, only miscounted here. See `phase15-final-audit.md` finding A-3.)*
 
 ---
 
