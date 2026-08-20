@@ -1,10 +1,18 @@
-# GitGit
+﻿# GitGit
 
 > 山寨的 Git —— 但真正在做的是《AI-Native Engineering Platform 需求定义书》
 
 本仓库目前的主要内容不是代码，而是一份完整走完 **13 个主阶段 + 2 个补充阶段** 的产品需求调研与定义程序，产出对象是一个暂命名为 **AI-Native Engineering Platform** 的、Local-First / Cloud-Ready / Git-Native / AI-Native / Agent-Native / Graph-Native 的可自托管软件工程平台的正式需求定义书。
 
 所有产出物位于 [`docs/requirements/`](docs/requirements/)。
+
+设计阶段产出物位于 [`docs/design/`](docs/design/)。**严格按照日本 IPA 共通框架 2013（独立行政法人情报处理推进机构 / Information-technology Promotion Agency）编写，全部使用中文书写**。包含：
+
+- **基本设计书**（外部设计）：[`docs/design/basic-design/`](docs/design/basic-design/) — 16 章正文 + 4 附录（共 20 个文件），依据 IPA 共通框架 2013 的 `系统方式设计过程` (P3)。含 [API 设计](docs/design/basic-design/11-api-design.md)、[App 群组信息互通设计](docs/design/basic-design/12-app-group-intercommunication.md)、[App 集群与可热插拔架构](docs/design/basic-design/13-app-cluster-and-plugins.md) 与 [管理员运维界面](docs/design/basic-design/14-admin-ops-ui.md) 四个独立专章，以及 [Appendix C — IPA 过程·交付物 对照表](docs/design/basic-design/appendix-c-ipa-mapping.md) 和 [Appendix D — 用语集](docs/design/basic-design/appendix-d-glossary.md) 两个 IPA 对齐附录。
+- **详细设计书**（内部设计）：[`docs/design/detailed-design/`](docs/design/detailed-design/) — 14 个分章节文件，把基本设计细化为可实现的模块、类、函数、SQL DDL、状态机、错误处理等规格，依据 IPA 共通框架 2013 的 `软件方式设计过程` (P4) + `软件详细设计过程` (P5)。含 [App Registry & Plugin Loader](docs/design/detailed-design/12-app-registry-and-plugin-loader.md) 与 [Admin API & Ops UI](docs/design/detailed-design/13-admin-api-and-ops-ui.md) 两个新增专章，覆盖 App 集群 + 中心事件总线 + Admin 运维界面的可实现规格。
+- **架构决策 / 技术选型**：[`docs/architecture/`](docs/architecture/) — ADR 类文档，记录关键技术选型决策与 Phase 16 启动前 QA。当前 [技术选型文档](docs/architecture/tech-selection.md) 已拍板主语言为 **Rust（edition 2021，MSRV 1.75）** + Tokio + Axum + sqlx + gix（读路径）+ shell `git`（写路径），对应需求定义书 §53 ADR 列表项 11。[实施前 QA 检查表](docs/architecture/qa-checklist.md) 列出 26 项顾虑与疑问（🔴 6 / 🟠 8 / 🟡 9 / 🟢 3）。
+- **工程过程模型**：[`docs/process/workflow.md`](docs/process/workflow.md) — 150 个任务 × 13 阶段的瀑布-迭代混合工程过程模型（基于日本 IPA 上流工程共通框架的 13 主阶段），明确每阶段产出物、与本书各章节的对应关系、阶段责任矩阵与判定规则。
+
 
 ---
 
@@ -62,7 +70,7 @@ Phase 15    终审验收（一致性核查）   ──▶ phase15-final-audit.md
 | [`phase11-red-team.md`](docs/requirements/phase11-red-team.md) | 从 17 个角度对整个方案发起真实攻击（是否只是 GitHub Clone、是否 AI 包装、是否过度工程、Agent 执行安全面、本地部署是否过重等），17 条发现 |
 | [`phase12-ux-review.md`](docs/requirements/phase12-ux-review.md) | UX 红队评审："稳定骨架 + 涌现式上下文"是否真的可执行，Ambient AI 预算（80/15/5 目标）是否会退化成 Chat，9 条发现 |
 | [`phase13-final-baseline.md`](docs/requirements/phase13-final-baseline.md) | **收官文档**：对全部 26 条红队/UX 发现逐一处置并实际修订主文档；三大护城河（Moats）分析；正面回答"如果 GitHub/GitLab 明天 AI 提升十倍，我们为何还存在"；宣告 Baseline v1.0 |
-| [`phase14-ipa-compliance-review.md`](docs/requirements/phase14-ipa-compliance-review.md) | 按日本 IPA 标准（非機能要求グレード / 上流工程共通フレーム / 情報セキュリティ指南）对 Baseline v1.0 做合规差距分析，9 条发现，新增 NFR-REQ×3 + SEC-REQ×3 |
+| [`phase14-ipa-compliance-review.md`](docs/requirements/phase14-ipa-compliance-review.md) | 按日本 IPA 标准（非功能要求等级 / 上流工程共通框架 / 信息安全指南）对 Baseline v1.0 做合规差距分析，9 条发现，新增 NFR-REQ×3 + SEC-REQ×3 |
 | [`phase15-final-audit.md`](docs/requirements/phase15-final-audit.md) | 终审验收：需求 ID 连续性/唯一性、跨文档引用完整性、链接有效性、各处声明数字与实际内容的一致性核查，3 条缺陷及修复记录 |
 
 ---
@@ -121,4 +129,4 @@ MVP 需求数演进：45（Phase 9 初始）→ **37**（Phase 9 按最小完整
 
 明确排除在本基线范围之外的内容：具体实现代码、UI 线框图/原型、法律与许可证审查、benchmark 实测数据、市场定位（Go-to-Market）决策、正式 ADR 文档产出物。这些留待后续阶段处理。
 
-已知悬而未决的最重要一条：整个程序**全程没有人类干系人正式签核环节**（Phase 14 finding F14-7，对照 IPA 共通フレーム 的流程要求属于真实缺口），已记录为需人类决策的开放问题，无法靠继续编辑文档解决。
+已知悬而未决的最重要一条：整个程序**全程没有人类干系人正式签核环节**（Phase 14 finding F14-7，对照 IPA 共通框架的流程要求属于真实缺口），已记录为需人类决策的开放问题，无法靠继续编辑文档解决。

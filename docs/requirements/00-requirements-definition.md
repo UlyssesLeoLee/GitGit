@@ -1,10 +1,10 @@
-# AI-Native Engineering Platform — Requirements Definition
+﻿# AI-Native Engineering Platform — Requirements Definition
 
 **Status:** **Baseline v1.0 — Phases 1–13 complete.** All 25 Phase 11/12 red-team findings have been dispositioned (Accepted-and-fixed / Accepted-deferred / Rejected / Needs-human-decision) and the Accepted-and-fixed dispositions are applied in this document. See [`./phase13-final-baseline.md`](./phase13-final-baseline.md) for the full disposition log, the Changes-After-Review diff, the Three Moats analysis, the governing-question answer, and the consolidated master Open Questions list (§54 below now points there instead of duplicating it).
 
 **Phase 15 supplement:** a mechanical final audit (requirement-ID integrity, cross-document reference validity, link validity, and agreement between stated counts and actual content) has been run across the full document set. It found zero ghost references, zero broken links, and zero ID collisions; it found and corrected three summary-table/headline-count inconsistencies, one of which was in §48 of this document (its MVP count omitted Phase 14's two MVP-timed additions). See [`./phase15-final-audit.md`](./phase15-final-audit.md).
 
-**Phase 14 supplement:** a Japan IPA (情報処理推進機構) standards compliance review — 非機能要求グレード, 上流工程共通フレーム, and IPA security guidance — has been run against this Baseline v1.0 and its Accepted-and-fixed findings (NFR-REQ-001–003, SEC-REQ-008–010) are applied below. See [`./phase14-ipa-compliance-review.md`](./phase14-ipa-compliance-review.md) for the full gap analysis, dispositions, and severity rollup.
+**Phase 14 supplement:** a Japan IPA (情報処理推進機構) standards compliance review — 非功能要求等级, 上游工程共通框架, and IPA security guidance — has been run against this Baseline v1.0 and its Accepted-and-fixed findings (NFR-REQ-001–003, SEC-REQ-008–010) are applied below. See [`./phase14-ipa-compliance-review.md`](./phase14-ipa-compliance-review.md) for the full gap analysis, dispositions, and severity rollup.
 
 **Scope of this document:** Phase 8 (Requirements Specification). This is the master requirements book — it assembles and cross-references Phases 1–7 into the target 55-section structure the original research program calls for. It does not re-derive prior findings; where a section is pure consolidation it summarizes and links back to the source phase document rather than repeating it. Sections requiring genuinely new synthesis (marked below) are written in full here for the first time.
 
@@ -108,7 +108,7 @@ Phase 7 then elicited 67 atomic, ID-tagged, acceptance-criteria-bearing requirem
 
 ## 2. Research Methodology
 
-**[CROSS-REFERENCE]** See [`./phase1-5-research.md` §Phase 1](./phase1-5-research.md#phase-1--research-plan) for the full methodology: competitor category selection, the primary-source-first citation discipline, the `[FACT]`/`[UNVERIFIED-FACT]`/`[INFERENCE]`/`[PROPOSAL]`/`[TBD]` tagging convention (reused unchanged through Phases 6–8), and the live-WebSearch/WebFetch evidence-gathering approach used across Phases 2–5. Phase 6 added an emergent-discovery method (Observation → Pattern → Constraint → Primitive → Interaction → Workflow → Platform Capability, see [`./phase6-primitives.md` §1](./phase6-primitives.md#1-method)); Phase 7 added an atomic-requirement schema and quality bar (Atomic/Testable/Traceable/Unambiguous/Necessary/Feasible, see [`./phase7-elicitation.md` §1](./phase7-elicitation.md#1-method)). This document's own method is assembly, not new evidence-gathering — new claims introduced in Phase 8 are tagged `[PROPOSAL]` per the inherited convention, and no Phase 8 section re-runs live research over a claim already tagged in an earlier phase.
+**[CROSS-REFERENCE]** See [`./phase1-5-research.md` §Phase 1](./phase1-5-research.md#phase-1-research-plan) for the full methodology: competitor category selection, the primary-source-first citation discipline, the `[FACT]`/`[UNVERIFIED-FACT]`/`[INFERENCE]`/`[PROPOSAL]`/`[TBD]` tagging convention (reused unchanged through Phases 6–8), and the live-WebSearch/WebFetch evidence-gathering approach used across Phases 2–5. Phase 6 added an emergent-discovery method (Observation → Pattern → Constraint → Primitive → Interaction → Workflow → Platform Capability, see [`./phase6-primitives.md` §1](./phase6-primitives.md#1-method)); Phase 7 added an atomic-requirement schema and quality bar (Atomic/Testable/Traceable/Unambiguous/Necessary/Feasible, see [`./phase7-elicitation.md` §1](./phase7-elicitation.md#1-method)). This document's own method is assembly, not new evidence-gathering — new claims introduced in Phase 8 are tagged `[PROPOSAL]` per the inherited convention, and no Phase 8 section re-runs live research over a claim already tagged in an earlier phase.
 
 ---
 
@@ -169,7 +169,7 @@ The vision is deliberately narrower than "replace GitHub and Jira and Slack and 
 
 ## 7. Competitive Landscape
 
-**[CROSS-REFERENCE]** Full evidence and per-product analysis: [`./phase1-5-research.md` Phase 2–3](./phase1-5-research.md#phase-2--evidence-collection). Products in scope: GitHub, GitLab, Bitbucket, Gitea/Forgejo, Sourcegraph/Cody, Linear (all deep-dived); Codex, Claude Code, Cursor, Devin, OpenHands, Gemini CLI (AI-agent cluster, §10 below); Gerrit, Jira, GitHub Issues/Projects standalone, Argo CD/Workflows, CodeQL, Sentry (flagged `[TBD]` — not reached with dedicated research in Phase 1–5, carried forward as an open item, §54).
+**[CROSS-REFERENCE]** Full evidence and per-product analysis: [`./phase1-5-research.md` Phase 2–3](./phase1-5-research.md#phase-2-evidence-collection). Products in scope: GitHub, GitLab, Bitbucket, Gitea/Forgejo, Sourcegraph/Cody, Linear (all deep-dived); Codex, Claude Code, Cursor, Devin, OpenHands, Gemini CLI (AI-agent cluster, §10 below); Gerrit, Jira, GitHub Issues/Projects standalone, Argo CD/Workflows, CodeQL, Sentry (flagged `[TBD]` — not reached with dedicated research in Phase 1–5, carried forward as an open item, §54).
 
 ---
 
@@ -187,19 +187,19 @@ The vision is deliberately narrower than "replace GitHub and Jira and Slack and 
 
 ## 10. AI Coding Agent Landscape
 
-**[CROSS-REFERENCE]** Full entries: [`./phase1-5-research.md` §Phase 3](./phase1-5-research.md#openai-codex--codex-cli-deep-dive) — Codex/Codex CLI, Claude Code, Cursor deep dives; Devin/OpenHands/Gemini CLI evidence summary. Key structural finding carried forward `[INFERENCE]`: Copilot and Duo both bolt AI onto an existing forge's data model ("AI as forge feature"), while Claude Code/Codex/Cursor treat the forge as just one more MCP-reachable tool ("forge as agent tool") — the platform deliberately takes neither posture, aiming instead to *be* the graph agents operate against natively (motivates §29 Codex Integration Requirements and AGT-REQ-008's MCP support). AGENTS.md's cross-tool adoption (`[FACT]`, O11) directly motivates CTX-REQ-005 and CDX-REQ (§29). Claude Code's hooks/skills/subagents separation (`[UNVERIFIED-FACT]`, O10) is the pattern generalized into AGT-REQ-009's subagent/delegated-scope requirement.
+**[CROSS-REFERENCE]** Full entries: [`./phase1-5-research.md` §Phase 3](./phase1-5-research.md#openai-codex-codex-cli-deep-dive) — Codex/Codex CLI, Claude Code, Cursor deep dives; Devin/OpenHands/Gemini CLI evidence summary. Key structural finding carried forward `[INFERENCE]`: Copilot and Duo both bolt AI onto an existing forge's data model ("AI as forge feature"), while Claude Code/Codex/Cursor treat the forge as just one more MCP-reachable tool ("forge as agent tool") — the platform deliberately takes neither posture, aiming instead to *be* the graph agents operate against natively (motivates §29 Codex Integration Requirements and AGT-REQ-008's MCP support). AGENTS.md's cross-tool adoption (`[FACT]`, O11) directly motivates CTX-REQ-005 and CDX-REQ (§29). Claude Code's hooks/skills/subagents separation (`[UNVERIFIED-FACT]`, O10) is the pattern generalized into AGT-REQ-009's subagent/delegated-scope requirement.
 
 ---
 
 ## 11. Competitive Matrix
 
-**[CROSS-REFERENCE]** Full matrix (10 competitors × 14 capability rows, including the proposed Target Platform column): [`./phase1-5-research.md` Phase 4](./phase1-5-research.md#phase-4--capability-matrix). Not reproduced here in full to avoid drift between two copies of the same table — treat phase1-5-research.md as the single source of truth for this matrix; if it is revised in a later pass, this section's cross-reference remains valid without edit. The single row most load-bearing for this document's requirements is "Knowledge graph": ❌/⚠️ across every competitor, ✅ `[PROPOSAL, core value prop]` for the Target Platform — the direct empirical basis for prioritizing GRF-REQ (§25) as P0.
+**[CROSS-REFERENCE]** Full matrix (10 competitors × 14 capability rows, including the proposed Target Platform column): [`./phase1-5-research.md` Phase 4](./phase1-5-research.md#phase-4-capability-matrix). Not reproduced here in full to avoid drift between two copies of the same table — treat phase1-5-research.md as the single source of truth for this matrix; if it is revised in a later pass, this section's cross-reference remains valid without edit. The single row most load-bearing for this document's requirements is "Knowledge graph": ❌/⚠️ across every competitor, ✅ `[PROPOSAL, core value prop]` for the Target Platform — the direct empirical basis for prioritizing GRF-REQ (§25) as P0.
 
 ---
 
 ## 12. Gap Analysis
 
-**[CROSS-REFERENCE]** Full analysis: [`./phase1-5-research.md` Phase 5](./phase1-5-research.md#phase-5--gap-analysis). Summary of the four-tier classification, reused directly by §48 (MVP Definition):
+**[CROSS-REFERENCE]** Full analysis: [`./phase1-5-research.md` Phase 5](./phase1-5-research.md#phase-5-gap-analysis). Summary of the four-tier classification, reused directly by §48 (MVP Definition):
 - **Commodity** (build to parity, don't over-invest): Git hosting, PR/MR review, CI/CD, API/webhook extensibility, RBAC, basic AI coding assist.
 - **Differentiator** (real competitive edge): knowledge graph across the full engineering surface; true self-hosted + cloud parity with agent-native execution; unified audit trail across human and agent actions.
 - **Emerging** (market still forming standards): MCP-based agent context/tool access; agent execution as a forge-native feature.
@@ -272,7 +272,7 @@ Out of scope: see §15 Non-Goals for the explicit decision record on adjacent ca
 
 ## 17. Git Requirements
 
-**[CROSS-REFERENCE]** Full requirement set: [`./phase7-elicitation.md` §2 GIT-REQ](./phase7-elicitation.md#2-git-req--git-native-compatibility) (GIT-REQ-001 through 010). Summary table:
+**[CROSS-REFERENCE]** Full requirement set: [`./phase7-elicitation.md` §2 GIT-REQ](./phase7-elicitation.md#2-git-req-git-native-compatibility) (GIT-REQ-001 through 010). Summary table:
 
 | ID | Title | Priority |
 |---|---|---|
@@ -320,7 +320,7 @@ Out of scope: see §15 Non-Goals for the explicit decision record on adjacent ca
 
 ## 22. CI/CD Requirements
 
-**[CROSS-REFERENCE]** Full requirement set: [`./phase7-elicitation.md` §8 CI-REQ](./phase7-elicitation.md#8-ci-req--cicd) (CI-REQ-001 through 006). Summary table:
+**[CROSS-REFERENCE]** Full requirement set: [`./phase7-elicitation.md` §8 CI-REQ](./phase7-elicitation.md#8-ci-req-cicd) (CI-REQ-001 through 006). Summary table:
 
 | ID | Title | Priority |
 |---|---|---|
@@ -379,7 +379,7 @@ Priority: P0. Source: [PROPOSAL], extends SEC-REQ-001. Dependencies: SRCH-REQ-00
 
 ## 25. Engineering Graph Requirements
 
-**[CROSS-REFERENCE]** Full requirement set: [`./phase7-elicitation.md` §3 GRF-REQ](./phase7-elicitation.md#3-grf-req--engineering-graph) (GRF-REQ-001 through 011). Summary table:
+**[CROSS-REFERENCE]** Full requirement set: [`./phase7-elicitation.md` §3 GRF-REQ](./phase7-elicitation.md#3-grf-req-engineering-graph) (GRF-REQ-001 through 011). Summary table:
 
 | ID | Title | Priority |
 |---|---|---|
@@ -403,7 +403,7 @@ This is the single largest concentration of P0 requirements in the program, cons
 
 ## 26. Context Engine Requirements
 
-**[CROSS-REFERENCE]** Full requirement set: [`./phase7-elicitation.md` §6 CTX-REQ](./phase7-elicitation.md#6-ctx-req--context-engine-context-as-a-service) (CTX-REQ-001 through 005). Summary table:
+**[CROSS-REFERENCE]** Full requirement set: [`./phase7-elicitation.md` §6 CTX-REQ](./phase7-elicitation.md#6-ctx-req-context-engine-context-as-a-service) (CTX-REQ-001 through 005). Summary table:
 
 | ID | Title | Priority |
 |---|---|---|
@@ -419,7 +419,7 @@ CTX-REQ-002's exact-reconstruction guarantee remains dependent on Phase 10's unr
 
 ## 27. AI Gateway Requirements
 
-**[CROSS-REFERENCE]** Full requirement set: [`./phase7-elicitation.md` §5 AI-REQ](./phase7-elicitation.md#5-ai-req--ai-gateway--model-routing) (AI-REQ-001 through 006). Summary table:
+**[CROSS-REFERENCE]** Full requirement set: [`./phase7-elicitation.md` §5 AI-REQ](./phase7-elicitation.md#5-ai-req-ai-gateway-model-routing) (AI-REQ-001 through 006). Summary table:
 
 | ID | Title | Priority |
 |---|---|---|
@@ -438,7 +438,7 @@ CTX-REQ-002's exact-reconstruction guarantee remains dependent on Phase 10's unr
 
 ## 28. Agent Runtime Requirements
 
-**[CROSS-REFERENCE]** Full requirement set: [`./phase7-elicitation.md` §4 AGT-REQ](./phase7-elicitation.md#4-agt-req--agent-runtime) (AGT-REQ-001 through 009). Summary table:
+**[CROSS-REFERENCE]** Full requirement set: [`./phase7-elicitation.md` §4 AGT-REQ](./phase7-elicitation.md#4-agt-req-agent-runtime) (AGT-REQ-001 through 009). Summary table:
 
 | ID | Title | Priority |
 |---|---|---|
@@ -542,7 +542,7 @@ Both are explicitly V2/Future-timed in §49; WKFL-REQ-001's substrate (Action-co
 
 ## 34. UX Requirements
 
-**[CROSS-REFERENCE]** Full requirement set: [`./phase7-elicitation.md` §9 UX-REQ](./phase7-elicitation.md#9-ux-req--high-level-ux-principles) (UX-REQ-001 through 004) — deliberately small; full UX journeys, visual design, and usability validation are Phase 12's job, not duplicated here. Summary table:
+**[CROSS-REFERENCE]** Full requirement set: [`./phase7-elicitation.md` §9 UX-REQ](./phase7-elicitation.md#9-ux-req-high-level-ux-principles) (UX-REQ-001 through 004) — deliberately small; full UX journeys, visual design, and usability validation are Phase 12's job, not duplicated here. Summary table:
 
 | ID | Title | Priority |
 |---|---|---|
@@ -579,7 +579,7 @@ Both are explicitly V2/Future-timed in §49; WKFL-REQ-001's substrate (Action-co
 
 ## 35. Security Requirements
 
-**[CROSS-REFERENCE]** Full requirement set: [`./phase7-elicitation.md` §7 SEC-REQ](./phase7-elicitation.md#7-sec-req--security) (SEC-REQ-001 through 007). Summary table:
+**[CROSS-REFERENCE]** Full requirement set: [`./phase7-elicitation.md` §7 SEC-REQ](./phase7-elicitation.md#7-sec-req-security) (SEC-REQ-001 through 007). Summary table:
 
 | ID | Title | Priority |
 |---|---|---|
@@ -591,21 +591,21 @@ Both are explicitly V2/Future-timed in §49; WKFL-REQ-001's substrate (Action-co
 | SEC-REQ-006 | Signed, non-repudiable Event authorship | P2 |
 | SEC-REQ-007 | Compliance-scoped Event export | P2 |
 
-**[NEW SYNTHESIS, Phase 14]** — `[PROPOSAL]`, SEC-REQ-008 through 010, added per `phase14-ipa-compliance-review.md`'s disposition of findings F14-3, F14-4, F14-9 (Accepted-and-fixed) against IPA's 非機能要求グレード セキュリティ category, whose sub-items (ネットワーク対策/network countermeasures, セキュリティリスク管理/ongoing security risk management, データの秘匿/data confidentiality) were found to have no dedicated requirement in the Baseline v1.0 SEC-REQ/AISEC-REQ set.
+**[NEW SYNTHESIS, Phase 14]** — `[PROPOSAL]`, SEC-REQ-008 through 010, added per `phase14-ipa-compliance-review.md`'s disposition of findings F14-3, F14-4, F14-9 (Accepted-and-fixed) against IPA's 非功能要求等级 安全 category, whose sub-items (网络对策/network countermeasures, 安全风险管理/ongoing security risk management, 数据保密/data confidentiality) were found to have no dedicated requirement in the Baseline v1.0 SEC-REQ/AISEC-REQ set.
 
 **SEC-REQ-008 — Network-layer security controls**
 Description: All network transport between platform components (Platform process, database, agent/CI sandboxes, and any client) MUST be encrypted (TLS or equivalent) by default, including internal service-to-service and LAN-scoped multi-user traffic (OPS-REQ-003); the platform MUST support network segmentation isolating agent/CI execution sandboxes (AGT-REQ-005) from the Platform process's own management network path, and MUST NOT expose the graph database or Git object store directly to any network the deployment operator has not explicitly configured as trusted.
-Rationale: Closes `phase14-ipa-compliance-review.md` finding F14-3 — IPA's ネットワーク対策 sub-item is not addressed anywhere in the existing SEC-REQ/AISEC-REQ set, which covers process-level and application-level isolation (AGT-REQ-005, AISEC-REQ-008) but not network-layer controls specifically.
+Rationale: Closes `phase14-ipa-compliance-review.md` finding F14-3 — IPA's 网络对策 sub-item is not addressed anywhere in the existing SEC-REQ/AISEC-REQ set, which covers process-level and application-level isolation (AGT-REQ-005, AISEC-REQ-008) but not network-layer controls specifically.
 Priority: P1. Source: `phase14-ipa-compliance-review.md` F14-3. Dependencies: AGT-REQ-005, OPS-REQ-003, AISEC-REQ-008. Acceptance Criteria: a network capture of internal Platform-process-to-database traffic during a standard operation (e.g., a graph query) shows encrypted transport, verified in a test/staging deployment; an attempt to reach the graph database's listening port from within an agent sandbox's network namespace fails, verified by a negative test. Timing: **V1** (extends the existing isolation model rather than being load-bearing for the MVP reference loop; MVP already runs single-machine/LAN-scoped per OPS-REQ-001/003, where the attack surface this closes is smaller). Evidence: `[PROPOSAL]`.
 
 **SEC-REQ-009 — Ongoing security risk management process**
 Description: The platform's engineering process MUST include a recurring (not point-in-time-only) security risk management practice: dependency-vulnerability scanning on a defined cadence, a documented patch-latency commitment for Critical/High-severity vulnerabilities in platform dependencies, and a periodic (at minimum, per-major-release) internal security review — distinct from, and in addition to, AISEC-REQ-009(b)'s one-time internal privilege-separation review, which addresses only the credential-issuance/Policy-evaluation code paths, not the platform's dependency surface or general threat landscape over time.
-Rationale: Closes `phase14-ipa-compliance-review.md` finding F14-4 — IPA's セキュリティリスク管理 sub-item is explicitly a recurring-process expectation, not a single control; every existing SEC-REQ/AISEC-REQ item is a point-in-time behavioral control (access control, audit, secret handling), and AISEC-REQ-009(b) is the closest analog but is scoped to one architectural review, not an ongoing program.
+Rationale: Closes `phase14-ipa-compliance-review.md` finding F14-4 — IPA's 安全风险管理 sub-item is explicitly a recurring-process expectation, not a single control; every existing SEC-REQ/AISEC-REQ item is a point-in-time behavioral control (access control, audit, secret handling), and AISEC-REQ-009(b) is the closest analog but is scoped to one architectural review, not an ongoing program.
 Priority: P1. Source: `phase14-ipa-compliance-review.md` F14-4. Dependencies: AISEC-REQ-009. Acceptance Criteria: a documented dependency-scanning cadence and patch-latency SLA exist and are followed for at least one full release cycle before V1 ships, verified by an audit of scan-to-patch timestamps against the stated SLA. Specific cadence/SLA figures: `[TBD] – Product/Security-leadership decision required`, per this program's discipline against inventing numbers without a benchmarking or leadership basis. Timing: **V1**. Evidence: `[PROPOSAL]`.
 
 **SEC-REQ-010 — At-rest and in-transit encryption of graph and Git object stores**
 Description: The graph store (Node/Edge/Event/Policy data) and the Git object store MUST support encryption at rest (e.g., filesystem- or database-level encryption) for both self-hosted and cloud deployment modes, in addition to SEC-REQ-005's secret-value-specific isolation and SEC-REQ-008's transport-layer encryption — this closes the gap between "secrets are isolated from graph queries" (SEC-REQ-005, narrow) and "the entire store is encrypted at rest" (this requirement, general).
-Rationale: Closes `phase14-ipa-compliance-review.md` finding F14-9 — IPA's データの秘匿 sub-item is only partially addressed by SEC-REQ-005 (which covers secret *values* specifically); general at-rest encryption of the full graph/Git stores is unaddressed.
+Rationale: Closes `phase14-ipa-compliance-review.md` finding F14-9 — IPA's 数据保密 sub-item is only partially addressed by SEC-REQ-005 (which covers secret *values* specifically); general at-rest encryption of the full graph/Git stores is unaddressed.
 Priority: P1. Source: `phase14-ipa-compliance-review.md` F14-9. Dependencies: SEC-REQ-005, OPS-REQ-001, CLOUD-REQ-001. Acceptance Criteria: a self-hosted deployment's documentation states the supported at-rest encryption mechanism and how an operator enables it; a cloud deployment enables at-rest encryption by default with no operator action required. Timing: **V1** (self-hosted MVP already benefits from whatever OS/filesystem-level encryption an operator independently configures; this requirement is about the platform documenting and, for cloud, defaulting to it — not a novel MVP-blocking mechanism). Evidence: `[PROPOSAL]`.
 
 ---
@@ -678,7 +678,7 @@ Priority: **P0**. Source: `phase11-red-team.md` RT-10, dispositioned in `phase13
 
 ## 39. Local Deployment Requirements
 
-**[CROSS-REFERENCE]** Full requirement set: [`./phase7-elicitation.md` §10 OPS-REQ](./phase7-elicitation.md#10-ops-req--local-first-deployment) (OPS-REQ-001 through 005). Summary table:
+**[CROSS-REFERENCE]** Full requirement set: [`./phase7-elicitation.md` §10 OPS-REQ](./phase7-elicitation.md#10-ops-req-local-first-deployment) (OPS-REQ-001 through 005). Summary table:
 
 | ID | Title | Priority |
 |---|---|---|
@@ -689,7 +689,7 @@ Priority: **P0**. Source: `phase11-red-team.md` RT-10, dispositioned in `phase13
 | OPS-REQ-005 | Resource footprint documented and bounded for small deployments | P1 |
 
 **NFR-REQ-003 — System Environment/Ecology minimum disclosure [NEW, Phase 14, disposition of F14-5 — Accepted-deferred (V1)]**
-Description: The platform's documentation MUST state (a) a supported operating-system/architecture/container-runtime matrix for self-hosted deployment, and (b) a decommissioning/data-disposal procedure (how an operator fully and verifiably removes all platform data, including Git objects and graph data, when retiring a deployment) — closing IPA's システム環境・エコロジー category, which `phase14-ipa-compliance-review.md` found to have essentially no prior coverage in OPS-REQ-001/003/005.
+Description: The platform's documentation MUST state (a) a supported operating-system/architecture/container-runtime matrix for self-hosted deployment, and (b) a decommissioning/data-disposal procedure (how an operator fully and verifiably removes all platform data, including Git objects and graph data, when retiring a deployment) — closing IPA's 系统環境/生态 category, which `phase14-ipa-compliance-review.md` found to have essentially no prior coverage in OPS-REQ-001/003/005.
 Rationale: `phase14-ipa-compliance-review.md` finding F14-5 assessed this category Low severity for an MVP small-team self-hosted product (not an enterprise/regulated-environment target where ecology/disposal compliance is typically load-bearing) — hence deferred rather than fixed at MVP — but flagged it as a genuine, total gap that should not remain permanently unaddressed.
 Priority: P2. Source: `phase14-ipa-compliance-review.md` F14-5. Dependencies: OPS-REQ-001, OPS-REQ-005, DATA-REQ-001 (export precedent for the disposal-procedure's "verifiably remove" half). Timing: **V1**. Evidence: `[PROPOSAL]`.
 
@@ -697,7 +697,7 @@ Priority: P2. Source: `phase14-ipa-compliance-review.md` F14-5. Dependencies: OP
 
 ## 40. Cloud Requirements
 
-**[CROSS-REFERENCE]** Full requirement set: [`./phase7-elicitation.md` §11 CLOUD-REQ](./phase7-elicitation.md#11-cloud-req--cloud-readiness) (CLOUD-REQ-001 through 004). Summary table:
+**[CROSS-REFERENCE]** Full requirement set: [`./phase7-elicitation.md` §11 CLOUD-REQ](./phase7-elicitation.md#11-cloud-req-cloud-readiness) (CLOUD-REQ-001 through 004). Summary table:
 
 | ID | Title | Priority |
 |---|---|---|
@@ -771,7 +771,7 @@ Most of this domain is correctly left `[TBD]`/Research Needed per the task's own
 No specific millisecond/throughput figures are stated anywhere in this document. Any number appearing to be a performance target elsewhere in this document (there should be none) should be treated as an error and reported.
 
 **NFR-REQ-002 — Performance/Scalability and Operability/Maintainability Grade-tier commitment [NEW, Phase 14, disposition of F14-2/F14-6 — Accepted-and-fixed/Accepted-deferred]**
-Description: Per `phase14-ipa-compliance-review.md`'s finding that IPA's 非機能要求グレード methodology expects a project to state a **provisional level/tier** for each non-functional category even before full benchmarking (rather than leaving the category wholly open), this document commits to the following provisional tiers for the categories §44's table otherwise leaves entirely `[TBD]`, without inventing the underlying numeric benchmarks themselves:
+Description: Per `phase14-ipa-compliance-review.md`'s finding that IPA's 非功能要求等级 methodology expects a project to state a **provisional level/tier** for each non-functional category even before full benchmarking (rather than leaving the category wholly open), this document commits to the following provisional tiers for the categories §44's table otherwise leaves entirely `[TBD]`, without inventing the underlying numeric benchmarks themselves:
 - **Performance/Scalability provisional tier `[PROPOSAL]`:** MVP targets "single small-team, single-machine deployment" as its performance envelope (consistent with OPS-REQ-003/005's existing scope framing) — i.e., the Grade-equivalent of a low-to-mid tier sized for tens, not thousands, of concurrent users. This is a scope commitment, not a benchmark; the actual figures remain `[TBD] – Benchmark Required` per §44, and CLOUD-REQ-003's higher-tier scale-out remains explicitly V1/V2, unaffected by this provisional MVP framing.
 - **Operability/Maintainability provisional tier `[PROPOSAL]`:** MVP commits to *documenting* (not yet meeting a numeric SLA for) a planned-maintenance-window policy and a patch-latency expectation for the platform's own releases (distinct from SEC-REQ-009's dependency-vulnerability patch cadence); the numeric commitment itself (window frequency/duration, patch-latency figure) is `[TBD] – Product decision required` and timed **V1**, alongside OBS-REQ-001–003 and GIT-REQ-011.
 Rationale: Without this, §44/§42's honest all-`[TBD]` framing (correct research discipline) reads, against the Grade methodology, as *no commitment at all* rather than *a deliberately provisional commitment with benchmarking pending* — the Grade's discipline is specifically to avoid a non-functional requirement being silently absent versus deliberately deferred.
@@ -796,7 +796,7 @@ Description: A cloud deployment configured for high availability MUST NOT have a
 Priority: P1. Source: [PROPOSAL], extends CLOUD-REQ-003. Dependencies: CLOUD-REQ-003. Evidence: `[PROPOSAL]`.
 
 **NFR-REQ-001 — Availability Grade tier: explicit MVP-era provisional level [NEW, Phase 14, disposition of F14-1/F14-2 — Accepted-and-fixed]**
-Description: Per `phase14-ipa-compliance-review.md`'s finding that REL-REQ-001/BKP-REQ-002 leave availability and RTO/RPO wholly `[TBD]` with no stated provisional level — a gap against IPA's 非機能要求グレード methodology, whose central discipline is to force an explicit level choice per category rather than leave it open pending a future benchmark — this document commits to the following provisional Grade-equivalent level for MVP/V1:
+Description: Per `phase14-ipa-compliance-review.md`'s finding that REL-REQ-001/BKP-REQ-002 leave availability and RTO/RPO wholly `[TBD]` with no stated provisional level — a gap against IPA's 非功能要求等级 methodology, whose central discipline is to force an explicit level choice per category rather than leave it open pending a future benchmark — this document commits to the following provisional Grade-equivalent level for MVP/V1:
 **Availability Level: `[PROPOSAL]` — MVP targets the low end of the Grade's typical range (Grade-equivalent "Level 2 of 5" in the commonly-cited 0–5 scale per `phase14-ipa-compliance-review.md` §1.1, `[UNVERIFIED-FACT]` on the exact scale semantics): planned maintenance windows are permitted and communicated in advance; no automatic multi-node failover is required at MVP (consistent with Phase 10's monolith-first, single-process architecture); a single-machine self-hosted deployment's availability is bounded by the operator's own hardware/network, not a platform-provided SLA. Cloud deployment's higher-tier target (closer to Level 3–4, informed by REL-REQ-003's no-single-point-of-failure requirement) remains explicitly V1, contingent on CLOUD-REQ-003's scale-out mechanism.**
 **Recovery tier: `[PROPOSAL]` — MVP targets a conservative provisional RPO/RTO framing ("last successful backup" RPO, "manual restore, no automatic failover" RTO) rather than a specific numeric figure, which remains `[TBD] – Benchmark Required` per BKP-REQ-002; this is a *tier commitment* (manual-restore tier vs. automated-failover tier), not a numeric SLA.**
 Rationale: This is tied directly to `phase9-mvp-reduction.md`'s MVP scope: Phase 9 already places OPS-REQ-004 (backup/restore) as "immediate V1," not MVP, and Phase 10 already commits to a monolith-first, single-process architecture for MVP — both decisions are incompatible with a *high* Grade Availability level (multi-node failover, automated recovery) at MVP by construction. Rather than leave the Availability category silently unaddressed by the Grade methodology's standard, this requirement makes explicit what the MVP scope decisions already imply: a deliberately low provisional tier, chosen for MVP-scope reasons already argued elsewhere in this program, not an arbitrary pick.
@@ -898,7 +898,7 @@ This is a careful, requirement-by-requirement assignment of **rollout timing** (
 **Revised MVP requirement count:** 45 (Phase 9 baseline) → 37 (Phase 9 revision) → 43 after Phase 13's additions (AISEC-REQ-009 [+1], AI-REQ-002's minimal slice [+0, same ID already partially MVP via the amendment rather than a new ID — counted as a scope amendment, not a new count], AI-REQ-005's architectural half [+0, same reasoning], UX-REQ-005 [+1], UX-REQ-007 [+1], A11Y-REQ-001 [+1], for a net **+4** new MVP-timed requirement IDs: AISEC-REQ-009, UX-REQ-005, UX-REQ-007, A11Y-REQ-001) → **45** after Phase 14's IPA-compliance additions (**NFR-REQ-001** and **NFR-REQ-002** [+2], both MVP-timed — see below). Full before/after table for the Phase 9 pass: `phase9-mvp-reduction.md` §5; the Phase 13 delta is recorded in `phase13-final-baseline.md` §3 (Changes After Review); the Phase 14 delta in `phase14-ipa-compliance-review.md` §4.
 
 **Phase 14 (IPA compliance) MVP-timed additions:**
-- **NFR-REQ-001** (§45 — Availability/recovery Grade-tier provisional level, F14-1/F14-2) — **MVP** (P1). The *tier statement itself* is MVP; the underlying numeric benchmark remains `[TBD] – Benchmark Required`. Added because IPA's 非機能要求グレード methodology treats "no stated level" as a distinct defect from "level stated, number pending" — this program previously had the former.
+- **NFR-REQ-001** (§45 — Availability/recovery Grade-tier provisional level, F14-1/F14-2) — **MVP** (P1). The *tier statement itself* is MVP; the underlying numeric benchmark remains `[TBD] – Benchmark Required`. Added because IPA's 非功能要求等级 methodology treats "no stated level" as a distinct defect from "level stated, number pending" — this program previously had the former.
 - **NFR-REQ-002** (§44 — Performance/Scalability and Operability/Maintainability provisional tiers, F14-2/F14-6) — **MVP** (P2) for the scope-commitment prose only; the numeric commitments remain V1/`[TBD]`.
 - *Phase 14's remaining four additions are V1-timed and do not affect the MVP count:* NFR-REQ-003 (§45, system-environment/disposal, P2), SEC-REQ-008 (§35, network-layer controls, P1), SEC-REQ-009 (§35, continuous security-risk management, P1), SEC-REQ-010 (§35, at-rest/in-transit encryption, P1).
 
@@ -1041,7 +1041,7 @@ Probability: Low. Impact: Critical (undermines Principle 5 Agent-Native and Prin
 
 **[SUPERSEDED, Phase 13; Phase 14 adds a further item]** — this section originally consolidated every `[TBD]` surfaced across Phases 1–8. As of Baseline v1.0, the authoritative, fully consolidated Open Questions list — merging this section, Phase 9/10/11/12's individual Open Questions, and every new item surfaced by Phase 13's finding-disposition work — lives in [`./phase13-final-baseline.md` §7](./phase13-final-baseline.md#7-master-open-questions-consolidation). The list below is retained verbatim for historical traceability (it reflects the state as of Phase 8) but is **no longer the list to consult** — several items below have since been resolved (see Phase 13 §1's disposition log) and are marked accordingly; treat `phase13-final-baseline.md` §7 as the single source of truth going forward.
 
-**Phase 14 addition (Needs-human-decision, not resolvable by editing this document):** `phase14-ipa-compliance-review.md` finding F14-7 — no human stakeholder sign-off step exists anywhere in the 13-phase program, a gap against IPA's 共通フレーム (Common Frame) 合意プロセス (Agreement Process) expectation. Recommendation: before any future v1.1/v2.0 baseline is declared, add an explicit "Baseline Human Sign-Off" checkpoint where a human with product/business accountability formally reviews and accepts the requirements set, distinct from merely commissioning or reading the work. Also see F14-8 (§52 Traceability Matrix's non-exhaustive coverage, Accepted-deferred to V1) in `phase14-ipa-compliance-review.md` §5.
+**Phase 14 addition (Needs-human-decision, not resolvable by editing this document):** `phase14-ipa-compliance-review.md` finding F14-7 — no human stakeholder sign-off step exists anywhere in the 13-phase program, a gap against IPA's 共通框架 (Common Frame) 合意过程 (Agreement Process) expectation. Recommendation: before any future v1.1/v2.0 baseline is declared, add an explicit "Baseline Human Sign-Off" checkpoint where a human with product/business accountability formally reviews and accepts the requirements set, distinct from merely commissioning or reading the work. Also see F14-8 (§52 Traceability Matrix's non-exhaustive coverage, Accepted-deferred to V1) in `phase14-ipa-compliance-review.md` §5.
 
 ### Research Needed
 - Gerrit's review-centric model, Argo CD/Workflows' deployment/rollback state machine, and CodeQL/Sentry's policy/incident precedents remain unresearched (Phase 3 O13, carried through Phase 6 and Phase 7); directly affects CI-REQ-006's rollback acceptance criteria and should be resolved before Phase 8's schemas are treated as final at the field level. *(phase1-5-research.md, phase6-primitives.md §7, phase7-elicitation.md §14)*
