@@ -1,0 +1,181 @@
+# GitGit Platform — 配置示例
+# 详细设计：§08-api-handlers.md + tech-selection.md §12 (figment)
+# 加载顺序 (优先级由低到高)：
+#   1. 内置默认值 (Rust 代码)
+#   2. /etc/gitgit/config.toml
+#   3. $XDG_CONFIG_HOME/gitgit/config.toml
+#   4. ./config.toml
+#   5. 环境变量 (GITGIT__SECTION__KEY)
+#   6. --config CLI 参数
+
+[server]
+# 平台 HTTP 监听
+http_addr = "0.0.0.0:3000"
+# Admin 独立子进程 (SEC-REQ-011 鉴权域分离)
+admin_http_addr = "0.0.0.0:3001"
+# gRPC 内部通信
+grpc_addr = "0.0.0.0:50051"
+# shutdown 超时
+shutdown_timeout_sec = 30
+# graceful drain
+drain_timeout_sec = 60
+# body 大小限制
+max_body_size = "16MiB"
+# 速率限制
+rate_limit_per_sec = 100
+rate_limit_burst = 200
+
+[database]
+# 主库
+url = "postgres://gitgit_app:secret@localhost:5432/gitgit"
+# 读副本
+read_url = "postgres://gitgit_app:secret@localhost:5433/gitgit"
+max_connections = 32
+min_connections = 4
+acquire_timeout_sec = 5
+# sqlx offline 模式
+sqlx_offline = false
+
+[secrets]
+# KEK 加载方式
+# 'file' = 本地 file (MVP)
+# 'vault' = HashiCorp Vault (V1+)
+# 'aws_kms' = AWS KMS (Cloud)
+kek_backend = "file"
+# file 模式下的 master key 路径
+master_key_path = "/var/lib/gitgit/master.key"
+# Vault 模式
+vault_url = "https://vault.example.com"
+vault_token_path = "/var/lib/gitgit/vault.token"
+vault_transit_path = "transit/keys/gitgit"
+# envelope 加密算法
+encryption_algorithm = "chacha20poly1305"
+# KEK 轮换周期 (天)
+kek_rotation_days = 90
+
+[git]
+# Git 仓库存储路径
+storage_path = "/var/lib/gitgit/repos"
+# 临时工作区路径
+workspace_path = "/var/lib/gitgit/workspaces"
+# 钩子超时 (秒)
+hook_timeout_sec = 30
+# LFS 对象存储
+lfs_storage_path = "/var/lib/gitgit/lfs"
+# 对象格式 (sha1 | sha256)
+object_format = "sha1"
+# 写路径：shell git 调用
+git_binary = "/usr/bin/git"
+
+[ai]
+# 默认 provider
+default_provider = "openai"
+# Provider 列表
+[ai.providers.openai]
+api_key_env = "OPENAI_API_KEY"
+base_url = "https://api.openai.com/v1"
+default_model = "gpt-5"
+
+[ai.providers.anthropic]
+api_key_env = "ANTHROPIC_API_KEY"
+base_url = "https://api.anthropic.com"
+default_model = "claude-sonnet-4"
+
+[ai.providers.local]
+# 本地 vLLM / ollama
+base_url = "http://localhost:8000/v1"
+default_model = "qwen2.5-72b"
+# 提示词清洗
+prompt_scrub_redact_patterns = ["sk-[A-Za-z0-9]{20,}", "ghp_[A-Za-z0-9]{20,}"]
+# Token 缓存
+cache_max_entries = 10000
+cache_ttl_sec = 3600
+
+[agent]
+# 默认 Agent 类型
+default_type = "claude_code"
+# 工作区隔离 (MNT namespace)
+workspace_isolation = true
+# 资源限制
+max_cpu_cores = 2.0
+max_memory_mb = 4096
+max_disk_mb = 10240
+# 网络隔离 (Network namespace)
+network_isolation = true
+# 凭证 TTL (秒)
+credential_ttl_sec = 3600
+# 人类批准门 (AGT-REQ-002)
+human_approval_required = true
+human_approval_timeout_sec = 86400
+
+[app]
+# App 沙箱 DB role 模板 (AISEC-REQ-013)
+db_role_template = "app_{app_id}_role"
+# 中心事件总线
+event_bus_listen_channels = ["event_stream"]
+# App 健康心跳
+heartbeat_interval_sec = 5
+heartbeat_stale_threshold_sec = 30
+heartbeat_failed_threshold_sec = 90
+# 升级策略
+upgrade_default_strategy = "rolling"
+
+[observability]
+# tracing
+tracing_endpoint = "http://localhost:4317"            # OTLP gRPC
+tracing_sample_ratio = 0.1
+tracing_service_name = "gitgit"
+# Prometheus
+prometheus_addr = "0.0.0.0:9090"
+# 日志
+log_level = "info"
+log_format = "json"                                    # 'json' | 'pretty'
+# 日志 redact
+log_redact_fields = ["password", "secret", "token", "authorization", "api_key"]
+
+[auth]
+# JWT
+jwt_issuer = "gitgit"
+jwt_audience = "gitgit-api"
+jwt_access_token_ttl_sec = 3600
+jwt_refresh_token_ttl_sec = 2592000
+jwt_algorithm = "ed25519"
+# 私钥路径
+jwt_signing_key_path = "/var/lib/gitgit/jwt.key"
+# Argon2 参数
+argon2_memory_kb = 65536
+argon2_iterations = 3
+argon2_parallelism = 4
+# WebAuthn
+webauthn_rp_id = "gitgit.example.com"
+webauthn_rp_name = "GitGit"
+webauthn_origin = "https://gitgit.example.com"
+
+[policy]
+# 策略决策 TTL
+decision_cache_ttl_sec = 60
+decision_cache_max_entries = 10000
+# ABAC 属性源
+abac_attribute_sources = ["user", "agent", "resource", "environment", "context"]
+
+[backup]
+# 备份目录
+backup_path = "/var/lib/gitgit/backups"
+# PITR
+pitr_enabled = true
+# 调度
+schedule_full = "0 2 * * *"           # 每天 02:00
+schedule_incremental = "*/30 * * * *"  # 每 30 分钟
+# 保留
+retention_days = 30
+# 上传到 S3
+s3_bucket = ""
+s3_region = ""
+
+[network]
+# mTLS
+mtls_enabled = false
+# NetworkPolicy (K8s)
+network_policy_default_deny = true
+# 内部服务间 TLS
+internal_tls = true

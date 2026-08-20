@@ -1,0 +1,28 @@
+[package]
+name = "gitgit-app"
+description = "App Registry + Plugin Loader + 中心事件总线。详细设计 §12-app-registry-and-plugin-loader.md"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+    serde = { workspace = true }
+    sqlx = { workspace = true }
+    tokio = { workspace = true }
+    gitgit-core = { workspace = true }
+    gitgit-errors = { workspace = true }
+    gitgit-observability = { workspace = true }
+    rmcp = { workspace = true }
+
+[dev-dependencies]
+gitgit-errors = { workspace = true }
+mockall = { workspace = true }
+proptest = { workspace = true }
+tokio = { workspace = true, features = ["test-util"] }

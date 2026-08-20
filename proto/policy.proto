@@ -1,0 +1,38 @@
+syntax = "proto3";
+package gitgit.policy.v1;
+
+// 策略评估服务
+service PolicyService {
+  rpc Evaluate(EvaluateRequest) returns (EvaluateResponse);
+  rpc ListPolicies(ListPoliciesRequest) returns (ListPoliciesResponse);
+}
+
+message PolicyInput {
+  string subject_id = 1;
+  string subject_type = 2;             // 'user' | 'agent' | 'service'
+  string action = 3;                   // 'repo.write'
+  string resource_type = 4;            // 'repository'
+  string resource_id = 5;
+  map<string, string> context = 6;     // ABAC 属性
+}
+
+message EvaluateRequest { PolicyInput input = 1; }
+message EvaluateResponse {
+  bool allowed = 1;
+  string reason = 2;
+  repeated string matched_policies = 3;
+}
+
+message ListPoliciesRequest {
+  string type = 1;
+  int32 limit = 2;
+}
+message Policy {
+  string id = 1;
+  string name = 2;
+  string type = 3;
+  bytes rules = 4;                     // JSON
+  int32 priority = 5;
+  bool enabled = 6;
+}
+message ListPoliciesResponse { repeated Policy policies = 1; }

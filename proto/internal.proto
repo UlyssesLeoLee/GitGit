@@ -1,0 +1,23 @@
+syntax = "proto3";
+package gitgit.internal.v1;
+
+// 内部 service-to-service 通信 (平台进程 <-> admin 进程)
+service InternalService {
+  rpc Health(HealthRequest) returns (HealthResponse);
+  rpc WhoAmI(WhoAmIRequest) returns (WhoAmIResponse);
+}
+
+message HealthRequest {}
+message HealthResponse {
+  string status = 1;                   // 'healthy' | 'degraded' | 'unhealthy'
+  int64 uptime_sec = 2;
+  int64 db_lag_ms = 3;
+}
+
+message WhoAmIRequest { string token = 1; }
+message WhoAmIResponse {
+  string subject_id = 1;
+  string subject_type = 2;             // 'user' | 'agent' | 'admin'
+  string tenant_id = 3;
+  repeated string roles = 4;
+}

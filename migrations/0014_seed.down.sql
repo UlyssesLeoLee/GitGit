@@ -1,0 +1,1 @@
+DELETE FROM permissions WHERE action IN ('repo.read','repo.write','repo.admin','graph.read','graph.write','agent.run','agent.approve','admin.app.install','admin.user.manage');

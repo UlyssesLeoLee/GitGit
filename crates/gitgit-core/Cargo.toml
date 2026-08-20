@@ -1,0 +1,29 @@
+[package]
+name = "gitgit-core"
+description = "核心领域类型：Node / Edge / Event / Policy / View 5 原语。详细设计 §01-data-layer §02-graph-engine"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+    serde = { workspace = true }
+    sqlx = { workspace = true }
+    uuid = { workspace = true }
+    chrono = { workspace = true }
+    thiserror = { workspace = true }
+    gitgit-errors = { workspace = true }
+    gitgit-observability = { workspace = true }
+    parking_lot = { workspace = true }
+
+[dev-dependencies]
+gitgit-errors = { workspace = true }
+mockall = { workspace = true }
+proptest = { workspace = true }
+tokio = { workspace = true, features = ["test-util"] }

@@ -1,0 +1,30 @@
+[package]
+name = "gitgit-ai"
+description = "AI 网关：多 provider 抽象、提示词清洗、缓存。详细设计 §05-ai-gateway.md"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+    reqwest = { workspace = true }
+    serde = { workspace = true }
+    tokio = { workspace = true }
+    rmcp = { workspace = true }
+    gitgit-core = { workspace = true }
+    gitgit-errors = { workspace = true }
+    gitgit-observability = { workspace = true }
+    rustCrypto = { workspace = true }
+    chacha20poly1305 = { workspace = true }
+
+[dev-dependencies]
+gitgit-errors = { workspace = true }
+mockall = { workspace = true }
+proptest = { workspace = true }
+tokio = { workspace = true, features = ["test-util"] }
