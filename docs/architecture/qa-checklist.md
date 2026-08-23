@@ -92,11 +92,12 @@
 | 字段 | 内容 |
 |---|---|
 | **影响范围** | Phase 16 启动时多出"库选型 / 部署模式"等决策点 |
-| **当前状态** | [tech-selection.md §18](../architecture/tech-selection.md#18-后续-adr-引用-future-adrs) 列出 8 个待写 ADR（gix 读路径边界 / OCI 容器标准 / WebAuthn 凭证库 / SIEM 适配器 / OTel Collector 部署 / Vault 集成 / OCI Plugin 包格式 / 7 等）|
-| **后果（不解决）** | 实施时临时决策，文档不一致；后期追溯困难 |
-| **缓解措施** | Phase 16 启动前**至少完成 ADR-002 (gix 读路径边界) 与 ADR-003 (OCI 容器标准)**；其余 6 个可推迟到对应功能实现前 1 周 |
-| **建议决策人** | 工程负责人 |
-| **状态** | 🟡 待 Phase 16 启动前 1 周 |
+| **当前状态 (2026-08-23)** | **8/8 已落地** — [ADR-0012 ~ 0019](../architecture/decisions/README.md) 全部完成,均为 **Proposed** 状态,等待 SA + TL + EM 签核后转 Accepted。详见 [tech-selection.md §18 更新](../architecture/tech-selection.md#18-后续-adr-引用-future-adrs)。 |
+| **后果（不解决）** | 实施时临时决策，文档不一致；后期追溯困难。**当前已解除**——8/8 文档就绪,仅剩签核流程。 |
+| **缓解措施 (历史)** | Phase 16 启动前**至少完成 ADR-002 (gix 读路径边界) 与 ADR-003 (OCI 容器标准)**；其余 6 个可推迟到对应功能实现前 1 周。**已超额完成**——8 个全写。 |
+| **下一步** | (1) SA + TL + EM 三方会签 8 份 ADR → 状态 `Proposed` → `Accepted`;(2) 修复 [tech-selection.md §18](../architecture/tech-selection.md#18-后续-adr-引用-future-adrs) 旧编号引用(002-008 → 0012-0018),已在本次 commit 一并处理。 |
+| **建议决策人** | 工程负责人 (发起) + SA + TL + EM (签核) |
+| **状态** | 🟢 **已落地 8/8, 待签核** (2026-08-23) |
 
 ---
 

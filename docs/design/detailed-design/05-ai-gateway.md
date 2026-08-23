@@ -356,15 +356,24 @@ type Router struct {
     policy    *policy.Engine
 }
 
-func (r *Router) Route(model string) (Provider, error) {
+func (r *Router) Route(model string, sensitivity string) (Provider, error) {
     // 1. 找支持此 model 的 provider
     candidates := r.providers.ForModel(model)
     if len(candidates) == 0 { return nil, ErrNoProvider }
 
-    // 2. 选成本/性能/位置最优者
-    best := candidates[0]  // [TBD] 实际选优逻辑
+    // 2. V1 选优规则（按顺序短路,见下表):
+    //   a) sensitivity == "high" → 强制本地 (Ollama / air-gapped provider)
+    //   b) sensitivity == "medium" → policy.AllowExternal(model) ? cheapest-external : local
+    //   c) sensitivity == "low" → 最低价 (cents/1k-tokens 优先, 其次 P50 latency)
+    best := pickBest(candidates, sensitivity, r.policy)
     return best, nil
 }
+
+// pickBest 实现见 AI-REQ-003 路由策略:
+//   - high:   filter(localOnly) → candidates[0]; 否则返回 ErrNoLocalProvider
+//   - medium: filter(policyAllow) → sortByCost → [0]
+//   - low:    filter(policyAllow) → sortByCost(asc),tie-break by p50latency → [0]
+// MVP 阶段 sensitivity 参数恒为 "low" + provider 注册表仅 1 项,实际为 candidates[0] 兜底。
 ```
 
 **V1 路由策略 (Phase 9 §2 确认 MVP 用单 provider 后):**

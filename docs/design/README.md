@@ -1,5 +1,7 @@
 # docs/design/ — 设计文档
 
+> **⚠️ F14-7 签核状态 (2026-08-23):** 本目录全部文档处于 **AI 起草 + 未人类签核** 状态。详细缺口说明与缓解方案见 [docs/process/F14-7-signoff-gap.md](../process/F14-7-signoff-gap.md)。Phase 16 (实施) 启动前必须由 PO + EM + SEC 三方至少完成 v1.0 的追溯性签核。
+
 设计阶段的产出目录。
 
 ## 目录结构 / Directory Layout

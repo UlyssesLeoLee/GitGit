@@ -23,6 +23,16 @@
 | [0007](0007-密钥管理用-Vault---KMS（不在-DB-直接存明文）.md) | 密钥管理用 Vault / KMS（不在 DB 直接存明文） | Accepted | 2026-08-19 |
 | [0008](0008-Plugin---App-Manifest-Schema-(app.yaml)-与版本兼容策略.md) | Plugin / App Manifest Schema (app.yaml) 与版本兼容策略 | Accepted | 2026-08-19 |
 | [0009](0009-SIEM-适配策略（wal2json-→-Kafka---Vector---直接-webhook）.md) | SIEM 适配策略（wal2json → Kafka / Vector / 直接 webhook） | Accepted | 2026-08-19 |
+| [0010](0010-app-sandbox-wasm-wasi.md) | App 沙箱采用 Wasm + WASI | Accepted | 2026-08-20 |
+| [0011](0011-observability-platform.md) | 可观测性平台采用 OpenTelemetry + Prometheus + Loki + Tempo + Grafana | Accepted | 2026-08-20 |
+| [0012](0012-gix-read-path-module-boundary.md) | gix 读路径与 shell `git` 写路径的模块边界 | Proposed | 2026-08-23 |
+| [0013](0013-OCI-container-standard-vs-Docker-only.md) | Agent Workspace 容器标准 — OCI / containerd vs Docker-only | Proposed | 2026-08-23 |
+| [0014](0014-WebAuthn-credential-library-selection.md) | WebAuthn 凭证库选型（V1+ Cloud Admin 双因素）| Proposed | 2026-08-23 |
+| [0015](0015-SIEM-adapter-selection.md) | SIEM 适配器（admin_audit / events 转发）| Proposed | 2026-08-23 |
+| [0016](0016-OTel-Collector-deployment-mode.md) | OpenTelemetry Collector 部署模式 | Proposed | 2026-08-23 |
+| [0017](0017-HashiCorp-Vault-integration.md) | HashiCorp Vault 集成细节（MVP 本地文件 / V1+ Vault KV v2）| Proposed | 2026-08-23 |
+| [0018](0018-OCI-Plugin-package-format.md) | OCI Plugin 包格式（App / Plugin Image Manifest schema）| Proposed | 2026-08-23 |
+| [0019](0019-ADR-batch-0012-0018-体系化收尾.md) | ADR 编号体系化收尾（0012-0018 批次）| Proposed | 2026-08-23 |
 
 ## 流程
 

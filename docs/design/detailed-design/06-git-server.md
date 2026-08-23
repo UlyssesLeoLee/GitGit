@@ -356,13 +356,22 @@ func (a *HTTPAuth) Authenticate(r *http.Request) (Actor, error) {
 }
 ```
 
-### 6.9.2 SSH (V1)
+### 6.9.2 SSH (V1) — ADR-0014 待决议
 
-**[TBD]** 完整 SSH 实现涉及：
-- host key 管理
-- authorized_keys 解析
-- git 协议 subsystem dispatch
-- 公钥 vs 密码的双因子
+> **状态：** V1 之前不实现。MVP 阶段仅支持 HTTP/HTTPS 推送（详设 §6.9.1）。
+> 实施前需要先就凭证存储 / 双因素 / host key 治理做决策，对应 [ADR-0014: WebAuthn 凭证库选型(V1+ Cloud Admin 双因素)](../../architecture/decisions/0014-WebAuthn-credential-library-selection.md)。
+
+完整 SSH 实现涉及（**V1 实施前必须先解决的子项**）：
+
+| 子项 | 决策 | 关联 |
+|---|---|---|
+| host key 管理 | Ed25519 + 90 天轮换；KV 存储于 Vault（V1+）| ADR-0017 |
+| authorized_keys 解析 | 复用 §6.9.1 的 Ed25519 公钥表 + 仓库 ACL 联合校验 | §6.9.1 |
+| git 协议 subsystem dispatch | 直接转发到平台 `git-receive-pack` / `git-upload-pack` 进程 | §6.1 |
+| 双因素认证 | TOTP 二次校验；密钥+OTP 组合 | ADR-0014 |
+| 防 brute force | 失败 5 次锁定 15 分钟，per-IP + per-user | §7.3 |
+
+**[V1+ 推迟原因]** MVP 是 Local-First 单进程 + CLI/HTTP；Cloud 化时 Admin 远程访问场景才需要 SSH。V0.x 阶段评估 SSH 实施 ROI 低。
 
 ## 6.10 LFS 支持 (V1)
 

@@ -553,17 +553,20 @@ POST /mcp/v1/rpc
 
 ## 18. 后续 ADR 引用 / Future ADRs
 
-本 ADR 拍板主语言后，以下子决策仍需后续 ADR：
+> **更新 (2026-08-23):** 以下子决策已落地为 [ADR-0012 ~ 0019](../decisions/README.md)，状态均为 **Proposed**，等待 SA + TL + EM 签核后转 Accepted。原 §18 编号 `ADR-002 ~ ADR-008` 存在与 [decisions/0002 ~ 0008](../decisions/) 编号冲突，已统一改为 `0012+`。详见 [ADR-0019: ADR 编号体系化收尾](../decisions/0019-ADR-batch-0012-0018-体系化收尾.md)。
+>
+> **附记:** [ADR-0010 (App 沙箱 Wasm+WASI)](../decisions/0010-app-sandbox-wasm-wasi.md) 与 [ADR-0011 (可观测性平台 OTel+Prometheus+Loki+Temp+Grafana)](../decisions/0011-observability-platform.md) 为已存在的 Accepted ADR (2026-08-20)，未被 §18 显式引用，但已并入目录。
 
-| ADR # | 主题 | 关联文档 |
-|---|---|---|
-| ADR-002 | gix 读路径具体模块边界 | phase10-architecture.md §7 项 12 |
-| ADR-003 | OCI 容器标准 vs Docker-only | basic-design/05-interface-design.md |
-| ADR-004 | WebAuthn 凭证库选型（V1+ Cloud Admin 双因素）| basic-design/14-admin-ops-ui.md §14.3.3 |
-| ADR-005 | SIEM 适配器（Splunk / ELK / Datadog）| basic-design/14-admin-ops-ui.md §14.2.5 |
-| ADR-006 | OTel Collector 部署模式（Sidecar vs DaemonSet vs Gateway）| detailed-design/10-observability.md |
-| ADR-007 | HashiCorp Vault 集成细节 | basic-design/07-security-design.md §7.5 |
-| ADR-008 | OCI Plugin 包格式（Image Manifest schema）| basic-design/13-app-cluster-and-plugins.md §13.2 |
+| ADR # | 主题 | 关联文档 | 状态 |
+|---|---|---|---|
+| [ADR-0012](../decisions/0012-gix-read-path-module-boundary.md) | gix 读路径与 shell `git` 写路径的模块边界 | phase10-architecture.md §7 项 12 | Proposed 2026-08-23 |
+| [ADR-0013](../decisions/0013-OCI-container-standard-vs-Docker-only.md) | OCI 容器标准 vs Docker-only (containerd + runc) | basic-design/05-interface-design.md | Proposed 2026-08-23 |
+| [ADR-0014](../decisions/0014-WebAuthn-credential-library-selection.md) | WebAuthn 凭证库选型（V1+ Cloud Admin 双因素）| basic-design/14-admin-ops-ui.md §14.3.3 | Proposed 2026-08-23 |
+| [ADR-0015](../decisions/0015-SIEM-adapter-selection.md) | SIEM 适配器（Splunk / ELK / Datadog）| basic-design/14-admin-ops-ui.md §14.2.5 | Proposed 2026-08-23 |
+| [ADR-0016](../decisions/0016-OTel-Collector-deployment-mode.md) | OTel Collector 部署模式（Sidecar vs DaemonSet vs Gateway）| detailed-design/10-observability.md | Proposed 2026-08-23 |
+| [ADR-0017](../decisions/0017-HashiCorp-Vault-integration.md) | HashiCorp Vault 集成细节（MVP 本地文件 / V1+ Vault KV v2）| basic-design/07-security-design.md §7.5 | Proposed 2026-08-23 |
+| [ADR-0018](../decisions/0018-OCI-Plugin-package-format.md) | OCI Plugin 包格式（App / Plugin Image Manifest schema）| basic-design/13-app-cluster-and-plugins.md §13.2 | Proposed 2026-08-23 |
+| [ADR-0019](../decisions/0019-ADR-batch-0012-0018-体系化收尾.md) | ADR 编号体系化收尾（元决策）| — | Proposed 2026-08-23 |
 
 ---
 

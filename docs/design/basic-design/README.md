@@ -1,5 +1,7 @@
 ﻿# 基本设计书 — AI-Native Engineering Platform
 
+> **⚠️ F14-7 签核状态 (2026-08-23):** 本书处于 **AI 起草 + 未人类签核** 状态。缺口与关闭路径见 [F14-7-signoff-gap.md](../../process/F14-7-signoff-gap.md)。Phase 16 实施启动前需 PO + EM + SEC 三方追溯性签核。
+
 > **AI-Native Engineering Platform — Basic Design Document (基本设计书)**
 >
 > **依据框架 / Framework Compliance:** 严格按照 **IPA 共通框架 2013**（独立行政法人情报处理推进机构 / Information-technology Promotion Agency 发布的系统生命周期通用框架）编写。采用 IPA/SEC《非功能要求等级 (2018 改订版)》的 6 大项分类，并整合 Phase 14 IPA 标准差距分析 (F14-1〜F14-9) 的 Accepted-and-fixed 反映。**全部章节使用中文书写**。

@@ -1,5 +1,7 @@
 # 详细设计书 — AI-Native Engineering Platform
 
+> **⚠️ F14-7 签核状态 (2026-08-23):** 本书处于 **AI 起草 + 未人类签核** 状态。缺口与关闭路径见 [F14-7-signoff-gap.md](../../process/F14-7-signoff-gap.md)。Phase 16 实施启动前需 TL + SA + EM 三方追溯性签核；其中安全相关实现（详设 §09 / §12-13）需 SEC 联签。
+
 > **AI-Native Engineering Platform — Detailed Design Document (详细设计书 / 内部设计)**
 >
 > **依据 / Reference:** IPA 通用框架 2013 "系统详细设计"流程交付物。本书直接消费 [`../basic-design/`](../basic-design/) 的所有决定，把它们细化为可实现的规格。
