@@ -1,0 +1,207 @@
+# 数据库告警规则
+# 关联: docs/observability/08-alert-design.md §5.2 / 05-database
+
+groups:
+  - name: database-alerts
+    interval: 30s
+    rules:
+      # ===== PG 基础 =====
+      - alert: PostgresDown
+        expr: pg_up{instance=~"pg-primary.*"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          domain: database
+          team: sre-db
+        annotations:
+          summary: "PostgreSQL 主库 down"
+          impact: "所有写操作失败"
+          runbook: |
+            1. 检查 PG 进程
+            2. 查看 PG 日志
+            3. 触发 failover
+
+      - alert: PostgresReplicationLag
+        expr: pg_replication_lag_seconds > 30
+        for: 5m
+        labels:
+          severity: warning
+          domain: database
+          team: sre-db
+        annotations:
+          summary: "PG 副本 {{ $labels.instance }} 延迟 {{ $value }}s"
+
+      - alert: PostgresLongTransaction
+        expr: |
+          max by (datname) (pg_stat_activity_max_tx_duration_seconds) > 300
+        for: 2m
+        labels:
+          severity: warning
+          domain: database
+          team: sre-db
+        annotations:
+          summary: "{{ $labels.datname }} 长事务 {{ $value }}s"
+          runbook: |
+            SELECT pid, query FROM pg_stat_activity WHERE xact_start < now() - interval '5 min';
+
+      - alert: PostgresDeadlocks
+        expr: |
+          rate(pg_stat_database_deadlocks[5m]) > 0
+        for: 5m
+        labels:
+          severity: warning
+          domain: database
+          team: sre-db
+        annotations:
+          summary: "PG 死锁速率 {{ $value }}/s"
+
+      # ===== 缓存 / I/O =====
+      - alert: PostgresCacheHitRatioLow
+        expr: |
+          avg by (datname) (pg_cache_hit_ratio) < 0.90
+        for: 10m
+        labels:
+          severity: warning
+          domain: database
+          team: sre-db
+        annotations:
+          summary: "{{ $labels.datname }} 缓存命中率 {{ printf \"%.2f\" $value }}"
+
+      - alert: PostgresTempFilesHigh
+        expr: |
+          rate(pg_stat_database_temp_bytes[5m]) > 10 * 1024 * 1024
+        for: 10m
+        labels:
+          severity: warning
+          domain: database
+          team: sre-db
+        annotations:
+          summary: "PG 临时文件写入 {{ printf \"%.1f\" (div $value 1048576) }}MB/s"
+
+      # ===== 表 / 索引膨胀 =====
+      - alert: PostgresTableBloat
+        expr: pg_table_bloat_ratio > 0.30
+        for: 30m
+        labels:
+          severity: warning
+          domain: database
+          team: sre-db
+        annotations:
+          summary: "表 {{ $labels.schema }}.{{ $labels.table }} 膨胀 {{ printf \"%.2f\" $value }}"
+
+      - alert: PostgresVacuumLagging
+        expr: |
+          time() - pg_stat_user_tables_last_autovacuum > 24 * 3600
+        for: 1h
+        labels:
+          severity: warning
+          domain: database
+          team: sre-db
+        annotations:
+          summary: "表 {{ $labels.schemaname }}.{{ $labels.relname }} 24h 未 vacuum"
+
+      # ===== pgbouncer =====
+      - alert: PgBouncerWaiting
+        expr: max by (db) (pgbouncer_pools_waiting) > 10
+        for: 1m
+        labels:
+          severity: critical
+          domain: database
+          team: sre-db
+        annotations:
+          summary: "pgbouncer {{ $labels.db }} 等待连接 {{ $value }}"
+          impact: "所有新请求阻塞"
+          runbook: |
+            1. SHOW POOLS; / SHOW CLIENTS;
+            2. 评估临时扩容
+
+      - alert: PgBouncerPoolSaturated
+        expr: |
+          max by (db) (pgbouncer_pools_client_active)
+            / max by (db) (pgbouncer_pools_max) > 0.85
+        for: 5m
+        labels:
+          severity: warning
+          domain: database
+          team: sre-db
+        annotations:
+          summary: "pgbouncer {{ $labels.db }} 池使用 {{ printf \"%.1f\" (mul $value 100) }}%"
+
+      # ===== 备份 =====
+      - alert: PostgresBackupFailing
+        expr: time() - pg_backup_last_success_timestamp > 26 * 3600
+        for: 10m
+        labels:
+          severity: warning
+          domain: database
+          team: sre-db
+        annotations:
+          summary: "PG 备份失败 / 缺失"
+
+      - alert: PostgresWALArchiveLag
+        expr: pg_wal_archive_lag_seconds > 60
+        for: 5m
+        labels:
+          severity: warning
+          domain: database
+          team: sre-db
+        annotations:
+          summary: "WAL archive 延迟 {{ $value }}s"
+
+      # ===== 不可篡改审计 (CRITICAL) =====
+      - alert: AdminAuditChainBroken
+        expr: gitgit_audit_hash_chain_broken == 1
+        labels:
+          severity: critical
+          domain: security
+          team: sec-oncall
+          compliance: "true"
+        annotations:
+          summary: "admin_audit 哈希链断裂"
+          impact: "审计不可信，合规事件"
+          runbook: |
+            1. 立即锁定所有 admin 写
+            2. 检查 wal2json 状态
+            3. 启动 forensic 模式
+            4. 联系合规负责人
+
+      - alert: AdminAuditChainCheckFailed
+        expr: rate(gitgit_audit_chain_check_total{result="fail"}[5m]) > 0
+        for: 5m
+        labels:
+          severity: warning
+          domain: security
+          team: sec-oncall
+        annotations:
+          summary: "审计链校验任务失败"
+
+      - alert: AdminAuditWALLag
+        expr: gitgit_audit_wal_lag_seconds > 30
+        for: 5m
+        labels:
+          severity: warning
+          domain: security
+          team: sec-oncall
+        annotations:
+          summary: "admin_audit WAL 延迟 {{ $value }}s"
+
+      # ===== 凭证 =====
+      - alert: SecretKEKRotationDue
+        expr: gitgit_secret_kek_rotation_due < 30 * 24 * 3600
+        for: 1d
+        labels:
+          severity: warning
+          domain: security
+          team: sec-oncall
+        annotations:
+          summary: "Secret KEK 轮换临近 ({{ $value }}s)"
+
+      - alert: SecretDEKReencryptPending
+        expr: gitgit_secret_dek_reencrypt_pending > 0
+        for: 1h
+        labels:
+          severity: warning
+          domain: security
+          team: sec-oncall
+        annotations:
+          summary: "DEK 重加密待处理"

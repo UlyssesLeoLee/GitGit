@@ -1,0 +1,212 @@
+# Prometheus 抓取配置
+# 关联: docs/observability/02-metrics.md / ADR-0011
+# 部署: kube-prometheus-stack 内嵌 (2 副本)
+# 注意: 业务 label 通过 OTel Collector 注入，此处只配置 scrape
+
+global:
+  scrape_interval: 30s
+  scrape_timeout: 10s
+  evaluation_interval: 30s
+  external_labels:
+    cluster: prod
+    environment: production
+    region: cn-north-1
+    replica: prometheus-0
+
+# Rule files (kustomize mount)
+rule_files:
+  - /etc/prometheus/rules/*.yaml
+
+# Alertmanager
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ['alertmanager.observability.svc:9093']
+
+# Storage
+storage:
+  tsdb:
+    path: /data
+    retention: 30d
+    retention_size: 200GB
+    wal_compression: true
+
+# Scrape configs
+scrape_configs:
+  # Prometheus 自身
+  - job_name: prometheus
+    static_configs:
+      - targets: ['localhost:9090']
+
+  # K8s API Server
+  - job_name: kubernetes-apiservers
+    scheme: https
+    tls_config:
+      ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+    bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+    kubernetes_sd_configs:
+      - role: endpoints
+        namespaces:
+          names: [default]
+    relabel_configs:
+      - action: labelmap
+        regex: __meta_kubernetes_service_label_(.+)
+      - source_labels: [__meta_kubernetes_service_name]
+        action: replace
+        target_label: service
+      - source_labels: [__meta_kubernetes_endpoint_port_name]
+        action: replace
+        target_label: port
+
+  # Kubelet
+  - job_name: kubernetes-nodes
+    scheme: https
+    tls_config:
+      ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+    bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+    kubernetes_sd_configs:
+      - role: node
+    relabel_configs:
+      - action: labelmap
+        regex: __meta_kubernetes_node_label_(.+)
+      - target_label: __address__
+        replacement: kubernetes.default.svc:443
+      - source_labels: [__meta_kubernetes_node_name]
+        regex: (.+)
+        target_label: __metrics_path__
+        replacement: /api/v1/nodes/${1}/proxy/metrics
+
+  # K8s Pods (cAdvisor)
+  - job_name: kubernetes-pods
+    kubernetes_sd_configs:
+      - role: pod
+    relabel_configs:
+      - action: labelmap
+        regex: __meta_kubernetes_pod_label_(.+)
+      - source_labels: [__meta_kubernetes_namespace]
+        action: replace
+        target_label: namespace
+      - source_labels: [__meta_kubernetes_pod_name]
+        action: replace
+        target_label: pod
+      - source_labels: [__meta_kubernetes_pod_container_name]
+        action: replace
+        target_label: container
+
+  # kube-state-metrics
+  - job_name: kube-state-metrics
+    static_configs:
+      - targets: ['kube-state-metrics.observability.svc:8080']
+
+  # node-exporter
+  - job_name: node-exporter
+    kubernetes_sd_configs:
+      - role: endpoints
+        namespaces:
+          names: [observability]
+    relabel_configs:
+      - source_labels: [__meta_kubernetes_service_label_app_kubernetes_io_name]
+        regex: node-exporter
+        action: keep
+      - source_labels: [__meta_kubernetes_endpoint_port_name]
+        action: replace
+        target_label: port
+      - action: labelmap
+        regex: __meta_kubernetes_endpoint_label_(.+)
+
+  # pg_exporter (主库)
+  - job_name: pg-exporter-primary
+    static_configs:
+      - targets: ['pg-exporter-primary.observability.svc:9187']
+        labels:
+          db_role: primary
+
+  # pg_exporter (副本)
+  - job_name: pg-exporter-replica
+    static_configs:
+      - targets: ['pg-exporter-replica-1.observability.svc:9187', 'pg-exporter-replica-2.observability.svc:9187']
+        labels:
+          db_role: replica
+
+  # pgbouncer
+  - job_name: pgbouncer
+    static_configs:
+      - targets: ['pgbouncer.observability.svc:9127']
+
+  # 业务服务 (gitgit-server / gitgit-admin / gitgit-cli)
+  - job_name: gitgit-server
+    scheme: http
+    metrics_path: /metrics
+    kubernetes_sd_configs:
+      - role: endpoints
+        namespaces:
+          names: [gitgit]
+    relabel_configs:
+      - source_labels: [__meta_kubernetes_service_label_app]
+        regex: gitgit-server
+        action: keep
+      - source_labels: [__meta_kubernetes_namespace]
+        action: replace
+        target_label: namespace
+      - source_labels: [__meta_kubernetes_service_name]
+        action: replace
+        target_label: service
+    metric_relabel_configs:
+      # repo label 聚合 (修订 4): 强制 namespace 维度
+      - source_labels: [repo]
+        regex: '([^/]+)/.*'
+        target_label: repo_namespace
+        replacement: '${1}'
+      # 删除 user.id (高 cardinality)
+      - source_labels: [user_id]
+        action: labeldrop
+
+  - job_name: gitgit-admin
+    scheme: http
+    metrics_path: /metrics
+    kubernetes_sd_configs:
+      - role: endpoints
+        namespaces:
+          names: [gitgit]
+    relabel_configs:
+      - source_labels: [__meta_kubernetes_service_label_app]
+        regex: gitgit-admin
+        action: keep
+      - source_labels: [__meta_kubernetes_namespace]
+        action: replace
+        target_label: namespace
+      - source_labels: [__meta_kubernetes_service_name]
+        action: replace
+        target_label: service
+
+  # OTel Collector (self)
+  - job_name: otel-collector
+    kubernetes_sd_configs:
+      - role: pod
+        namespaces:
+          names: [observability]
+    relabel_configs:
+      - source_labels: [__meta_kubernetes_pod_label_app_kubernetes_io_component]
+        regex: otel-collector
+        action: keep
+      - source_labels: [__meta_kubernetes_pod_container_port_number]
+        action: drop
+        regex: 4317|4318
+      - source_labels: [__meta_kubernetes_pod_container_name]
+        action: replace
+        target_label: container
+
+  # Tempo
+  - job_name: tempo
+    static_configs:
+      - targets: ['tempo.observability.svc:3200']
+
+  # Loki
+  - job_name: loki
+    static_configs:
+      - targets: ['loki.observability.svc:3100']
+
+  # Grafana
+  - job_name: grafana
+    static_configs:
+      - targets: ['grafana.observability.svc:3000']

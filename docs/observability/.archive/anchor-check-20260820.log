@@ -1,0 +1,1478 @@
+=== Anchor link audit ===
+  Total cross-references: 1439
+  Broken: 462
+
+=== Broken links (grouped by target) ===
+  [ANCHOR_MISSING] architecture/qa-checklist.md
+    -> design/basic-design/00-introduction.md#022-不包含-out-of-scope
+    link text: '基本设计 §0.2.2 不包含'
+  [ANCHOR_MISSING] architecture/qa-checklist.md
+    -> design/detailed-design/01-data-layer.md#13-db-role-分离aisec-req-009a-mvp-必填
+    link text: '01-data-layer.md §1.3'
+  [ANCHOR_MISSING] architecture/qa-checklist.md
+    -> design/basic-design/07-security-design.md#772-显式-deny-by-defaultaisec-req-013-强化
+    link text: '§7.7.2'
+  [ANCHOR_MISSING] architecture/qa-checklist.md
+    -> design/basic-design/07-security-design.md#772-显式-deny-by-defaultaisec-req-013-强化
+    link text: '§7.7.2'
+  [ANCHOR_MISSING] architecture/qa-checklist.md
+    -> design/detailed-design/12-app-registry-and-plugin-loader.md#1219-rls-策略沙箱权限
+    link text: '§12.1.9'
+  [ANCHOR_MISSING] architecture/qa-checklist.md
+    -> design/detailed-design/12-app-registry-and-plugin-loader.md#122-plugin-loader-进程
+    link text: '§12.2'
+  [ANCHOR_MISSING] architecture/qa-checklist.md
+    -> design/detailed-design/13-admin-api-and-ops-ui.md#133-admin_audit-表-ddl
+    link text: '§13.3'
+  [ANCHOR_MISSING] architecture/qa-checklist.md
+    -> design/basic-design/10-acceptance-test-policy.md#101-测试级别-test-levels
+    link text: '§10.1 测试级别'
+  [ANCHOR_MISSING] architecture/qa-checklist.md
+    -> design/basic-design/appendix-c-ipa-mapping.md#c7-受入基准-acceptance-criteria-一览
+    link text: 'Appendix C §C.7 受入基准'
+  [ANCHOR_MISSING] architecture/qa-checklist.md
+    -> design/basic-design/03-functional-design.md#374-aisec-reqai-安全的整合
+    link text: '§3.7.4'
+  [ANCHOR_MISSING] architecture/qa-checklist.md
+    -> design/basic-design/07-security-design.md#73-ai-安全-ai-securityaisec-req
+    link text: '§7.3'
+  [ANCHOR_MISSING] architecture/qa-checklist.md
+    -> design/basic-design/13-app-cluster-and-plugins.md#1371-rolling默认
+    link text: '§13.7.1 rolling'
+  [ANCHOR_MISSING] architecture/qa-checklist.md
+    -> design/detailed-design/12-app-registry-and-plugin-loader.md#1223-升级协议rolling-策略
+    link text: '§12.2.3 升级协议'
+  [ANCHOR_MISSING] architecture/qa-checklist.md
+    -> design/basic-design/13-app-cluster-and-plugins.md#1343-关键不变量
+    link text: '§13.4.3 PROPOSAL-REQ-EVT-004'
+  [ANCHOR_MISSING] architecture/qa-checklist.md
+    -> design/basic-design/06-non-functional-design.md#66-系统环境与生态system-environment-ecology-ipa-grade-⑥
+    link text: '§6.6'
+  [ANCHOR_MISSING] architecture/qa-checklist.md
+    -> design/basic-design/08-operations-design.md#86-v1-k8s-部署形态-v1-k8s-deployment-topology
+    link text: '§8.6 V1+ K8s 部署形态'
+  [ANCHOR_MISSING] architecture/qa-checklist.md
+    -> design/detailed-design/13-admin-api-and-ops-ui.md#1324-终端用户-jwt-与-admin-jwt-互不可见
+    link text: '详设 §13.2.4'
+  [ANCHOR_MISSING] architecture/tech-selection.md
+    -> design/basic-design/13-app-cluster-and-plugins.md#134-中心事件总线-central-event-bus
+    link text: '§13.4'
+  [ANCHOR_MISSING] architecture/tech-selection.md
+    -> design/detailed-design/02-graph-engine.md#29-缓存-caching
+    link text: '§2.9'
+  [ANCHOR_MISSING] architecture/tech-selection.md
+    -> design/basic-design/07-security-design.md#78-admin-独立鉴权域-admin-separate-auth-domain
+    link text: '§7.8'
+  [ANCHOR_MISSING] architecture/tech-selection.md
+    -> design/basic-design/07-security-design.md#75-密钥管理-secrets-managementsec-req-005-sec-req-010
+    link text: '§7.5'
+  [ANCHOR_MISSING] architecture/tech-selection.md
+    -> design/detailed-design/10-observability.md#1041-业务-span-模板
+    link text: '§10.4.1'
+  [ANCHOR_MISSING] architecture/decisions/0001-采用-Rust-作为主语言.md
+    -> architecture/tech-selection.md#2-涓昏瑷€鍐崇瓥rust-language-decision
+    link text: '`../tech-selection.md` 搂2'
+  [ANCHOR_MISSING] architecture/decisions/0002-Git-读路径用-gix，写路径用-shell-`git`.md
+    -> architecture/tech-selection.md#7-git-搴揼ixgitoxide-git-protocol-library
+    link text: '`../tech-selection.md` 搂7'
+  [ANCHOR_MISSING] architecture/decisions/0003-采用-PostgreSQL-单一存储（不引入-Redis-NATS-Memgraph-等）.md
+    -> architecture/tech-selection.md#6-postgresql-椹卞姩sqlx-database-driver
+    link text: '`../tech-selection.md` 搂6'
+  [ANCHOR_MISSING] architecture/decisions/0006-采用-OCI-容器化（Docker---containerd）+-K8s-用于-V1+-Cloud.md
+    -> design/basic-design/08-operations-design.md#86-v1-k8s-閮ㄧ讲褰㈡€?v1-k8s-deployment-topology
+    link text: '`../../design/basic-design/08-operations-design.md#86-v1-k8s-閮ㄧ讲褰㈡€乣'
+  [ANCHOR_MISSING] architecture/decisions/0007-密钥管理用-Vault---KMS（不在-DB-直接存明文）.md
+    -> architecture/tech-selection.md#9-鍔犲瘑鍘熻rustcrypto-cryptography
+    link text: '`../tech-selection.md` 搂9'
+  [ANCHOR_MISSING] architecture/decisions/0009-SIEM-适配策略（wal2json-→-Kafka---Vector---直接-webhook）.md
+    -> design/basic-design/14-admin-ops-ui.md#1425-瀹¤鏃ュ織
+    link text: '`../../design/basic-design/14-admin-ops-ui.md#1425-瀹¤鏃ュ織`'
+  [ANCHOR_MISSING] architecture/decisions/0009-SIEM-适配策略（wal2json-→-Kafka---Vector---直接-webhook）.md
+    -> design/detailed-design/13-admin-api-and-ops-ui.md#133-admin_audit-琛?ddl
+    link text: '`../../design/detailed-design/13-admin-api-and-ops-ui.md#133-admin_audit-琛?ddl`'
+  [TARGET_FILE_MISSING] architecture/decisions/README.md
+    -> architecture/decisions/0001-閲囩敤-Rust-浣滀负涓昏瑷€.md
+    link text: '0001'
+  [TARGET_FILE_MISSING] architecture/decisions/README.md
+    -> architecture/decisions/0002-Git-璇昏矾寰勭敤-gix锛屽啓璺緞鐢?shell-`git`.md
+    link text: '0002'
+  [TARGET_FILE_MISSING] architecture/decisions/README.md
+    -> architecture/decisions/0003-閲囩敤-PostgreSQL-鍗曚竴瀛樺偍锛堜笉寮曞叆-Redis-NATS-Memgraph-绛夛級.md
+    link text: '0003'
+  [TARGET_FILE_MISSING] architecture/decisions/README.md
+    -> architecture/decisions/0006-閲囩敤-OCI-瀹瑰櫒鍖栵紙Docker---containerd锛?-K8s-鐢ㄤ簬-V1+-Cloud.md
+    link text: '0006'
+  [TARGET_FILE_MISSING] architecture/decisions/README.md
+    -> architecture/decisions/0007-瀵嗛挜绠＄悊鐢?Vault---KMS锛堜笉鍦?DB-鐩存帴瀛樻槑鏂囷級.md
+    link text: '0007'
+  [TARGET_FILE_MISSING] design/basic-design/01-system-overview.md
+    -> design/basic-design/08-operations-design.md#813-鏀寔鐨勬搷浣滅郴缁熺煩闃祅fr-req-003-v1-姝ｅ紡鍖? 涓?Phase 14 F14-5锛圢FR-REQ-003锛孷1 鍒跺畾锛変腑鍚庣画纭畾銆?
+---
+
+**瀵艰埅 / Navigation:**
+[鈫?00. 浠嬬粛](00-introduction.md
+    link text: '08. 杩愮淮璁捐 搂8.1.3'
+  [ANCHOR_MISSING] design/basic-design/02-architecture.md
+    -> design/basic-design/07-security-design.md#72-瀹¤-audit
+    link text: '搂7.2 瀹¤'
+  [ANCHOR_MISSING] design/basic-design/04-data-design.md
+    -> design/basic-design/07-security-design.md#72-瀹¤-audit
+    link text: '搂7.2 瀹¤'
+  [ANCHOR_MISSING] design/basic-design/04-data-design.md
+    -> design/basic-design/07-security-design.md#72-瀹¤-audit
+    link text: '搂7.2'
+  [ANCHOR_MISSING] design/basic-design/05-interface-design.md
+    -> design/basic-design/11-api-design.md#113-http-api-璁捐
+    link text: '搂11.3 API 璁捐'
+  [ANCHOR_MISSING] design/basic-design/05-interface-design.md
+    -> design/basic-design/11-api-design.md#114-mcp-璁捐
+    link text: '搂11.4 MCP 璁捐'
+  [ANCHOR_MISSING] design/basic-design/05-interface-design.md
+    -> design/basic-design/11-api-design.md#115-git-鍗忚-api
+    link text: '搂11.5 Git 鍗忚 API'
+  [ANCHOR_MISSING] design/basic-design/05-interface-design.md
+    -> design/basic-design/11-api-design.md#115-git-鍗忚-api
+    link text: '搂11.5 Git 鍗忚 API'
+  [TARGET_FILE_MISSING] design/basic-design/05-interface-design.md
+    -> design/basic-design/12-app-group-intercommunication.md#124-妯″紡-鈶犲瓨鍌ㄨ繃绋嬩綔涓哄崗璋冧腑鏋? |
+
+## 5.2 HTTP API 绔偣鐩綍锛堟瑕侊級
+
+| Method | Path | 鐢ㄩ€?| 蹇呰鏉冮檺 |
+|---|---|---|---|
+| GET | `/api/v1/repos` | 浠撳簱鍒楄〃 | 璁よ瘉蹇呭～ |
+| POST | `/api/v1/repos` | 鍒涘缓浠撳簱 | `repo:create` |
+| GET | `/api/v1/repos/{id}/issues` | Issue 鍒楄〃 | 浠撳簱璇?|
+| POST | `/api/v1/repos/{id}/issues` | 鍒涘缓 Issue | 浠撳簱鍐?|
+| GET | `/api/v1/agents` | Agent 鍒楄〃 | `agent:read` |
+| POST | `/api/v1/agents/{id}/runs` | 鍚姩 Agent | `agent:invoke` + policy gate |
+| GET | `/api/v1/agent-runs/{id}` | Agent 杩愯鐘舵€?| `agent:read` |
+| POST | `/api/v1/approvals/{pending_id}` | 浜虹被瀹℃壒 | `approval:act` |
+| GET | `/api/v1/graph/nodes/{id}` | 鑺傜偣璇诲彇 | Policy |
+| GET | `/api/v1/graph/traverse` | 鍥炬煡璇紙閫掑綊 CTE锛墊 Policy |
+| GET | `/api/v1/views/{view_id}/invoke` | 瑙嗗浘璋冪敤 | Policy |
+| GET | `/api/v1/audit/events` | 瀹¤浜嬩欢鏌ヨ | `audit:read` |
+| POST | `/api/v1/coordinate/{proc-name}` | 瀛樺偍杩囩▼ RPC | Policy + 缇ょ粍閰嶉 |
+
+鎵€鏈夊啓鍏ョ鐐瑰繀椤诲厛缁?Policy 璇勪及鍐嶆墽琛屻€傝瘎浼板け璐ヨ繑鍥?403 + 鏍囧噯鍖栭敊璇爜銆傝缁嗛敊璇牸寮忋€佸箓绛夈€侀檺娴併€佺増鏈不鐞嗚 [搂11.3](11-api-design.md#113-http-api-璁捐
+    link text: '搂12.4 瀛樺偍杩囩▼鍗忚皟'
+  [ANCHOR_MISSING] design/basic-design/05-interface-design.md
+    -> design/basic-design/11-api-design.md#114-mcp-璁捐
+    link text: '搂11.4'
+  [ANCHOR_MISSING] design/basic-design/07-security-design.md
+    -> design/basic-design/03-functional-design.md#37-瀹夊叏涓庤闂帶鍒跺瓙绯荤粺-security-access-control-subsystem
+    link text: '搂3.7 瀹夊叏涓庤闂帶鍒跺瓙绯荤粺'
+  [ANCHOR_MISSING] design/basic-design/11-api-design.md
+    -> design/basic-design/03-functional-design.md#37-瀹夊叏涓庤闂帶鍒跺瓙绯荤粺-security-access-control-subsystem
+    link text: '搂3.7 Security & Access Control Subsystem'
+  [ANCHOR_MISSING] design/basic-design/11-api-design.md
+    -> design/basic-design/02-architecture.md#26-git-瀛樺偍瀹炵幇-git-storage-implementation閲囩敤-phase-10-3
+    link text: '搂7.3 AI 瀹夊叏鎬(07-security-design.md#73-ai-瀹夊叏-ai-securityaisec-req)銆?
+## 11.5 Git 鍗忚 API
+
+| 鎿嶄綔 | 鍗忚 | URL 妯℃澘 | 绔偣 |
+|---|---|---|---|
+| clone | HTTP | `https://host/{repo}.git` | `/git/{repo}.git/info/refs?service=git-upload-pack` |
+| fetch | HTTP | 鍚屼笂 | `/git/{repo}.git/git-upload-pack` |
+| push | HTTP | `https://host/{repo}.git` | `/git/{repo}.git/git-receive-pack` |
+| clone/fetch/push | SSH | `git@host:{repo}.git` | SSH subsystem `git-upload-pack` / `git-receive-pack` |
+| LFS | HTTP | `https://host/{repo}.git/info/lfs` | LFS batch API锛圴1锛?|
+
+**瀹炵幇锛?* 鍏ㄩ儴璧扮湡瀹?`git` 浜岃繘鍒跺瓙杩涚▼锛堝弬瑙?[搂2.6 Git 瀛樺偍瀹炵幇'
+  [ANCHOR_MISSING] design/basic-design/11-api-design.md
+    -> design/basic-design/03-functional-design.md#31-git-server-瀛愮郴缁?git-server-subsystem
+    link text: '搂4.1 Git Server Subsystem'
+  [ANCHOR_MISSING] design/basic-design/11-api-design.md
+    -> design/basic-design/07-security-design.md#72-瀹¤-audit
+    link text: '搂7.2 瀹¤'
+  [ANCHOR_MISSING] design/basic-design/11-api-design.md
+    -> design/detailed-design/13-admin-api-and-ops-ui.md#131-admin-api-绔偣鐩綍
+    link text: '璇︾粏璁捐 搂13.1 Admin API 绔偣鐩綍'
+  [ANCHOR_MISSING] design/basic-design/12-app-group-intercommunication.md
+    -> design/basic-design/02-architecture.md#22-閮ㄧ讲鍗曚綅-deployable-units鏉ヨ嚜-phase-10-4
+    link text: '搂2.2 閮ㄧ讲鍗曚綅'
+  [ANCHOR_MISSING] design/basic-design/12-app-group-intercommunication.md
+    -> design/basic-design/02-architecture.md#232-cloud-閮ㄧ讲v1-姝ｅ紡鍖杕vp-涓嶉渶瑕?锛夛紝鍚屼竴璧勬簮琚袱涓疄渚嬪悓鏃舵敼鐨勯闄?|
+| **澶栭儴 App 缇ょ粍** | 瀹㈡埛鍏徃鎶婂钩鍙板綋浣滃洟闃熷唴澶氫釜鍐呴儴鏈嶅姟锛圕I銆佹枃妗ｃ€佺洃鎺с€両ssue 璺熻釜锛夌殑**鍏变韩鏁版嵁搴曞骇**锛岃繖浜涙湇鍔￠渶瑕佺浉浜掔湅鍒板鏂瑰啓鍏ョ殑鏁版嵁 |
+| **璺ㄥ煙宸ヤ綔娴?* | 涓€涓?PR 娴佺▼浼氳Е鍙?5+ 涓郴缁熷姩浣滐紙CI 鈫?AI 璇勫 鈫?瀹夊叏鎵弿 鈫?鑷姩 merge 鍊欓€?鈫?閫氱煡锛夛紝杩欎簺鍔ㄤ綔鍒嗗竷鍦ㄤ笉鍚屽簲鐢ㄤ腑 |
+
+### 12.1.2 璁捐鐩爣
+
+璁?搴旂敤缇ょ粍"鍐呯殑鏁版嵁娴佹弧瓒筹細
+
+1. **鍘熷瓙鎬?* 鈥?璺ㄥ涓〃 / 澶氫釜瀵硅薄鐨勫啓鍏ヨ涔堝叏鎴愬姛瑕佷箞鍏ㄥけ璐?2. **鍙娴?* 鈥?浠讳綍鍗忚皟鍔ㄤ綔閮界暀涓?Event锛屽彲鍦?Audit Log 鏌?3. **Policy 缁熶竴** 鈥?涓嶇粫杩囨巿鏉冿紙鍗充究璧板瓨鍌ㄨ繃绋嬩篃瑕佽蛋 Policy 寮曟搸锛?4. **鍙仮澶?* 鈥?鍗忚皟涓€斿け璐ユ湁鏄庣‘鎭㈠璺緞锛坰aga / outbox锛?5. **涓嶅彂鏄庡崗璁?* 鈥?浼樺厛鐢?PostgreSQL 鍘熺敓鑳藉姏锛圥L/pgSQL銆丩ISTEN/NOTIFY銆丆TE銆丼KIP LOCKED锛夛紝涓嶅紩鍏?Kafka 涔嬬被
+
+## 12.2 App 缇ょ粍鐨勫畾涔?
+**[PROPOSAL]** 涓€涓?**App Group** 鏄弧瓒充互涓嬫潯浠剁殑搴旂敤闆嗗悎锛?
+| 灞炴€?| 璇存槑 |
+|---|---|
+| 鍏卞悓韬唤 | 鍏变韩涓€涓?`app_group_id`锛圲UID v7锛夛紝鐢卞钩鍙扮鐞嗗憳鏄惧紡鍒涘缓 |
+| 鍏卞悓鏁版嵁濂戠害 | 缇ょ粍鍐呮瘡涓?app 鍏变韩涓€濂?*宸插０鏄庣殑鍗忚皟鐐癸紙coordination points锛?*锛氬瓨鍌ㄨ繃绋?/ 浜嬩欢閫氶亾 / 鍏变韩琛ㄨ鍥?|
+| 鍏卞悓 Policy 鍛藉悕绌洪棿 | 缇ょ粍绾?RBAC 瑙勫垯缁熶竴绠＄悊锛屼笉鍦ㄦ瘡涓?app 鍐呴儴澶嶅埗 |
+| 鍏卞悓瀹¤鑼冨洿 | 缇ょ粍鍐呮墍鏈?app 浜х敓鐨?Event 鑷姩褰掑埌鍚屼竴鍙煡璇㈣鍥?|
+
+**绀轰緥缇ょ粍锛?*
+- `app_group:acme-cicd` 鈥?鍖呭惈 `app:ci-runner`銆乣app:notifier`銆乣app:pr-bot`
+- `app_group:acme-observability` 鈥?鍖呭惈 `app:metrics-exporter`銆乣app:trace-collector`
+- `app_group:platform-internal` 鈥?鍖呭惈 `app:ai-gateway`銆乣app:context-engine`銆乣app:graph-core`锛堝嵆 Platform Process 鍐呴儴瀛愮郴缁燂級
+
+## 12.3 浜掗€氭ā寮忓叏鏅?
+```
+鈹屸攢鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹?鈹?                       App Group: acme-cicd                         鈹?鈹?                                                                    鈹?鈹? 鈹屸攢鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹?    鈹屸攢鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹?    鈹屸攢鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹?    鈹屸攢鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹?鈹?鈹? 鈹? ci-     鈹?    鈹? noti-   鈹?    鈹? pr-bot  鈹?    鈹? scan-   鈹?鈹?鈹? 鈹? runner  鈹?    鈹? fier    鈹?    鈹? (Agent
+    link text: '搂2.3.2 Cloud 閮ㄧ讲'
+  [ANCHOR_MISSING] design/basic-design/14-admin-ops-ui.md
+    -> design/basic-design/11-api-design.md#114-mcp-璁捐
+    link text: '搂6 闈炲姛鑳借璁(06-non-functional-design.md) + 璇︾粏璁捐 搂13.2銆?
+---
+
+## 14.5 涓庣幇鏈夌珷鑺傜殑鍏崇郴
+
+| 绔犺妭 | 鍏崇郴 |
+|---|---|
+| 搂11 API 璁捐 | API 绔偣鏃忔墿灞?`/admin/v1/*`锛堣瑙?[搂11.4 MCP 璁捐'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/basic-design/02-architecture.md#21-逻辑架构-logical-architecture
+    link text: '§2.1 逻辑架构'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/basic-design/03-functional-design.md#32-工程图谱子系统-engineering-graph-subsystem
+    link text: '§3.2 Engineering Graph 子系统'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/basic-design/04-data-design.md#41-概念数据模型-conceptual-data-model
+    link text: '§4.1 概念数据模型'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/basic-design/02-architecture.md#24-存储架构-storage-architecture采用-phase-10-1
+    link text: '§2.4 存储架构'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/basic-design/04-data-design.md#42-物理-schema-physical-schemapostgresql
+    link text: '§4.2 物理 schema'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/basic-design/02-architecture.md#26-git-存储实现-git-storage-implementation采用-phase-10-3
+    link text: '§2.6 Git 存储实现'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/basic-design/02-architecture.md#22-部署单位-deployable-units来自-phase-10-4
+    link text: '§2.2 部署单位'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/basic-design/03-functional-design.md#37-安全与访问控制子系统-security-access-control-subsystem
+    link text: '§3.7 安全与访问控制子系统'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/basic-design/07-security-design.md#71-认证-授权-authentication-authorization
+    link text: '§7.1 认证授权'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/basic-design/07-security-design.md#72-审计-audit
+    link text: '§7.2 审计'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/basic-design/04-data-design.md#42-物理-schema-physical-schemapostgresql
+    link text: '§4.2 物理 schema'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/basic-design/07-security-design.md#75-密钥管理-secrets-managementsec-req-005-sec-req-010
+    link text: '§7.5 密钥管理'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/basic-design/07-security-design.md#74-网络安全-network-securitysec-req-008-phase-14-f14-3
+    link text: '§7.4 网络安全'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/basic-design/06-non-functional-design.md#63-运行与维护性operability-maintainability-ipa-grade-③
+    link text: '§6.3 运行与维护性'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/basic-design/06-non-functional-design.md#65-安全性security-ipa-grade-⑤
+    link text: '§6.5 安全性'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/basic-design/07-security-design.md#72-审计-audit
+    link text: '§7.2 审计'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/basic-design/03-functional-design.md#374-aisec-reqai-安全的整合
+    link text: '§3.7.4 AISEC-REQ 整合'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/basic-design/03-functional-design.md#323-v1-功能
+    link text: '§3.2.3 V1 功能'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/basic-design/04-data-design.md#42-物理-schema-physical-schemapostgresql
+    link text: '§4.2 物理 schema'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/basic-design/03-functional-design.md#313-v1-功能
+    link text: '§3.1.3 V1 功能'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/basic-design/02-architecture.md#26-git-存储实现-git-storage-implementation采用-phase-10-3
+    link text: '§2.6 Git 存储实现'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/basic-design/06-non-functional-design.md#61-可用性availability-ipa-grade-①
+    link text: '§6.1 可用性'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/basic-design/06-non-functional-design.md#62-性能与扩展性performance-scalability-ipa-grade-②
+    link text: '§6.2 性能与扩展性'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/basic-design/06-non-functional-design.md#63-运行与维护性operability-maintainability-ipa-grade-③
+    link text: '§6.3 运行与维护性'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/basic-design/06-non-functional-design.md#66-系统环境与生态system-environment-ecology-ipa-grade-⑥
+    link text: '§6.6 系统环境与生态'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/basic-design/08-operations-design.md#813-支持的操作系统矩阵nfr-req-003-v1-正式化
+    link text: '§8.1.3 支持的操作系统矩阵'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/basic-design/02-architecture.md#23-物理架构-physical-architecture
+    link text: '§2.3 物理架构'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/basic-design/09-migration-design.md#93-架构一致性-architecture-consistencycloud-req-001
+    link text: '§9.3 架构一致性'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/detailed-design/00-overview.md#03-语言与运行时-language-runtime
+    link text: '详细设计 §0.3'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/basic-design/13-app-cluster-and-plugins.md#131-概念模型app-作为一级平台对象
+    link text: '§13.1 概念模型'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/basic-design/13-app-cluster-and-plugins.md#134-中心事件总线-central-event-bus
+    link text: '§13.4 中心事件总线'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/detailed-design/12-app-registry-and-plugin-loader.md#123-中心事件总线实现
+    link text: '详细设计 §12.3'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/basic-design/13-app-cluster-and-plugins.md#135-app-集群模型
+    link text: '§13.5 App 集群模型'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/detailed-design/12-app-registry-and-plugin-loader.md#1224-心跳与健康检查
+    link text: '详细设计 §12.2.4'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/basic-design/13-app-cluster-and-plugins.md#136-热插拔与生命周期-hot-plug-lifecycle
+    link text: '§13.6-13.7 热插拔与升级'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/basic-design/14-admin-ops-ui.md#141-部署形态-deployment-topology
+    link text: '§14.1 / §14.3'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/detailed-design/13-admin-api-and-ops-ui.md#132-鉴权中间件
+    link text: '详细设计 §13.2'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/basic-design/14-admin-ops-ui.md#1425-审计日志
+    link text: '§14.2.5 审计日志'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/detailed-design/13-admin-api-and-ops-ui.md#133-admin_audit-表-ddl
+    link text: '详细设计 §13.3'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/basic-design/07-security-design.md#77-app-沙箱权限边界-app-sandbox-permission-boundary
+    link text: '§7.7 App 沙箱权限边界'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/basic-design/11-api-design.md#1112-plugin-api-端点族-plugin-api-endpoint-family
+    link text: '§11.12 Plugin API 端点族'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/basic-design/08-operations-design.md#86-v1-k8s-部署形态-v1-k8s-deployment-topology
+    link text: '§8.6 V1+ K8s 部署形态'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/detailed-design/13-admin-api-and-ops-ui.md#135-v1-k8s-部署清单
+    link text: '详细设计 §13.5'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/basic-design/03-functional-design.md#31-git-server-子系统-git-server-subsystem
+    link text: '基本设计 §03.1'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/detailed-design/06-git-server.md#62-模块结构
+    link text: '详细设计 §06.2'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/basic-design/02-architecture.md#26-git-存储实现-git-storage-implementation采用-phase-10-3
+    link text: '基本设计 §02.6'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/detailed-design/06-git-server.md#64-读路径libgit2
+    link text: '详细设计 §06.4'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/basic-design/03-functional-design.md#31-git-server-子系统-git-server-subsystem
+    link text: '基本设计 §03.1'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/detailed-design/06-git-server.md#63-写路径cli-子进程
+    link text: '详细设计 §06.3'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/basic-design/03-functional-design.md#31-git-server-子系统-git-server-subsystem
+    link text: '基本设计 §03.1'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/detailed-design/06-git-server.md#64-读路径libgit2
+    link text: '详细设计 §06.4'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/basic-design/03-functional-design.md#31-git-server-子系统-git-server-subsystem
+    link text: '基本设计 §03.1'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/detailed-design/06-git-server.md#65-graph-aware-钩子
+    link text: '详细设计 §06.5'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/basic-design/03-functional-design.md#313-v1-功能
+    link text: '基本设计 §03.1.3'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/detailed-design/06-git-server.md#65-graph-aware-钩子
+    link text: '详细设计 §06.5'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/basic-design/03-functional-design.md#313-v1-功能
+    link text: '基本设计 §03.1.3'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/detailed-design/06-git-server.md#62-模块结构
+    link text: '详细设计 §06.2'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/basic-design/07-security-design.md#71-认证-授权-authentication-authorization
+    link text: '基本设计 §07.1'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/basic-design/03-functional-design.md#313-v1-功能
+    link text: '基本设计 §03.1.3'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/detailed-design/06-git-server.md#63-写路径cli-子进程
+    link text: '详细设计 §06.3'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/basic-design/06-non-functional-design.md#61-可用性availability-ipa-grade-①
+    link text: '基本设计 §06.1'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/detailed-design/06-git-server.md#64-读路径libgit2
+    link text: '详细设计 §06.4'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/basic-design/08-operations-design.md#81-部署-deployment
+    link text: '基本设计 §08.1'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/detailed-design/06-git-server.md#64-读路径libgit2
+    link text: '详细设计 §06.4'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/basic-design/03-functional-design.md#32-工程图谱子系统-engineering-graph-subsystem
+    link text: '基本设计 §03.2'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/detailed-design/02-graph-engine.md#22-模块结构-module-layout
+    link text: '详细设计 §02.2'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/basic-design/03-functional-design.md#32-工程图谱子系统-engineering-graph-subsystem
+    link text: '基本设计 §03.2'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/detailed-design/02-graph-engine.md#24-类型注册表-type-registry
+    link text: '详细设计 §02.4'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/basic-design/04-data-design.md#43-图遍历-graph-traversal
+    link text: '基本设计 §04.3'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/detailed-design/02-graph-engine.md#27-图遍历
+    link text: '详细设计 §02.7'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/basic-design/04-data-design.md#42-物理-schema-physical-schemapostgresql
+    link text: '基本设计 §04.2'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/detailed-design/01-data-layer.md#14-完整-ddl
+    link text: '详细设计 §01.4'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/basic-design/03-functional-design.md#32-工程图谱子系统-engineering-graph-subsystem
+    link text: '基本设计 §03.2'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/basic-design/03-functional-design.md#32-工程图谱子系统-engineering-graph-subsystem
+    link text: '基本设计 §03.2'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/basic-design/06-non-functional-design.md#62-性能与扩展性performance-scalability-ipa-grade-②
+    link text: '基本设计 §06.2'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/basic-design/03-functional-design.md#32-工程图谱子系统-engineering-graph-subsystem
+    link text: '基本设计 §03.2'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/detailed-design/02-graph-engine.md#29-缓存-caching
+    link text: '详细设计 §02.9'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/basic-design/03-functional-design.md#32-工程图谱子系统-engineering-graph-subsystem
+    link text: '基本设计 §03.2'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/detailed-design/02-graph-engine.md#27-图遍历
+    link text: '详细设计 §02.7'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/basic-design/03-functional-design.md#323-v1-功能
+    link text: '基本设计 §03.2.3'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/detailed-design/01-data-layer.md#14-完整-ddl
+    link text: '详细设计 §01.4'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/basic-design/03-functional-design.md#32-工程图谱子系统-engineering-graph-subsystem
+    link text: '基本设计 §03.2'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/basic-design/03-functional-design.md#35-agent-运行时子系统-agent-runtime-subsystem
+    link text: '基本设计 §03.5'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/detailed-design/04-agent-runtime.md#44-状态机
+    link text: '详细设计 §04.4'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/basic-design/03-functional-design.md#35-agent-运行时子系统-agent-runtime-subsystem
+    link text: '基本设计 §03.5'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/basic-design/03-functional-design.md#35-agent-运行时子系统-agent-runtime-subsystem
+    link text: '基本设计 §03.5'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/basic-design/03-functional-design.md#35-agent-运行时子系统-agent-runtime-subsystem
+    link text: '基本设计 §03.5'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/basic-design/02-architecture.md#23-物理架构-physical-architecture
+    link text: '基本设计 §02.3'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/detailed-design/04-agent-runtime.md#46-工作区隔离-workspace-isolation
+    link text: '详细设计 §04.6'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/basic-design/03-functional-design.md#35-agent-运行时子系统-agent-runtime-subsystem
+    link text: '基本设计 §03.5'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/detailed-design/04-agent-runtime.md#46-工作区隔离-workspace-isolation
+    link text: '详细设计 §04.6'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/basic-design/03-functional-design.md#35-agent-运行时子系统-agent-runtime-subsystem
+    link text: '基本设计 §03.5'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/basic-design/03-functional-design.md#35-agent-运行时子系统-agent-runtime-subsystem
+    link text: '基本设计 §03.5'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/basic-design/03-functional-design.md#353-v1-功能
+    link text: '基本设计 §03.5.3'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/detailed-design/04-agent-runtime.md#47-凭据签发-credential-issuance
+    link text: '详细设计 §04.7'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/basic-design/03-functional-design.md#33-ai-网关子系统-ai-gateway-subsystem
+    link text: '基本设计 §03.3'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/detailed-design/05-ai-gateway.md#54-provider-接口
+    link text: '详细设计 §05.2'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/basic-design/03-functional-design.md#33-ai-网关子系统-ai-gateway-subsystem
+    link text: '基本设计 §03.3'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/basic-design/03-functional-design.md#33-ai-网关子系统-ai-gateway-subsystem
+    link text: '基本设计 §03.3'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/basic-design/03-functional-design.md#33-ai-网关子系统-ai-gateway-subsystem
+    link text: '基本设计 §03.3'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/basic-design/03-functional-design.md#33-ai-网关子系统-ai-gateway-subsystem
+    link text: '基本设计 §03.3'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/detailed-design/05-ai-gateway.md#54-provider-接口
+    link text: '详细设计 §05.2'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/basic-design/03-functional-design.md#333-v1-功能
+    link text: '基本设计 §03.3.3'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/basic-design/07-security-design.md#73-ai-安全-ai-securityaisec-req
+    link text: '基本设计 §07.3'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/detailed-design/05-ai-gateway.md#57-提示词清洗-aisec-req-001
+    link text: '详细设计 §05.7'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/basic-design/07-security-design.md#73-ai-安全-ai-securityaisec-req
+    link text: '基本设计 §07.3'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/detailed-design/03-policy-engine.md#39-ai-特有策略-ai-specific-policies
+    link text: '详细设计 §03.6'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/basic-design/07-security-design.md#73-ai-安全-ai-securityaisec-req
+    link text: '基本设计 §07.3'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/detailed-design/08-api-handlers.md#88-mcp-tool-实现
+    link text: '详细设计 §08.6'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/basic-design/07-security-design.md#73-ai-安全-ai-securityaisec-req
+    link text: '基本设计 §07.3'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/detailed-design/05-ai-gateway.md#57-提示词清洗-aisec-req-001
+    link text: '详细设计 §05.7'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/basic-design/07-security-design.md#73-ai-安全-ai-securityaisec-req
+    link text: '基本设计 §07.3'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/detailed-design/04-agent-runtime.md#47-凭据签发-credential-issuance
+    link text: '详细设计 §04.7'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/basic-design/07-security-design.md#73-ai-安全-ai-securityaisec-req
+    link text: '基本设计 §07.3'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/detailed-design/03-policy-engine.md#39-ai-特有策略-ai-specific-policies
+    link text: '详细设计 §03.6'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/basic-design/07-security-design.md#73-ai-安全-ai-securityaisec-req
+    link text: '基本设计 §07.3'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/detailed-design/04-agent-runtime.md#46-工作区隔离-workspace-isolation
+    link text: '详细设计 §04.6'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/basic-design/07-security-design.md#73-ai-安全-ai-securityaisec-req
+    link text: '基本设计 §07.3'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/detailed-design/12-app-registry-and-plugin-loader.md#124-沙箱执行环境
+    link text: '详细设计 §12.4'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/basic-design/07-security-design.md#72-审计-audit
+    link text: '基本设计 §07.2'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/detailed-design/01-data-layer.md#13-db-role-分离aisec-req-009a-mvp-必填
+    link text: '详细设计 §01.3'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/basic-design/11-api-design.md#112-协议栈总览
+    link text: '基本设计 §11.1'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/detailed-design/08-api-handlers.md#83-路由表
+    link text: '详细设计 §08.3'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/detailed-design/08-api-handlers.md#88-mcp-tool-实现
+    link text: '详细设计 §08.8'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/basic-design/07-security-design.md#71-认证-授权-authentication-authorization
+    link text: '基本设计 §07.1'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/basic-design/06-non-functional-design.md#62-性能与扩展性performance-scalability-ipa-grade-②
+    link text: '基本设计 §06.2'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/basic-design/11-api-design.md#114-mcp-设计
+    link text: '基本设计 §11.4'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/detailed-design/08-api-handlers.md#88-mcp-tool-实现
+    link text: '详细设计 §08.6'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/basic-design/03-functional-design.md#32-工程图谱子系统-engineering-graph-subsystem
+    link text: '基本设计 §03.2'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/detailed-design/01-data-layer.md#14-完整-ddl
+    link text: '详细设计 §01.4'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/basic-design/04-data-design.md#42-物理-schema-physical-schemapostgresql
+    link text: '基本设计 §04.2'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/detailed-design/01-data-layer.md#14-完整-ddl
+    link text: '详细设计 §01.4'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/basic-design/07-security-design.md#71-认证-授权-authentication-authorization
+    link text: '基本设计 §07.1'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/basic-design/08-operations-design.md#82-备份-恢复-backup-recoverybkp-req
+    link text: '基本设计 §08.2'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/basic-design/08-operations-design.md#82-备份-恢复-backup-recoverybkp-req
+    link text: '基本设计 §08.2'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/basic-design/08-operations-design.md#82-备份-恢复-backup-recoverybkp-req
+    link text: '基本设计 §08.2'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/basic-design/03-functional-design.md#32-工程图谱子系统-engineering-graph-subsystem
+    link text: '基本设计 §03.2'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/detailed-design/02-graph-engine.md#24-类型注册表-type-registry
+    link text: '详细设计 §02.4'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/basic-design/03-functional-design.md#31-git-server-子系统-git-server-subsystem
+    link text: '基本设计 §03.1'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/detailed-design/06-git-server.md#65-graph-aware-钩子
+    link text: '详细设计 §06.5'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/basic-design/03-functional-design.md#34-上下文引擎子系统-context-engine-subsystem
+    link text: '基本设计 §03.4'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/detailed-design/02-graph-engine.md#27-图遍历
+    link text: '详细设计 §02.7'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/basic-design/03-functional-design.md#343-v1-功能
+    link text: '基本设计 §03.4.3'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/basic-design/03-functional-design.md#36-cicd-子系统-cicd-subsystem
+    link text: '基本设计 §03.6'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/detailed-design/04-agent-runtime.md#46-工作区隔离-workspace-isolation
+    link text: '详细设计 §04.6'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/basic-design/03-functional-design.md#36-cicd-子系统-cicd-subsystem
+    link text: '基本设计 §03.6'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/basic-design/07-security-design.md#75-密钥管理-secrets-managementsec-req-005-sec-req-010
+    link text: '基本设计 §07.5'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/detailed-design/04-agent-runtime.md#47-凭据签发-credential-issuance
+    link text: '详细设计 §04.7'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/basic-design/03-functional-design.md#36-cicd-子系统-cicd-subsystem
+    link text: '基本设计 §03.6'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/basic-design/06-non-functional-design.md#62-性能与扩展性performance-scalability-ipa-grade-②
+    link text: '基本设计 §06.2'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/detailed-design/04-agent-runtime.md#46-工作区隔离-workspace-isolation
+    link text: '详细设计 §04.6'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/basic-design/03-functional-design.md#363-v1-功能
+    link text: '基本设计 §03.6.3'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/detailed-design/04-agent-runtime.md#46-工作区隔离-workspace-isolation
+    link text: '详细设计 §04.6'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/basic-design/02-architecture.md#23-物理架构-physical-architecture
+    link text: '基本设计 §02.3'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/detailed-design/00-overview.md#02-顶层模块划分
+    link text: '详细设计 §00.2'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/basic-design/09-migration-design.md#91-迁移场景-migration-scenarios
+    link text: '基本设计 §09.1'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/basic-design/04-data-design.md#42-物理-schema-physical-schemapostgresql
+    link text: '基本设计 §04.2'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/detailed-design/01-data-layer.md#16-行级安全-rls
+    link text: '详细设计 §01.6'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/basic-design/07-security-design.md#75-密钥管理-secrets-managementsec-req-005-sec-req-010
+    link text: '基本设计 §07.5'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/basic-design/03-functional-design.md#34-上下文引擎子系统-context-engine-subsystem
+    link text: '基本设计 §03.4'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/detailed-design/02-graph-engine.md#27-图遍历
+    link text: '详细设计 §02.7'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/basic-design/03-functional-design.md#34-上下文引擎子系统-context-engine-subsystem
+    link text: '基本设计 §03.4'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/basic-design/03-functional-design.md#34-上下文引擎子系统-context-engine-subsystem
+    link text: '基本设计 §03.4'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/detailed-design/02-graph-engine.md#27-图遍历
+    link text: '详细设计 §02.7'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/basic-design/07-security-design.md#73-ai-安全-ai-securityaisec-req
+    link text: '基本设计 §07.3'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/detailed-design/05-ai-gateway.md#57-提示词清洗-aisec-req-001
+    link text: '详细设计 §05.7'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/basic-design/03-functional-design.md#343-v1-功能
+    link text: '基本设计 §03.4.3'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/basic-design/04-data-design.md#45-数据生命周期-data-lifecycle
+    link text: '基本设计 §04.5'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/basic-design/09-migration-design.md#92-迁移步骤-migration-steps以-lc-1-为例
+    link text: '基本设计 §09.2'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/basic-design/04-data-design.md#45-数据生命周期-data-lifecycle
+    link text: '基本设计 §04.5'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/basic-design/07-security-design.md#72-审计-audit
+    link text: '基本设计 §07.2'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/detailed-design/13-admin-api-and-ops-ui.md#133-admin_audit-表-ddl
+    link text: '详细设计 §13.3'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/detailed-design/01-data-layer.md#14-完整-ddl
+    link text: '详细设计 §01.4'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/basic-design/03-functional-design.md#31-git-server-子系统-git-server-subsystem
+    link text: '基本设计 §03.1'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/detailed-design/02-graph-engine.md#27-图遍历
+    link text: '详细设计 §02.7'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/basic-design/03-functional-design.md#32-工程图谱子系统-engineering-graph-subsystem
+    link text: '基本设计 §03.2'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/detailed-design/02-graph-engine.md#27-图遍历
+    link text: '详细设计 §02.7'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/basic-design/03-functional-design.md#32-工程图谱子系统-engineering-graph-subsystem
+    link text: '基本设计 §03.2'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/detailed-design/02-graph-engine.md#22-模块结构-module-layout
+    link text: '详细设计 §02.2'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/basic-design/03-functional-design.md#323-v1-功能
+    link text: '基本设计 §03.2.3'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/detailed-design/02-graph-engine.md#27-图遍历
+    link text: '详细设计 §02.7'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/basic-design/03-functional-design.md#323-v1-功能
+    link text: '基本设计 §03.2.3'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/detailed-design/02-graph-engine.md#27-图遍历
+    link text: '详细设计 §02.7'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/basic-design/13-app-cluster-and-plugins.md#134-中心事件总线-central-event-bus
+    link text: '基本设计 §13.4'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/detailed-design/12-app-registry-and-plugin-loader.md#123-中心事件总线实现
+    link text: '详细设计 §12.3'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/basic-design/06-non-functional-design.md#61-可用性availability-ipa-grade-①
+    link text: '基本设计 §06.1'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/basic-design/06-non-functional-design.md#62-性能与扩展性performance-scalability-ipa-grade-②
+    link text: '基本设计 §06.2-6.3'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/basic-design/06-non-functional-design.md#66-系统环境与生态system-environment-ecology-ipa-grade-⑥
+    link text: '基本设计 §06.6'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/detailed-design/00-overview.md#03-语言与运行时-language-runtime
+    link text: '详细设计 §00.3'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/basic-design/08-operations-design.md#83-监控-monitoringobs-req-v1
+    link text: '基本设计 §08.3'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/detailed-design/10-observability.md#103-tracer-初始化
+    link text: '详细设计 §10.3'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/basic-design/08-operations-design.md#83-监控-monitoringobs-req-v1
+    link text: '基本设计 §08.3'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/detailed-design/10-observability.md#105-指标目录
+    link text: '详细设计 §10.4'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/basic-design/08-operations-design.md#84-日志-logging
+    link text: '基本设计 §08.4'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/detailed-design/10-observability.md#106-结构化日志
+    link text: '详细设计 §10.6'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/basic-design/08-operations-design.md#81-部署-deployment
+    link text: '基本设计 §08.1'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/detailed-design/00-overview.md#011-部署包-deployment-artifacts
+    link text: '详细设计 §00.11'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/basic-design/08-operations-design.md#81-部署-deployment
+    link text: '基本设计 §08.1'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/detailed-design/01-data-layer.md#14-完整-ddl
+    link text: '详细设计 §01.4'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/detailed-design/08-api-handlers.md#83-路由表
+    link text: '详细设计 §08.3'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/basic-design/14-admin-ops-ui.md#142-关键页面与交互-key-pages-interactions
+    link text: '基本设计 §14.2'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/detailed-design/13-admin-api-and-ops-ui.md#134-ops-ui-前端架构
+    link text: '详细设计 §13.4'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/basic-design/08-operations-design.md#81-部署-deployment
+    link text: '基本设计 §08.1'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/detailed-design/00-overview.md#07-并发模型-concurrency-model
+    link text: '详细设计 §00.7'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/basic-design/03-functional-design.md#32-工程图谱子系统-engineering-graph-subsystem
+    link text: '基本设计 §03.2'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/detailed-design/02-graph-engine.md#24-类型注册表-type-registry
+    link text: '详细设计 §02.4'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/basic-design/10-acceptance-test-policy.md#104-发布判定-release-decision
+    link text: '基本设计 §10.4'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/basic-design/03-functional-design.md#323-v1-功能
+    link text: '基本设计 §03.2.3'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/detailed-design/02-graph-engine.md#27-图遍历
+    link text: '详细设计 §02.7'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/basic-design/07-security-design.md#71-认证-授权-authentication-authorization
+    link text: '基本设计 §07.1'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/basic-design/07-security-design.md#71-认证-授权-authentication-authorization
+    link text: '基本设计 §07.1'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/detailed-design/03-policy-engine.md#37-rbac-角色解析
+    link text: '详细设计 §03.3'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/basic-design/07-security-design.md#72-审计-audit
+    link text: '基本设计 §07.2'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/detailed-design/01-data-layer.md#13-db-role-分离aisec-req-009a-mvp-必填
+    link text: '详细设计 §01.3'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/basic-design/07-security-design.md#71-认证-授权-authentication-authorization
+    link text: '基本设计 §07.1'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/detailed-design/04-agent-runtime.md#47-凭据签发-credential-issuance
+    link text: '详细设计 §04.7'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/basic-design/07-security-design.md#75-密钥管理-secrets-managementsec-req-005-sec-req-010
+    link text: '基本设计 §07.5'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/detailed-design/09-security-impl.md#93-信封加密实现
+    link text: '详细设计 §09.2'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/basic-design/07-security-design.md#74-网络安全-network-securitysec-req-008-phase-14-f14-3
+    link text: '基本设计 §07.4'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/detailed-design/04-agent-runtime.md#46-工作区隔离-workspace-isolation
+    link text: '详细设计 §04.6'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/basic-design/07-security-design.md#78-admin-独立鉴权域-admin-separate-auth-domain
+    link text: '基本设计 §07.8'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/detailed-design/13-admin-api-and-ops-ui.md#132-鉴权中间件
+    link text: '详细设计 §13.2'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/basic-design/07-security-design.md#74-网络安全-network-securitysec-req-008-phase-14-f14-3
+    link text: '基本设计 §07.4'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/basic-design/06-non-functional-design.md#63-运行与维护性operability-maintainability-ipa-grade-③
+    link text: '基本设计 §06.3'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/detailed-design/00-overview.md#08-测试约定-testing-convention
+    link text: '详细设计 §00.8'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/basic-design/07-security-design.md#75-密钥管理-secrets-managementsec-req-005-sec-req-010
+    link text: '基本设计 §07.5'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/detailed-design/09-security-impl.md#93-信封加密实现
+    link text: '详细设计 §09.2'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/basic-design/03-functional-design.md#32-工程图谱子系统-engineering-graph-subsystem
+    link text: '基本设计 §03.2'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/basic-design/04-data-design.md#42-物理-schema-physical-schemapostgresql
+    link text: '基本设计 §04.2'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/detailed-design/01-data-layer.md#14-完整-ddl
+    link text: '详细设计 §01.4'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/basic-design/03-functional-design.md#32-工程图谱子系统-engineering-graph-subsystem
+    link text: '基本设计 §03.2'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/basic-design/03-functional-design.md#343-v1-功能
+    link text: '基本设计 §03.4.3'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/basic-design/05-interface-design.md#56-ui-概述-ui-overview
+    link text: '基本设计 §05.6'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/detailed-design/13-admin-api-and-ops-ui.md#134-ops-ui-前端架构
+    link text: '详细设计 §13.4'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/basic-design/05-interface-design.md#56-ui-概述-ui-overview
+    link text: '基本设计 §05.6'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/detailed-design/13-admin-api-and-ops-ui.md#134-ops-ui-前端架构
+    link text: '详细设计 §13.4'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/basic-design/14-admin-ops-ui.md#1423-中心事件流
+    link text: '基本设计 §14.2.3'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/detailed-design/13-admin-api-and-ops-ui.md#134-ops-ui-前端架构
+    link text: '详细设计 §13.4'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/basic-design/14-admin-ops-ui.md#1425-审计日志
+    link text: '基本设计 §14.2.4'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/detailed-design/13-admin-api-and-ops-ui.md#134-ops-ui-前端架构
+    link text: '详细设计 §13.4'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/basic-design/05-interface-design.md#56-ui-概述-ui-overview
+    link text: '基本设计 §05.6'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/basic-design/05-interface-design.md#56-ui-概述-ui-overview
+    link text: '基本设计 §05.6'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/detailed-design/13-admin-api-and-ops-ui.md#134-ops-ui-前端架构
+    link text: '详细设计 §13.4'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/basic-design/05-interface-design.md#56-ui-概述-ui-overview
+    link text: '基本设计 §05.6'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/detailed-design/13-admin-api-and-ops-ui.md#134-ops-ui-前端架构
+    link text: '详细设计 §13.4'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/basic-design/05-interface-design.md#56-ui-概述-ui-overview
+    link text: '基本设计 §05.6'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/detailed-design/13-admin-api-and-ops-ui.md#134-ops-ui-前端架构
+    link text: '详细设计 §13.4'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/basic-design/03-functional-design.md#32-工程图谱子系统-engineering-graph-subsystem
+    link text: '基本设计 §03.2'
+  [ANCHOR_MISSING] design/basic-design/appendix-a-traceability.md
+    -> design/basic-design/10-acceptance-test-policy.md#102-mvp-验收条件重申-phase-9-6-的-definition-of-done
+    link text: '基本设计 §10.2'
+  [ANCHOR_MISSING] design/basic-design/appendix-b-tbd.md
+    -> design/basic-design/07-security-design.md#75-瀵嗛挜绠＄悊-secrets-managementsec-req-005-sec-req-010
+    link text: '搂6 闈炲姛鑳借璁(06-non-functional-design.md) 鍏ㄦ枃 | 鍩哄噯娴嬭瘯绋嬪簭鎵ц鍚庯紝V1 姝ｅ紡鍖?|
+| 鏀寔鐨?OS / 鏋舵瀯鐭╅樀 | [搂8.1.3 鏀寔鐨勬搷浣滅郴缁熺煩闃礭(08-operations-design.md#813-鏀寔鐨勬搷浣滅郴缁熺煩闃祅fr-req-003-v1-姝ｅ紡鍖? | NFR-REQ-003 鍦?V1 鍒跺畾锛圥hase 14 F14-5 鍙嶆槧锛墊
+| 鑷劧鐏惧瀵圭瓥鐨?DR site 璁捐 | [搂6.1 鍙敤鎬(06-non-functional-design.md#61-鍙敤鎬vailability-ipa-grade-鈶? | V1+ |
+| 鍔犲瘑瀵嗛挜绠＄悊锛圞MS 闆嗘垚 vs 鏈湴锛夐€夋嫨 | [搂7.5 瀵嗛挜绠＄悊'
+  [ANCHOR_MISSING] design/basic-design/appendix-b-tbd.md
+    -> design/basic-design/11-api-design.md#114-mcp-璁捐
+    link text: '搂3.5 Agent Runtime 瀛愮郴缁焆(03-functional-design.md#35-agent-杩愯鏃跺瓙绯荤粺-agent-runtime-subsystem)銆乕搂11.4 MCP 璁捐'
+  [ANCHOR_MISSING] design/basic-design/appendix-b-tbd.md
+    -> design/basic-design/02-architecture.md#23-鐗╃悊鏋舵瀯-physical-architecture
+    link text: '搂2.3 鐗╃悊鏋舵瀯'
+  [ANCHOR_MISSING] design/basic-design/appendix-b-tbd.md
+    -> design/basic-design/12-app-group-intercommunication.md#1245-绔偣褰㈠紡
+    link text: '搂12.4.5 绔偣褰㈠紡'
+  [ANCHOR_MISSING] design/basic-design/appendix-c-ipa-mapping.md
+    -> design/basic-design/00-introduction.md#00-渚濇嵁瀹ｈ█-compliance-declaration
+    link text: '00. 浠嬬粛 搂0.0 渚濇嵁瀹ｈ█'
+  [ANCHOR_MISSING] design/basic-design/appendix-c-ipa-mapping.md
+    -> design/basic-design/00-introduction.md#07-鏈功鏋勬垚-document-structure
+    link text: '00. 浠嬬粛 搂0.7 鏈功鏋勬垚'
+  [ANCHOR_MISSING] design/basic-design/appendix-c-ipa-mapping.md
+    -> design/detailed-design/00-overview.md#02-椤跺眰妯″潡鍒掑垎
+    link text: '00. 浠嬬粛 搂0.2.2 涓嶅寘鍚玗(00-introduction.md#022-涓嶅寘鍚?out-of-scope)锛圥hase 14 F14-7 缂哄彛锛?| 鈴?|
+
+## C.4 P4 + P5 杞欢鏂瑰紡/璇︾粏璁捐杩囩▼ 璇︾粏瀵瑰簲
+
+> **IPA 鍏遍€氭鏋?2013 搂3.5/3.6 杞欢鏂瑰紡璁捐杩囩▼ / 杞欢璇︾粏璁捐杩囩▼ 鏋勬垚锛?*
+> P4 娲诲姩锛欰1 璁捐杞欢鏂瑰紡 / A2 璇勪环杞欢鏂瑰紡 / A3 缂栧啓杞欢璁捐涔?> P5 娲诲姩锛欰1 璁捐杞欢璇︾粏鏂瑰紡 / A2 璇勪环杞欢璇︾粏鏂瑰紡 / A3 缂栧啓杞欢璇︾粏璁捐涔?
+### C.4.1 P4 浠诲姟 鈫?璇︾粏璁捐绔犺妭 瀵瑰簲
+
+| 浠诲姟 | 璇︾粏璁捐绔犺妭 |
+|---|---|
+| T-P4-A1-1 璁捐杞欢鏋勬垚 | [00. 鎬讳綋姒傝堪 搂2 椤跺眰妯″潡鍒掑垎'
+  [ANCHOR_MISSING] design/basic-design/appendix-c-ipa-mapping.md
+    -> design/detailed-design/04-agent-runtime.md#44-鐘舵€佹満
+    link text: '08. API 澶勭悊鍣╙(../detailed-design/08-api-handlers.md) |
+| T-P5-A1-4 璁捐鐘舵€佹満 | [04. Agent 杩愯鏃?搂4.4 鐘舵€佹満'
+  [ANCHOR_MISSING] design/basic-design/appendix-c-ipa-mapping.md
+    -> design/detailed-design/07-app-coordination.md#74-瀛樺偍杩囩▼plpgsql璋冪敤
+    link text: '12. App 缇ょ粍淇℃伅浜掗€氳璁?搂瀛樺偍杩囩▼ API 绔偣'
+  [ANCHOR_MISSING] design/basic-design/appendix-c-ipa-mapping.md
+    -> design/basic-design/10-acceptance-test-policy.md#102-mvp-楠屾敹鏉′欢閲嶇敵-phase-9-6-鐨?definition-of-done
+    link text: '10. 鍙楀叆娴嬭瘯鏂归拡 搂10.2 MVP 楠屾敹鏉′欢'
+  [ANCHOR_MISSING] design/basic-design/appendix-c-ipa-mapping.md
+    -> design/detailed-design/04-agent-runtime.md#47-鍑嵁绛惧彂-credential-issuance
+    link text: '06. 闈炲姛鑳借璁(06-non-functional-design.md)锛? 璐ㄩ噺鐗规€т笌 6 澶ч」浜ゅ弶锛?|
+| **W3C Trace Context** | [10. 鍙娴嬫€?搂10.9 璺ㄨ繘绋嬩紶鎾璢(../detailed-design/10-observability.md#109-span-璺ㄨ繘绋嬩紶鎾? |
+| **OpenTelemetry** | [10. 鍙娴嬫€(../detailed-design/10-observability.md) 鍏ㄦ枃 |
+| **JSON Schema Draft 2020-12** | [02. 鍥捐氨寮曟搸 搂2.4 绫诲瀷娉ㄥ唽琛╙(../detailed-design/02-graph-engine.md#24-绫诲瀷娉ㄥ唽琛?type-registry) |
+| **JWT (RFC 7519)** | [04. Agent 杩愯鏃?搂4.7 鍑嵁绛惧彂'
+  [TARGET_FILE_MISSING] design/basic-design/appendix-c-ipa-mapping.md
+    -> design/basic-design/03-functional-design.md#374-aisec-reqai-瀹夊叏鐨勬暣鍚? + [搂7.3](07-security-design.md#73-ai-瀹夊叏-ai-securityaisec-req
+    link text: '搂3.7.4'
+  [ANCHOR_MISSING] design/basic-design/appendix-c-ipa-mapping.md
+    -> design/basic-design/03-functional-design.md#37-瀹夊叏涓庤闂帶鍒跺瓙绯荤粺-security-access-control-subsystem
+    link text: '搂3.7'
+  [ANCHOR_MISSING] design/basic-design/appendix-c-ipa-mapping.md
+    -> design/basic-design/07-security-design.md#75-瀵嗛挜绠＄悊-secrets-managementsec-req-005-sec-req-010
+    link text: '搂7.5'
+  [TARGET_FILE_MISSING] design/basic-design/appendix-c-ipa-mapping.md
+    -> design/basic-design/13-app-cluster-and-plugins.md#131-姒傚康妯″瀷app-浣滀负涓€绾у钩鍙板璞? 缁欏嚭
+- [x] App Manifest schema 鍦?[搂13.2](13-app-cluster-and-plugins.md#132-app-manifest-appyaml-schema
+    link text: '搂13.1'
+  [ANCHOR_MISSING] design/basic-design/appendix-c-ipa-mapping.md
+    -> design/basic-design/13-app-cluster-and-plugins.md#134-涓績浜嬩欢鎬荤嚎-central-event-bus
+    link text: '搂13.4'
+  [ANCHOR_MISSING] design/basic-design/appendix-c-ipa-mapping.md
+    -> design/basic-design/13-app-cluster-and-plugins.md#135-app-闆嗙兢妯″瀷
+    link text: '搂13.5'
+  [ANCHOR_MISSING] design/basic-design/appendix-c-ipa-mapping.md
+    -> design/basic-design/13-app-cluster-and-plugins.md#136-鐑彃鎷斾笌鐢熷懡鍛ㄦ湡-hot-plug-lifecycle
+    link text: '搂13.6-13.7'
+  [ANCHOR_MISSING] design/basic-design/appendix-c-ipa-mapping.md
+    -> design/basic-design/14-admin-ops-ui.md#141-閮ㄧ讲褰㈡€?deployment-topology
+    link text: '搂14.1 / 搂14.3'
+  [ANCHOR_MISSING] design/basic-design/appendix-c-ipa-mapping.md
+    -> design/basic-design/14-admin-ops-ui.md#1425-瀹¤鏃ュ織
+    link text: '搂14.2.5'
+  [ANCHOR_MISSING] design/basic-design/appendix-c-ipa-mapping.md
+    -> design/basic-design/07-security-design.md#77-app-娌欑鏉冮檺杈圭晫-app-sandbox-permission-boundary
+    link text: '搂7.7'
+  [ANCHOR_MISSING] design/basic-design/appendix-c-ipa-mapping.md
+    -> design/basic-design/11-api-design.md#1112-plugin-api-绔偣鏃?plugin-api-endpoint-family
+    link text: '搂11.12'
+  [ANCHOR_MISSING] design/basic-design/appendix-c-ipa-mapping.md
+    -> design/basic-design/08-operations-design.md#86-v1-k8s-閮ㄧ讲褰㈡€?v1-k8s-deployment-topology
+    link text: '搂8.6'
+  [ANCHOR_MISSING] design/basic-design/appendix-d-glossary.md
+    -> design/basic-design/01-system-overview.md#13-系统边界-system-boundary
+    link text: '01. 系统概述 §1.3 系统边界'
+  [ANCHOR_MISSING] design/basic-design/appendix-d-glossary.md
+    -> design/basic-design/02-architecture.md#22-部署单位-deployable-units来自-phase-10-4
+    link text: '§2.2 部署单位'
+  [ANCHOR_MISSING] design/basic-design/appendix-d-glossary.md
+    -> design/basic-design/06-non-functional-design.md#61-可用性availability-ipa-grade-①
+    link text: '06.1 可用性'
+  [ANCHOR_MISSING] design/basic-design/appendix-d-glossary.md
+    -> design/basic-design/06-non-functional-design.md#63-运行与维护性operability-maintainability-ipa-grade-③
+    link text: '06.3 运行与维护性'
+  [ANCHOR_MISSING] design/basic-design/appendix-d-glossary.md
+    -> design/basic-design/06-non-functional-design.md#64-可迁移性migration-portability-ipa-grade-④
+    link text: '06.4 可迁移性'
+  [ANCHOR_MISSING] design/basic-design/appendix-d-glossary.md
+    -> design/basic-design/06-non-functional-design.md#62-性能与扩展性performance-scalability-ipa-grade-②
+    link text: '06.2 性能与扩展性'
+  [ANCHOR_MISSING] design/basic-design/appendix-d-glossary.md
+    -> design/basic-design/07-security-design.md#71-认证-授权-authentication-authorization
+    link text: '§7.1 认证授权'
+  [ANCHOR_MISSING] design/basic-design/appendix-d-glossary.md
+    -> design/basic-design/07-security-design.md#72-审计-audit
+    link text: '§7.2 审计'
+  [ANCHOR_MISSING] design/basic-design/appendix-d-glossary.md
+    -> design/basic-design/07-security-design.md#75-密钥管理-secrets-managementsec-req-005-sec-req-010
+    link text: '§7.5 密钥管理'
+  [ANCHOR_MISSING] design/basic-design/appendix-d-glossary.md
+    -> design/basic-design/06-non-functional-design.md#61-可用性availability-ipa-grade-①
+    link text: '06.1 可用性'
+  [ANCHOR_MISSING] design/basic-design/appendix-d-glossary.md
+    -> design/basic-design/06-non-functional-design.md#62-性能与扩展性performance-scalability-ipa-grade-②
+    link text: '06.2 性能与扩展性'
+  [ANCHOR_MISSING] design/basic-design/appendix-d-glossary.md
+    -> design/basic-design/06-non-functional-design.md#63-运行与维护性operability-maintainability-ipa-grade-③
+    link text: '06.3 运行与维护性'
+  [ANCHOR_MISSING] design/basic-design/appendix-d-glossary.md
+    -> design/basic-design/06-non-functional-design.md#64-可迁移性migration-portability-ipa-grade-④
+    link text: '06.4 可迁移性'
+  [ANCHOR_MISSING] design/basic-design/appendix-d-glossary.md
+    -> design/basic-design/06-non-functional-design.md#65-安全性security-ipa-grade-⑤
+    link text: '06.5 安全性'
+  [ANCHOR_MISSING] design/basic-design/appendix-d-glossary.md
+    -> design/basic-design/06-non-functional-design.md#66-系统环境与生态system-environment-ecology-ipa-grade-⑥
+    link text: '06.6 系统环境与生态'
+  [ANCHOR_MISSING] design/basic-design/appendix-d-glossary.md
+    -> design/detailed-design/01-data-layer.md#143-类型注册表-type-registry
+    link text: '`../detailed-design/01-data-layer.md` §1.4.3 类型注册表'
+  [ANCHOR_MISSING] design/basic-design/appendix-d-glossary.md
+    -> design/detailed-design/02-graph-engine.md#24-类型注册表-type-registry
+    link text: '`02-graph-engine.md` §2.4 类型注册表'
+  [ANCHOR_MISSING] design/basic-design/appendix-d-glossary.md
+    -> design/basic-design/04-data-design.md#41-概念数据模型-conceptual-data-model
+    link text: '§4.1 概念数据模型'
+  [ANCHOR_MISSING] design/basic-design/appendix-d-glossary.md
+    -> design/detailed-design/02-graph-engine.md#24-类型注册表-type-registry
+    link text: '`../detailed-design/02-graph-engine.md` §2.4 类型注册表'
+  [ANCHOR_MISSING] design/basic-design/appendix-d-glossary.md
+    -> design/basic-design/13-app-cluster-and-plugins.md#131-概念模型app-作为一级平台对象
+    link text: '§13.1'
+  [ANCHOR_MISSING] design/basic-design/appendix-d-glossary.md
+    -> design/basic-design/13-app-cluster-and-plugins.md#131-概念模型app-作为一级平台对象
+    link text: '§13.1'
+  [ANCHOR_MISSING] design/basic-design/appendix-d-glossary.md
+    -> design/basic-design/13-app-cluster-and-plugins.md#1362-状态转换事件
+    link text: '§13.6.2'
+  [ANCHOR_MISSING] design/basic-design/appendix-d-glossary.md
+    -> design/detailed-design/12-app-registry-and-plugin-loader.md#122-plugin-loader-进程
+    link text: '详细设计 §12.2'
+  [ANCHOR_MISSING] design/basic-design/appendix-d-glossary.md
+    -> design/basic-design/13-app-cluster-and-plugins.md#134-中心事件总线-central-event-bus
+    link text: '§13.4'
+  [ANCHOR_MISSING] design/basic-design/appendix-d-glossary.md
+    -> design/detailed-design/12-app-registry-and-plugin-loader.md#1214-中心事件-schema-注册表
+    link text: '详细设计 §12.1.4'
+  [ANCHOR_MISSING] design/basic-design/appendix-d-glossary.md
+    -> design/basic-design/13-app-cluster-and-plugins.md#1344-dead-letter-queue死信
+    link text: '§13.4.4'
+  [ANCHOR_MISSING] design/basic-design/appendix-d-glossary.md
+    -> design/basic-design/13-app-cluster-and-plugins.md#137-升级策略-upgrade-strategy
+    link text: '§13.7'
+  [ANCHOR_MISSING] design/basic-design/appendix-d-glossary.md
+    -> design/basic-design/13-app-cluster-and-plugins.md#1364-优雅停机
+    link text: '§13.6.4'
+  [ANCHOR_MISSING] design/basic-design/appendix-d-glossary.md
+    -> design/basic-design/07-security-design.md#77-app-沙箱权限边界-app-sandbox-permission-boundary
+    link text: '§7.7'
+  [ANCHOR_MISSING] design/basic-design/appendix-d-glossary.md
+    -> design/basic-design/11-api-design.md#1111-admin-api-端点族-admin-api-endpoint-family
+    link text: '§11.11'
+  [ANCHOR_MISSING] design/basic-design/appendix-d-glossary.md
+    -> design/basic-design/11-api-design.md#1112-plugin-api-端点族-plugin-api-endpoint-family
+    link text: '§11.12'
+  [ANCHOR_MISSING] design/basic-design/appendix-d-glossary.md
+    -> design/basic-design/14-admin-ops-ui.md#1425-审计日志
+    link text: '§14.2.5'
+  [ANCHOR_MISSING] design/basic-design/appendix-d-glossary.md
+    -> design/basic-design/14-admin-ops-ui.md#1433-admin-独立鉴权边界sec-req-011
+    link text: '§14.3.3'
+  [ANCHOR_MISSING] design/basic-design/appendix-d-glossary.md
+    -> design/basic-design/08-operations-design.md#86-v1-k8s-部署形态-v1-k8s-deployment-topology
+    link text: '§8.6'
+  [ANCHOR_MISSING] design/basic-design/appendix-d-glossary.md
+    -> design/basic-design/11-api-design.md#114-mcp-设计
+    link text: '§11.4 MCP 设计'
+  [ANCHOR_MISSING] design/basic-design/appendix-d-glossary.md
+    -> design/basic-design/04-data-design.md#42-物理-schema-physical-schemapostgresql
+    link text: '§4.2 物理 schema'
+  [ANCHOR_MISSING] design/basic-design/appendix-d-glossary.md
+    -> design/detailed-design/04-agent-runtime.md#471-token-格式
+    link text: '§4.7.1 Token 格式'
+  [ANCHOR_MISSING] design/basic-design/appendix-d-glossary.md
+    -> design/detailed-design/02-graph-engine.md#24-类型注册表-type-registry
+    link text: '§4.5 节点 ID 设计'
+  [ANCHOR_MISSING] design/basic-design/appendix-d-glossary.md
+    -> design/detailed-design/01-data-layer.md#15-索引策略-index-strategy
+    link text: '§1.5 索引策略'
+  [ANCHOR_MISSING] design/basic-design/appendix-d-glossary.md
+    -> design/detailed-design/01-data-layer.md#16-行级安全-rls
+    link text: '§1.6 行级安全'
+  [ANCHOR_MISSING] design/basic-design/appendix-d-glossary.md
+    -> design/detailed-design/01-data-layer.md#173-图遍历递归-cte
+    link text: '§4.7.3 递归 CTE'
+  [ANCHOR_MISSING] design/basic-design/appendix-d-glossary.md
+    -> design/basic-design/07-security-design.md#75-密钥管理-secrets-managementsec-req-005-sec-req-010
+    link text: '§7.5 密钥管理 §AAD 设计'
+  [ANCHOR_MISSING] design/basic-design/appendix-d-glossary.md
+    -> design/detailed-design/05-ai-gateway.md#512-流式响应
+    link text: '§5.12 流式响应'
+  [ANCHOR_MISSING] design/basic-design/appendix-d-glossary.md
+    -> design/basic-design/08-operations-design.md#82-备份-恢复-backup-recoverybkp-req
+    link text: '§8.2 备份恢复'
+  [ANCHOR_MISSING] design/basic-design/appendix-d-glossary.md
+    -> design/basic-design/03-functional-design.md#31-git-server-子系统-git-server-subsystem
+    link text: '§3.1 Git Server'
+  [ANCHOR_MISSING] design/basic-design/appendix-d-glossary.md
+    -> design/detailed-design/06-git-server.md#610-lfs-支持-v1
+    link text: '§6.10 LFS 支持'
+  [ANCHOR_MISSING] design/basic-design/appendix-d-glossary.md
+    -> design/detailed-design/04-agent-runtime.md#46-工作区隔离-workspace-isolation
+    link text: '§4.6 工作区隔离'
+  [ANCHOR_MISSING] design/basic-design/appendix-d-glossary.md
+    -> design/basic-design/04-data-design.md#41-概念数据模型-conceptual-data-model
+    link text: '§4.1 概念数据模型'
+  [ANCHOR_MISSING] design/basic-design/appendix-d-glossary.md
+    -> design/detailed-design/03-policy-engine.md#38-abac-属性求值
+    link text: '§3.8 ABAC'
+  [ANCHOR_MISSING] design/basic-design/appendix-d-glossary.md
+    -> design/basic-design/05-interface-design.md#56-ui-概述-ui-overview
+    link text: '§5.6 UI 概述'
+  [ANCHOR_MISSING] design/basic-design/appendix-d-glossary.md
+    -> design/detailed-design/08-api-handlers.md#810-openapi-治理
+    link text: '§8.10 OpenAPI 治理'
+  [ANCHOR_MISSING] design/basic-design/appendix-d-glossary.md
+    -> design/detailed-design/08-api-handlers.md#810-openapi-治理
+    link text: '§8.10 OpenAPI 治理'
+  [ANCHOR_MISSING] design/basic-design/appendix-d-glossary.md
+    -> design/detailed-design/02-graph-engine.md#29-缓存-caching
+    link text: '§2.9 缓存'
+  [ANCHOR_MISSING] design/basic-design/appendix-d-glossary.md
+    -> design/basic-design/14-admin-ops-ui.md#1433-admin-独立鉴权边界sec-req-011
+    link text: '§14.3.3 双因素认证'
+  [ANCHOR_MISSING] design/basic-design/appendix-d-glossary.md
+    -> design/basic-design/14-admin-ops-ui.md#1433-admin-独立鉴权边界sec-req-011
+    link text: '§14.3.3 双因素认证'
+  [ANCHOR_MISSING] design/basic-design/appendix-d-glossary.md
+    -> design/basic-design/14-admin-ops-ui.md#1433-admin-独立鉴权边界sec-req-011
+    link text: '§14.3.3 双因素认证'
+  [ANCHOR_MISSING] design/basic-design/appendix-d-glossary.md
+    -> design/detailed-design/13-admin-api-and-ops-ui.md#133-admin_audit-表-ddl
+    link text: '§13.3 admin_audit DDL'
+  [ANCHOR_MISSING] design/basic-design/appendix-d-glossary.md
+    -> design/detailed-design/13-admin-api-and-ops-ui.md#1325-mtlsv1-cloud
+    link text: '§13.2.5 mTLS'
+  [ANCHOR_MISSING] design/basic-design/appendix-d-glossary.md
+    -> design/basic-design/08-operations-design.md#86-v1-k8s-部署形态-v1-k8s-deployment-topology
+    link text: '§8.6 V1+ K8s 部署形态'
+  [ANCHOR_MISSING] design/basic-design/appendix-d-glossary.md
+    -> design/detailed-design/13-admin-api-and-ops-ui.md#1351-k8s-资源清单
+    link text: '§13.5.1 K8s 资源清单'
+  [ANCHOR_MISSING] design/basic-design/appendix-d-glossary.md
+    -> design/detailed-design/13-admin-api-and-ops-ui.md#1353-hpa水平自动扩缩
+    link text: '§13.5.3 HPA'
+  [ANCHOR_MISSING] design/basic-design/appendix-d-glossary.md
+    -> design/detailed-design/13-admin-api-and-ops-ui.md#1345-实时事件流sse
+    link text: '§13.4.5 实时事件流'
+  [ANCHOR_MISSING] design/basic-design/appendix-d-glossary.md
+    -> design/detailed-design/12-app-registry-and-plugin-loader.md#1244-http-入口命名空间
+    link text: '§12.4.4 路由注册协议'
+  [ANCHOR_MISSING] design/basic-design/appendix-d-glossary.md
+    -> design/detailed-design/01-data-layer.md#12-命名与规约-naming-convention
+    link text: '`01. 数据层 §1.2 命名与规约`'
+  [ANCHOR_MISSING] design/basic-design/appendix-d-glossary.md
+    -> design/detailed-design/04-agent-runtime.md#43-数据类型
+    link text: '§4.1 命名规约'
+  [ANCHOR_MISSING] design/basic-design/README.md
+    -> design/basic-design/00-introduction.md#06-ipa-过程地图-ipa-process-map
+    link text: '00. 介绍 §0.6 IPA 过程地图'
+  [ANCHOR_MISSING] design/detailed-design/00-overview.md
+    -> architecture/tech-selection.md#2-涓昏瑷€鍐崇瓥rust-language-decision
+    link text: '鎶€鏈€夊瀷鏂囨。 搂2'
+  [ANCHOR_MISSING] design/detailed-design/00-overview.md
+    -> architecture/tech-selection.md#0-鍐崇瓥鎽樿-decision-summary
+    link text: '鎶€鏈€夊瀷鏂囨。 搂0'
+  [ANCHOR_MISSING] design/detailed-design/01-data-layer.md
+    -> design/basic-design/07-security-design.md#72-瀹¤-audit
+    link text: '搂7.2 瀹¤'
+  [ANCHOR_MISSING] design/detailed-design/01-data-layer.md
+    -> design/basic-design/08-operations-design.md#82-澶囦唤-鎭㈠-backup-recoverybkp-req
+    link text: '搂8.2 澶囦唤/鎭㈠'
+  [ANCHOR_MISSING] design/detailed-design/02-graph-engine.md
+    -> design/detailed-design/01-data-layer.md#143-绫诲瀷娉ㄥ唽琛?type-registry
+    link text: '01 鏁版嵁灞?搂1.4.3'
+  [ANCHOR_MISSING] design/detailed-design/03-policy-engine.md
+    -> design/basic-design/03-functional-design.md#37-瀹夊叏涓庤闂帶鍒跺瓙绯荤粺-security-access-control-subsystem
+    link text: '鍩烘湰璁捐 搂3.7 瀹夊叏涓庤闂帶鍒跺瓙绯荤粺'
+  [ANCHOR_MISSING] design/detailed-design/07-app-coordination.md
+    -> design/detailed-design/12-app-registry-and-plugin-loader.md#123-中心事件总线实现
+    link text: '详细设计 §12.3 中心事件总线实现'
+  [ANCHOR_MISSING] design/detailed-design/09-security-impl.md
+    -> design/detailed-design/01-data-layer.md#13-db-role-鍒嗙aisec-req-009a-mvp-蹇呭～
+    link text: '01 鏁版嵁灞?搂1.3'
+  [ANCHOR_MISSING] design/detailed-design/10-observability.md
+    -> design/basic-design/08-operations-design.md#83-鐩戞帶-monitoringobs-req-v1
+    link text: '鍩烘湰璁捐 搂8.3 鐩戞帶 / 搂8.4 鏃ュ織'
+  [ANCHOR_MISSING] design/detailed-design/11-error-handling.md
+    -> design/detailed-design/08-api-handlers.md#85-閿欒鍝嶅簲鏍煎紡
+    link text: '08 API 澶勭悊鍣?搂8.5'
+  [ANCHOR_MISSING] design/detailed-design/README.md
+    -> design/basic-design/02-architecture.md#24-瀛樺偍鏋舵瀯-storage-architecture閲囩敤-phase-10-1
+    link text: '搂2.4'
+  [ANCHOR_MISSING] design/detailed-design/README.md
+    -> design/basic-design/03-functional-design.md#32-宸ョ▼鍥捐氨瀛愮郴缁?engineering-graph-subsystem
+    link text: '搂3.2'
+  [TARGET_FILE_MISSING] observability/06-middleware-observability.md
+    -> design/detailed-design/07-app-platform.md
+    link text: '`../design/detailed-design/07-app-platform.md`'
+  [TARGET_FILE_MISSING] observability/11-deployment-design.md
+    -> architecture/decisions/0006-k3s-deployment.md
+    link text: '`../architecture/decisions/0006-k3s-deployment.md`'
+  [TARGET_FILE_MISSING] observability/11-deployment-design.md
+    -> architecture/decisions/0006-k3s-deployment.md
+    link text: '`../architecture/decisions/0006-k3s-deployment.md`'
+  [ANCHOR_MISSING] observability/README.md
+    -> observability/13-implementation-phases.md#2-phase-0
+    link text: '13 搂2'
+  [ANCHOR_MISSING] observability/README.md
+    -> observability/13-implementation-phases.md#3-phase-1
+    link text: '13 搂3'
+  [ANCHOR_MISSING] observability/README.md
+    -> observability/13-implementation-phases.md#4-phase-2
+    link text: '13 搂4'
+  [ANCHOR_MISSING] observability/README.md
+    -> observability/13-implementation-phases.md#5-phase-3
+    link text: '13 搂5'
+  [ANCHOR_MISSING] observability/README.md
+    -> observability/13-implementation-phases.md#6-phase-4
+    link text: '13 搂6'
+  [ANCHOR_MISSING] observability/README.md
+    -> observability/13-implementation-phases.md#7-phase-5
+    link text: '13 搂7'
+  [ANCHOR_MISSING] observability/README.md
+    -> observability/13-implementation-phases.md#8-phase-6
+    link text: '13 搂8'
+  [ANCHOR_MISSING] observability/README.md
+    -> observability/13-implementation-phases.md#9-phase-7
+    link text: '13 搂9'
+  [ANCHOR_MISSING] observability/README.md
+    -> observability/13-implementation-phases.md#10-phase-8
+    link text: '13 搂10'
+  [ANCHOR_MISSING] process/workflow.md
+    -> design/basic-design/04-data-design.md#41-概念数据模型-conceptual-data-model
+    link text: '基本设计 §04.1'
+  [ANCHOR_MISSING] process/workflow.md
+    -> design/basic-design/07-security-design.md#71-认证-授权-authentication-authorization
+    link text: '基本设计 §07.1'
+  [ANCHOR_MISSING] process/workflow.md
+    -> design/basic-design/07-security-design.md#74-网络安全-network-securitysec-req-008-phase-14-f14-3
+    link text: '基本设计 §07.4'
+  [ANCHOR_MISSING] process/workflow.md
+    -> design/basic-design/08-operations-design.md#85-支持与-faq-support
+    link text: '基本设计 §08.5'
+  [ANCHOR_MISSING] process/workflow.md
+    -> design/basic-design/08-operations-design.md#83-监控-monitoringobs-req-v1
+    link text: '基本设计 §08.3'
+  [ANCHOR_MISSING] process/workflow.md
+    -> design/basic-design/08-operations-design.md#82-备份-恢复-backup-recoverybkp-req
+    link text: '基本设计 §08.2'
+  [ANCHOR_MISSING] process/workflow.md
+    -> design/detailed-design/00-overview.md#02-顶层模块划分
+    link text: '详细设计 §00.2'
+  [ANCHOR_MISSING] process/workflow.md
+    -> design/detailed-design/02-graph-engine.md#27-图遍历
+    link text: '详细设计 §02.7'
+  [ANCHOR_MISSING] process/workflow.md
+    -> design/detailed-design/01-data-layer.md#14-完整-ddl
+    link text: '详细设计 §01.4'
+  [ANCHOR_MISSING] process/workflow.md
+    -> design/detailed-design/10-observability.md#106-结构化日志
+    link text: '详细设计 §10.6'
+  [ANCHOR_MISSING] process/workflow.md
+    -> design/basic-design/10-acceptance-test-policy.md#101-测试级别-test-levels
+    link text: '基本设计 §10.1'
+  [ANCHOR_MISSING] process/workflow.md
+    -> design/basic-design/10-acceptance-test-policy.md#102-mvp-验收条件重申-phase-9-6-的-definition-of-done
+    link text: '基本设计 §10.2 MVP DoD'
+  [ANCHOR_MISSING] process/workflow.md
+    -> design/basic-design/10-acceptance-test-policy.md#101-测试级别-test-levels
+    link text: '基本设计 §10.1'
+  [ANCHOR_MISSING] process/workflow.md
+    -> design/basic-design/10-acceptance-test-policy.md#103-验收测试清单-acceptance-checklist
+    link text: '基本设计 §10.3'
+  [ANCHOR_MISSING] process/workflow.md
+    -> design/basic-design/10-acceptance-test-policy.md#104-发布判定-release-decision
+    link text: '基本设计 §10.4'
+  [ANCHOR_MISSING] process/workflow.md
+    -> design/basic-design/10-acceptance-test-policy.md#101-测试级别-test-levels
+    link text: '基本设计 §10.1'
+  [ANCHOR_MISSING] process/workflow.md
+    -> design/basic-design/10-acceptance-test-policy.md#104-发布判定-release-decision
+    link text: '基本设计 §10.4'
+  [ANCHOR_MISSING] process/workflow.md
+    -> design/basic-design/10-acceptance-test-policy.md#104-发布判定-release-decision
+    link text: '基本设计 §10.4 发布判定'
+  [ANCHOR_MISSING] process/workflow.md
+    -> design/basic-design/08-operations-design.md#86-v1-k8s-部署形态-v1-k8s-deployment-topology
+    link text: '基本设计 §08.6 K8s 部署形态'
+  [ANCHOR_MISSING] process/workflow.md
+    -> design/detailed-design/13-admin-api-and-ops-ui.md#135-v1-k8s-部署清单
+    link text: '详细设计 §13.5 K8s 部署清单'
+  [ANCHOR_MISSING] process/workflow.md
+    -> design/basic-design/08-operations-design.md#85-支持与-faq-support
+    link text: '基本设计 §08.5'
+  [ANCHOR_MISSING] process/workflow.md
+    -> design/basic-design/08-operations-design.md#82-备份-恢复-backup-recoverybkp-req
+    link text: '基本设计 §08.2'
+  [ANCHOR_MISSING] process/workflow.md
+    -> design/basic-design/14-admin-ops-ui.md#1423-中心事件流
+    link text: '基本设计 §14.2.3 中心事件流'
+  [ANCHOR_MISSING] process/workflow.md
+    -> design/basic-design/14-admin-ops-ui.md#1425-审计日志
+    link text: '基本设计 §14.2.5 审计日志'
+  [ANCHOR_MISSING] process/workflow.md
+    -> design/basic-design/08-operations-design.md#85-支持与-faq-support
+    link text: '基本设计 §08.5 支持与 FAQ'
+  [ANCHOR_MISSING] process/workflow.md
+    -> design/basic-design/09-migration-design.md#93-架构一致性-architecture-consistencycloud-req-001
+    link text: '基本设计 §09.3 架构一致性'
+  [ANCHOR_MISSING] process/workflow.md
+    -> design/detailed-design/13-admin-api-and-ops-ui.md#135-v1-k8s-部署清单
+    link text: 'Admin API §13.5 部署清单'
+  [ANCHOR_MISSING] process/workflow.md
+    -> design/basic-design/00-introduction.md#06-ipa-过程地图-ipa-process-map
+    link text: '基本设计 §00.6 Git 引用'
+  [ANCHOR_MISSING] process/workflow.md
+    -> design/basic-design/07-security-design.md#74-网络安全-network-securitysec-req-008-phase-14-f14-3
+    link text: '基本设计 §07.4 网络安全'
+  [ANCHOR_MISSING] process/workflow.md
+    -> design/basic-design/06-non-functional-design.md#65-安全性security-ipa-grade-⑤
+    link text: '基本设计 §06.5 安全性'
+  [ANCHOR_MISSING] process/workflow.md
+    -> design/basic-design/10-acceptance-test-policy.md#104-发布判定-release-decision
+    link text: '基本设计 §10.4 发布判定'
+  [ANCHOR_MISSING] process/workflow.md
+    -> design/detailed-design/13-admin-api-and-ops-ui.md#133-admin_audit-表-ddl
+    link text: 'Admin API §13.3 admin_audit'
+  [ANCHOR_MISSING] requirements/00-requirements-definition.md
+    -> requirements/phase1-5-research.md#phase-1-research-plan
+    link text: '`./phase1-5-research.md` §Phase 1'
+  [ANCHOR_MISSING] requirements/00-requirements-definition.md
+    -> requirements/phase1-5-research.md#phase-2-evidence-collection
+    link text: '`./phase1-5-research.md` Phase 2–3'
+  [ANCHOR_MISSING] requirements/00-requirements-definition.md
+    -> requirements/phase1-5-research.md#phase-4-capability-matrix
+    link text: '`./phase1-5-research.md` Phase 4'
+  [ANCHOR_MISSING] requirements/00-requirements-definition.md
+    -> requirements/phase1-5-research.md#phase-5-gap-analysis
+    link text: '`./phase1-5-research.md` Phase 5'
+  [ANCHOR_MISSING] requirements/00-requirements-definition.md
+    -> requirements/phase6-primitives.md#6-relationship-to-the-engineering-graph-requirements-original-spec-10
+    link text: '`./phase6-primitives.md` §6'
+  [ANCHOR_MISSING] requirements/00-requirements-definition.md
+    -> requirements/phase7-elicitation.md#2-git-req-git-native-compatibility
+    link text: '`./phase7-elicitation.md` §2 GIT-REQ'
+  [ANCHOR_MISSING] requirements/00-requirements-definition.md
+    -> requirements/phase7-elicitation.md#8-ci-req-cicd
+    link text: '`./phase7-elicitation.md` §8 CI-REQ'
+  [ANCHOR_MISSING] requirements/00-requirements-definition.md
+    -> requirements/phase7-elicitation.md#3-grf-req-engineering-graph
+    link text: '`./phase7-elicitation.md` §3 GRF-REQ'
+  [ANCHOR_MISSING] requirements/00-requirements-definition.md
+    -> requirements/phase7-elicitation.md#6-ctx-req-context-engine-context-as-a-service
+    link text: '`./phase7-elicitation.md` §6 CTX-REQ'
+  [ANCHOR_MISSING] requirements/00-requirements-definition.md
+    -> requirements/phase7-elicitation.md#5-ai-req-ai-gateway-model-routing
+    link text: '`./phase7-elicitation.md` §5 AI-REQ'
+  [ANCHOR_MISSING] requirements/00-requirements-definition.md
+    -> requirements/phase7-elicitation.md#4-agt-req-agent-runtime
+    link text: '`./phase7-elicitation.md` §4 AGT-REQ'
+  [ANCHOR_MISSING] requirements/00-requirements-definition.md
+    -> requirements/phase7-elicitation.md#9-ux-req-high-level-ux-principles
+    link text: '`./phase7-elicitation.md` §9 UX-REQ'
+  [ANCHOR_MISSING] requirements/00-requirements-definition.md
+    -> requirements/phase7-elicitation.md#7-sec-req-security
+    link text: '`./phase7-elicitation.md` §7 SEC-REQ'
+  [ANCHOR_MISSING] requirements/00-requirements-definition.md
+    -> requirements/phase7-elicitation.md#10-ops-req-local-first-deployment
+    link text: '`./phase7-elicitation.md` §10 OPS-REQ'
+  [ANCHOR_MISSING] requirements/00-requirements-definition.md
+    -> requirements/phase7-elicitation.md#11-cloud-req-cloud-readiness
+    link text: '`./phase7-elicitation.md` §11 CLOUD-REQ'

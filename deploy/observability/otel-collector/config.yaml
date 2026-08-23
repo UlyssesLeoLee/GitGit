@@ -1,0 +1,371 @@
+# OpenTelemetry Collector 完整配置
+# 关联: docs/observability/01-architecture.md §2 / ADR-0011
+# 部署: otel-collector (DaemonSet) + otel-collector-gateway (Deployment)
+# 强约束: 仅做协议转换 + 脱敏 + 采样，不做业务解析
+
+extensions:
+  health_check:
+    endpoint: 0.0.0.0:13133
+    check_collector_pipeline:
+      enabled: true
+      interval: 30s
+
+  zpages:
+    endpoint: 0.0.0.0:55679  # 仅 debug 模式
+
+  memory_ballast:
+    # 虚拟内存预分配，减小 GC 压力
+    size_mib: 256
+
+  # K8s 属性检测
+  k8s_attributes:
+    auth_type: serviceAccount
+    passthrough: false
+    extract:
+      metadata:
+        - k8s.pod.name
+        - k8s.pod.uid
+        - k8s.deployment.name
+        - k8s.namespace.name
+        - k8s.node.name
+        - k8s.pod.start_time
+      labels:
+        - tag_name: app.kubernetes.io/component
+          key: app.kubernetes.io/component
+          from: pod
+      annotations:
+        - tag_name: container_image
+          key: container.io/image
+          from: pod
+
+  # 业务属性
+  bearertokenauth:
+    token: ${env:OTEL_AUTH_TOKEN}
+
+receivers:
+  # 业务 Pod OTLP
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+        max_recv_msg_size_mib: 16
+        keepalive:
+          server_parameters:
+            max_connection_age: 60s
+      http:
+        endpoint: 0.0.0.0:4318
+        max_request_body_size: 16MB
+
+  # Prometheus scrape (Prometheus 自报)
+  prometheus:
+    config:
+      scrape_configs:
+        - job_name: otel-collector-self
+          scrape_interval: 30s
+          static_configs:
+            - targets: [0.0.0.0:8888]
+        # K3s kubelet metrics
+        - job_name: k3s-kubelet
+          scheme: https
+          tls_config:
+            ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+            insecure_skip_verify: true
+          bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+          kubernetes_sd_configs:
+            - role: node
+          relabel_configs:
+            - action: labelmap
+              regex: __meta_kubernetes_node_label_(.+)
+            - target_label: __address__
+              replacement: kubernetes.default.svc:443
+            - source_labels: [__meta_kubernetes_node_name]
+              regex: (.+)
+              target_label: __metrics_path__
+              replacement: /api/v1/nodes/$${1}/proxy/metrics
+
+  # K8s 事件
+  k8sobjects:
+    objects:
+      - name: pods
+        mode: pull
+        interval: 30s
+        group: ""
+        namespaces: [gitgit, observability]
+      - name: events
+        mode: pull
+        interval: 30s
+        group: events.k8s.io
+        namespaces: [gitgit, observability]
+
+  # Filelog (k8s container log files，仅 Gateway 使用)
+  filelog:
+    include:
+      - /var/log/pods/*/gitgit-server/*.log
+    exclude:
+      - /var/log/pods/*/*.gz
+    operators:
+      - type: json_parser
+      - type: trace_parser
+        trace_id:
+          parse_from: attributes.trace_id
+        span_id:
+          parse_from: attributes.span_id
+
+processors:
+  # 1. 内存限流
+  memory_limiter:
+    check_interval: 1s
+    limit_percentage: 80
+    spike_limit_percentage: 25
+
+  # 2. 资源检测（K8s）
+  resourcedetection:
+    detectors: [env, system, k8sattributes]
+    timeout: 10s
+
+  # 3. 业务属性注入
+  resource:
+    attributes:
+      - key: deployment.environment
+        value: production
+        action: upsert
+      - key: service.namespace
+        value: gitgit
+        action: upsert
+
+  # 4. Cardinality 控制
+  attributes/limit:
+    include:
+      - service.name
+      - service.version
+      - service.namespace
+      - deployment.environment
+      - k8s.pod.name
+      - k8s.namespace.name
+      - http.method
+      - http.status_code
+      - http.route
+      - db.system
+      - db.name
+      - db.operation
+      - git.verb
+      - git.repo_namespace
+      - ai.vendor
+      - ai.model
+      - app.id
+      - app.call
+      - tenant
+      - topic
+      - consumer
+
+  # 5. 字段过滤 / 脱敏
+  transform:
+    metric_statements:
+      - context: metric
+        statements:
+          # 截断超长 label 值
+          - truncate_all(attributes, 50)
+          # 删除特定敏感 attribute key
+          - delete_key(attributes, "http.request.body")
+          - delete_key(attributes, "db.statement.params")
+          - delete_key(attributes, "user.password")
+          - delete_key(attributes, "user.token")
+    log_statements:
+      - context: log
+        statements:
+          # 1. 字段名过滤
+          - replace_all_patterns(attributes, "key", "password|passwd|pwd|secret|api_key|apikey|token|cookie|authorization|bearer|private_key|client_secret", "[REDACTED_KEY]")
+          # 2. 值正则脱敏
+          - replace_all_patterns(body, "value", "password[\"']?\\s*[:=]\\s*[\"']?[^\\s,\"']+", "password=[REDACTED]")
+          - replace_all_patterns(body, "value", "Bearer\\s+[A-Za-z0-9._-]+", "Bearer [REDACTED]")
+          - replace_all_patterns(body, "value", "\\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Z|a-z]{2,}\\b", "[REDACTED_EMAIL]")
+          - replace_all_patterns(body, "value", "\\b\\d{4}[-\\s]?\\d{4}[-\\s]?\\d{4}[-\\s]?\\d{4}\\b", "[REDACTED_CARD]")
+          - replace_all_patterns(body, "value", "\\b\\d{17}[\\dX]\\b", "[REDACTED_ID_CARD]")
+    trace_statements:
+      - context: span
+        statements:
+          - replace_all_patterns(attributes, "key", "http.request.body|db.statement.params|user.password|user.token|user.secret", "[REDACTED]")
+
+  # 6. Tail Sampling (仅 Gateway)
+  tail_sampling:
+    decision_wait: 10s
+    num_traces: 100000
+    expected_new_traces_per_sec: 1000
+    policies:
+      - name: errors
+        type: status_code
+        status_code:
+          status_codes: [ERROR]
+      - name: slow
+        type: latency
+        latency:
+          threshold_ms: 2000
+      - name: auth-admin
+        type: string_attribute
+        string_attribute:
+          key: http.route
+          values: ["/admin/*", "/auth/*", "/webauthn/*"]
+      - name: ai
+        type: string_attribute
+        string_attribute:
+          key: ai.vendor
+          values: [".*"]
+      - name: agent
+        type: string_attribute
+        string_attribute:
+          key: agent.id
+          values: [".*"]
+      - name: lucky
+        type: probabilistic
+        probabilistic:
+          sampling_percentage: 5
+
+  # 7. Batch
+  batch:
+    timeout: 5s
+    send_batch_size: 8192
+    send_batch_max_size: 10000
+
+  # 8. 限速 (修订 5)
+  rate_limit:
+    rate: 100  # 100 events/s
+    burst: 200
+    # 仅 INFO 级别
+    # 实际过滤通过 filter processor
+
+  # 9. Filter
+  filter/log:
+    logs:
+      log_record:
+        - 'IsMatch(body, ".*FATAL.*")'
+        - 'IsMatch(body, ".*ERROR.*")'
+        - 'IsMatch(body, ".*WARN.*")'
+        - 'IsMatch(body, ".*audit.*")'
+  filter/metric:
+    metrics:
+      metric:
+        - 'IsMatch(name, "go_.*")'  # 排除 Go runtime
+        - 'IsMatch(name, "process_.*")'
+
+exporters:
+  # Prometheus remote write
+  prometheusremotewrite:
+    endpoint: http://prometheus.observability.svc:9090/api/v1/write
+    tls:
+      insecure: true
+    retry_on_failure:
+      enabled: true
+      initial_interval: 5s
+      max_interval: 30s
+    sending_queue:
+      enabled: true
+      num_consumers: 10
+      queue_size: 5000
+    resource_to_telemetry_conversion:
+      enabled: true
+    # 关键: 业务 label 强制限制
+    external_labels:
+      cluster: prod
+      environment: production
+
+  # Tempo (OTLP HTTP)
+  otlphttp/tempo:
+    endpoint: http://tempo.observability.svc:4318
+    tls:
+      insecure: true
+    headers:
+      X-Scope-OrgID: tenant-gitgit
+    retry_on_failure:
+      enabled: true
+    sending_queue:
+      enabled: true
+      num_consumers: 10
+      queue_size: 5000
+
+  # Loki
+  loki:
+    endpoint: http://loki.observability.svc:3100/loki/api/v1/push
+    tls:
+      insecure: true
+    headers:
+      X-Scope-OrgID: tenant-gitgit
+    retry_on_failure:
+      enabled: true
+    sending_queue:
+      enabled: true
+      num_consumers: 10
+      queue_size: 5000
+
+  # Webhook (alert)
+  webhook:
+    endpoint: http://alertmanager.observability.svc:9093/api/v1/alerts
+    tls:
+      insecure: true
+    retry_on_failure:
+      enabled: true
+    sending_queue:
+      enabled: true
+      num_consumers: 5
+      queue_size: 1000
+
+  # 调试 (仅 debug 模式)
+  debug:
+    verbosity: normal
+    sampling_initial: 5
+    sampling_thereafter: 200
+
+service:
+  extensions:
+    - health_check
+    - memory_ballast
+    - k8s_attributes
+    - zpages
+
+  telemetry:
+    logs:
+      level: info
+    metrics:
+      address: 0.0.0.0:8888
+      level: normal
+    traces:
+      level: basic
+
+  # DaemonSet 模式: 接收 + 轻处理 + 转发到 Gateway
+  pipelines:
+    metrics/daemonset:
+      receivers: [otlp]
+      processors:
+        - memory_limiter
+        - resourcedetection
+        - resource
+        - attributes/limit
+        - transform
+        - filter/metric
+        - batch
+      exporters: [otlphttp/tempo]  # 转发到 Gateway
+
+    logs/daemonset:
+      receivers: [otlp]
+      processors:
+        - memory_limiter
+        - resourcedetection
+        - resource
+        - attributes/limit
+        - transform
+        - filter/log
+        - batch
+      exporters: [otlphttp/tempo]  # 转发到 Gateway
+
+    traces/daemonset:
+      receivers: [otlp]
+      processors:
+        - memory_limiter
+        - resourcedetection
+        - resource
+        - attributes/limit
+        - transform
+        - batch
+      exporters: [otlphttp/tempo]  # 转发到 Gateway
+
+  # Gateway 模式: 真正写后端 + 高级处理
+  # 通过 --config=gateway.yaml 切换（独立 deployment 用）

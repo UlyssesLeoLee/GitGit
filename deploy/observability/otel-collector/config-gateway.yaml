@@ -1,0 +1,270 @@
+# OTel Collector Gateway 模式配置
+# 关联: docs/observability/01-architecture.md §2.1
+# 部署: Deployment, 2 副本
+# 与 DaemonSet 区别: 写后端 + tail_sampling
+
+extensions:
+  health_check:
+    endpoint: 0.0.0.0:13133
+
+  memory_ballast:
+    size_mib: 512
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+  prometheus:
+    config:
+      scrape_configs:
+        - job_name: pg-exporter
+          scrape_interval: 15s
+          static_configs:
+            - targets: ['pg-exporter.observability.svc:9187']
+        - job_name: kube-state-metrics
+          scheme: https
+          tls_config:
+            ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+            insecure_skip_verify: true
+          bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+          kubernetes_sd_configs:
+            - role: endpoints
+              namespaces:
+                names: [observability]
+          relabel_configs:
+            - action: labelmap
+              regex: __meta_kubernetes_service_label_(.+)
+            - source_labels: [__meta_kubernetes_namespace]
+              action: replace
+              target_label: namespace
+            - source_labels: [__meta_kubernetes_service_name]
+              action: replace
+              target_label: service
+
+  k8sobjects:
+    objects:
+      - name: events
+        mode: pull
+        interval: 30s
+        group: events.k8s.io
+        namespaces: [gitgit, observability]
+
+processors:
+  memory_limiter:
+    check_interval: 1s
+    limit_percentage: 80
+    spike_limit_percentage: 25
+
+  resourcedetection:
+    detectors: [env, system, k8sattributes]
+    timeout: 10s
+
+  resource:
+    attributes:
+      - key: deployment.environment
+        value: production
+        action: upsert
+      - key: service.namespace
+        value: gitgit
+        action: upsert
+      - key: collector.mode
+        value: gateway
+        action: upsert
+
+  attributes/limit:
+    include:
+      - service.name
+      - service.version
+      - service.namespace
+      - deployment.environment
+      - k8s.pod.name
+      - k8s.namespace.name
+      - http.method
+      - http.status_code
+      - http.route
+      - db.system
+      - db.name
+      - db.operation
+      - git.verb
+      - git.repo_namespace
+      - ai.vendor
+      - ai.model
+      - app.id
+      - app.call
+      - tenant
+      - topic
+      - consumer
+      - collector.mode
+
+  transform:
+    metric_statements:
+      - context: metric
+        statements:
+          - truncate_all(attributes, 50)
+          - delete_key(attributes, "http.request.body")
+          - delete_key(attributes, "db.statement.params")
+    log_statements:
+      - context: log
+        statements:
+          - replace_all_patterns(attributes, "key", "password|passwd|pwd|secret|api_key|apikey|token|cookie|authorization|bearer|private_key|client_secret", "[REDACTED_KEY]")
+          - replace_all_patterns(body, "value", "password[\"']?\\s*[:=]\\s*[\"']?[^\\s,\"']+", "password=[REDACTED]")
+          - replace_all_patterns(body, "value", "Bearer\\s+[A-Za-z0-9._-]+", "Bearer [REDACTED]")
+          - replace_all_patterns(body, "value", "\\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Z|a-z]{2,}\\b", "[REDACTED_EMAIL]")
+    trace_statements:
+      - context: span
+        statements:
+          - replace_all_patterns(attributes, "key", "http.request.body|db.statement.params|user.password|user.token|user.secret", "[REDACTED]")
+
+  # Tail Sampling (Gateway 专属)
+  tail_sampling:
+    decision_wait: 10s
+    num_traces: 100000
+    expected_new_traces_per_sec: 1000
+    policies:
+      - name: errors
+        type: status_code
+        status_code:
+          status_codes: [ERROR]
+      - name: slow
+        type: latency
+        latency:
+          threshold_ms: 2000
+      - name: auth-admin
+        type: string_attribute
+        string_attribute:
+          key: http.route
+          values: ["/admin/*", "/auth/*", "/webauthn/*"]
+      - name: ai
+        type: string_attribute
+        string_attribute:
+          key: ai.vendor
+          values: [".*"]
+      - name: agent
+        type: string_attribute
+        string_attribute:
+          key: agent.id
+          values: [".*"]
+      - name: audit
+        type: string_attribute
+        string_attribute:
+          key: audit.action
+          values: [".*"]
+      - name: probabilistic
+        type: probabilistic
+        probabilistic:
+          sampling_percentage: 5
+
+  batch:
+    timeout: 5s
+    send_batch_size: 8192
+    send_batch_max_size: 10000
+
+  filter/log:
+    logs:
+      log_record:
+        - 'IsMatch(body, ".*FATAL.*")'
+        - 'IsMatch(body, ".*ERROR.*")'
+        - 'IsMatch(body, ".*WARN.*")'
+        - 'IsMatch(body, ".*audit.*")'
+
+  filter/metric:
+    metrics:
+      metric:
+        - 'IsMatch(name, "go_.*")'
+        - 'IsMatch(name, "process_.*")'
+
+exporters:
+  prometheusremotewrite:
+    endpoint: http://prometheus.observability.svc:9090/api/v1/write
+    tls:
+      insecure: true
+    retry_on_failure:
+      enabled: true
+    sending_queue:
+      enabled: true
+      num_consumers: 10
+      queue_size: 5000
+    external_labels:
+      cluster: prod
+      environment: production
+
+  otlphttp/tempo:
+    endpoint: http://tempo.observability.svc:4318
+    tls:
+      insecure: true
+    headers:
+      X-Scope-OrgID: tenant-gitgit
+    sending_queue:
+      enabled: true
+      num_consumers: 10
+      queue_size: 5000
+
+  loki:
+    endpoint: http://loki.observability.svc:3100/loki/api/v1/push
+    tls:
+      insecure: true
+    headers:
+      X-Scope-OrgID: tenant-gitgit
+    sending_queue:
+      enabled: true
+      num_consumers: 10
+      queue_size: 5000
+
+service:
+  extensions: [health_check, memory_ballast]
+
+  telemetry:
+    logs:
+      level: info
+    metrics:
+      address: 0.0.0.0:8888
+      level: normal
+
+  pipelines:
+    metrics/gateway:
+      receivers: [otlp, prometheus, k8sobjects]
+      processors:
+        - memory_limiter
+        - resourcedetection
+        - resource
+        - attributes/limit
+        - transform
+        - filter/metric
+        - batch
+      exporters: [prometheusremotewrite]
+
+    logs/gateway:
+      receivers: [otlp]
+      processors:
+        - memory_limiter
+        - resourcedetection
+        - resource
+        - attributes/limit
+        - transform
+        - filter/log
+        - batch
+      exporters: [loki]
+
+    traces/gateway:
+      receivers: [otlp]
+      processors:
+        - memory_limiter
+        - resourcedetection
+        - resource
+        - attributes/limit
+        - transform
+        - tail_sampling
+        - batch
+      exporters: [otlphttp/tempo]
+
+    # K8s 事件 -> Loki
+    logs/events:
+      receivers: [k8sobjects]
+      processors:
+        - memory_limiter
+        - batch
+      exporters: [loki]

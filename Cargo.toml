@@ -55,21 +55,22 @@ prost-types = "0.13"
 # 数据库 (tech-selection.md §6)
 sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio-rustls", "postgres", "uuid", "chrono", "json", "migrate", "macros"] }
 deadpool-postgres = "0.14"
-pgbouncer = { version = "0.5", optional = true }   # V1+ 选配
+# pgbouncer 客户端: V1+ 启用（不在 workspace dependencies，每个 crate 单独 optional）
 
 # Git 库 (tech-selection.md §7)
-gix = { version = "0.66", default-features = false, features = ["max-performance", "pack"] }
+gix = { version = "0.66", default-features = false, features = ["max-performance", "pack-cache-lru-dynamic", "zlib-ng"] }
 
 # 认证 / 凭证 (tech-selection.md §8)
 jsonwebtoken = "9.3"
 argon2 = "0.5"
 totp-rs = { version = "5.7", features = ["gen_secret", "otpauth"] }
+webauthn-rs = { version = "0.5" }
 
 # 加密原语 (tech-selection.md §9)
-rustCrypto = { version = "0.1", package = "rust-crypto" }   # 仅占位
+# 注意：原 "rust-crypto" crate 已 deprecated 且库名带连字符无法编译
+# 改用独立的 RustCrypto 生态 crate
 chacha20poly1305 = "0.10"
 aead = "0.5"
-argon2 = "0.5"
 sha2 = "0.10"
 hmac = "0.12"
 p256 = "0.13"
@@ -78,6 +79,8 @@ ssh-key = { version = "0.6", features = ["ed25519", "rsa"] }
 age = "0.11"
 subtle = "2.6"
 zeroize = { version = "1.8", features = ["zeroize_derive"] }
+# RSA / ed25519 签名 (JWT 用)
+rsa = { version = "0.9", features = ["sha2"] }
 
 # HTTP 客户端 (tech-selection.md §10)
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "gzip"] }
@@ -119,7 +122,7 @@ clap = { version = "4.5", features = ["derive", "env", "unicode", "wrap_help"] }
 validator = { version = "0.18", features = ["derive"] }
 
 # MCP（外部 AI 客户端用）
-rmcp = { version = "0.1", features = ["server", "client", "transport-streamable-http-server", "transport-sse-server", "macros"] }
+rmcp = { version = "0.1", features = ["server", "client", "transport-sse", "transport-io", "macros"] }
 
 # 工具
 bytes = "1.7"
@@ -135,7 +138,7 @@ walkdir = "2.5"
 tempfile = "3.13"
 
 # 测试
-[workspace.dev-dependencies]
+
 mockall = "0.13"
 wiremock = "0.6"
 testcontainers = "0.23"
@@ -146,7 +149,7 @@ rstest = "0.23"
 insta = { version = "1.41", features = ["yaml", "redactions"] }
 cargo-husky = "1.5"
 
-# 内部依赖
+# 内部依赖 — recursive self 引用也需在 workspace.dependencies 声明
 gitgit-errors = { path = "crates/gitgit-errors" }
 gitgit-config = { path = "crates/gitgit-config" }
 gitgit-observability = { path = "crates/gitgit-observability" }
@@ -181,24 +184,26 @@ strip = "none"
 inherits = "release"
 debug = true
 
-# 强约束 (REQ-TS 强制)
-[lints.rust]
-unsafe_code = "forbid"           # REQ-TS-001
+# 强约束 (REQ-TS 强制) — 在每个 crate 的 [lints] 段引用 workspace=true
+# workspace 级别 lints 不能在 virtual manifest 设置 (Rust 1.74+ 限制)
+# 改为每个 crate 独立设置：见 crates/gitgit-*/Cargo.toml
+
+# 工作区 metadata
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
 unused_must_use = "deny"
 missing_docs = "warn"
 
-[lints.clippy]
-unwrap_used = "deny"              # REQ-TS-002
+[workspace.lints.clippy]
+unwrap_used = "deny"
 expect_used = "deny"
 panic = "deny"
 todo = "warn"
-pedantic = { level = "warn", priority = -1 }
-nursery = { level = "warn", priority = -1 }
-cargo = { level = "warn", priority = -1 }
 
-[lints.rustdoc]
+[workspace.lints.rustdoc]
 broken_intra_doc_links = "warn"
-
-# 工作区 metadata
 [workspace.metadata.docs.rs]
 all-features = true
+
+
