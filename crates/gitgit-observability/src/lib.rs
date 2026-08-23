@@ -17,3 +17,18 @@ impl Default for ObservabilityPlaceholder {
         Self
     }
 }
+
+/// 初始化可观测性 (MVP stub)
+///
+/// MVP: 啥也不做, 仅作占位让 main.rs 编译通过
+/// V0.5: tracing_subscriber fmt layer + EnvFilter (RUST_LOG)
+/// V1+: OTel Collector (Sidecar → DaemonSet, 详设 §10 + ADR-0016)
+pub fn init() -> Result<(), anyhow::Error> {
+    // MVP 占位: 不初始化任何 subscriber
+    // 实际实现 (V0.5+):
+    //   tracing_subscriber::registry()
+    //       .with(EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")))
+    //       .with(tracing_subscriber::fmt::layer().json())
+    //       .init();
+    Ok(())
+}

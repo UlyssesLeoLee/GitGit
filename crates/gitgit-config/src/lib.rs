@@ -17,3 +17,14 @@ impl Default for ConfigPlaceholder {
         Self
     }
 }
+
+/// 加载配置 (MVP stub)
+///
+/// TODO: 实现 figment + serde_yaml + env 加载链
+/// (见 tech-selection.md §12 + 详设 §10 dev-env-checklist)
+/// 预期签名: `pub fn load() -> Result<AppConfig, ConfigError>`
+pub fn load() -> Result<(), anyhow::Error> {
+    // MVP 占位: 不读任何文件, 返回空配置
+    // 实际实现: figment::Figment::new().merge(Yaml::file("config/default.yaml")).extract()
+    Ok(())
+}

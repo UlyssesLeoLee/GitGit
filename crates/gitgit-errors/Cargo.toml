@@ -9,16 +9,16 @@ repository.workspace = true
 authors.workspace = true
 publish.workspace = true
 
-[lints]
-workspace = true
-
 [dependencies]
     thiserror = { workspace = true }
     serde = { workspace = true }
     anyhow = { workspace = true }
+    serde_json = { workspace = true }
+    sqlx = { workspace = true }
 
 [dev-dependencies]
-gitgit-errors = { workspace = true }
 mockall = { workspace = true }
 proptest = { workspace = true }
 tokio = { workspace = true, features = ["test-util"] }
+
+

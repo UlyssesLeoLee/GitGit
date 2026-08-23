@@ -250,7 +250,7 @@ impl AppError {
             NotFound | GitObjectNotFound | AppNotFound | SecretNotFound | McpToolNotFound => 404,
             Unauthorized | TokenExpired | TokenInvalid => 401,
             Forbidden | MfaRequired | MfaInvalid | AppPermissionDenied | McpToolDenied | AppSandboxViolation => 403,
-            Validation | InvalidRequest => 400,
+            ValidationFailed | InvalidRequest => 400,
             Conflict | TransactionConflict | GitRefRejected | HookFailed | KekRotating => 409,
             RateLimit | AiRateLimit => 429,
             QuotaExceeded => 429,
@@ -258,7 +258,7 @@ impl AppError {
             EventDlqOverflow => 503,
             ExternalUnavailable | UpstreamTimeout | AiProvider | DatabaseError | MigrationFailed
             | GitError | EventPublishFailed | EventDeliveryFailed | SecretDecryptFailed
-            | InternalError | ConfigError => 500,
+            | InternalError | ConfigError | AppInstallFailed | AppUpgradeFailed => 500,
         }
     }
 }
