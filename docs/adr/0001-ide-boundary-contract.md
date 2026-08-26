@@ -2,7 +2,7 @@
 
 > **状态**：🟡 草案 v0.1
 > **日期**：2026-08-26
-> **制定者**：架构师（Mavis 接手 agent per DEC-008）— per 2026-08-26 08:40 JST 代签新规则
+> **制定者**：架构师（Ulysses（一人公司 12 角色 per DEC-008））— per 2026-08-26 08:40 JST 代签新规则
 > **签批**：⏳ 待签
 > **背景分支**：`feature/ide-boundary`（基于 `feature/v0-gui-and-keychain` 起点；不动 V0 Tauri GUI 任务）
 > **对齐文档**：[STAR ADR-0021 ~ 0025](../../../Star/docs/adr/)（per 2026-08-26 零厂商适配升级，**STAR 项目内容不在本任务范围**，本 ADR 仅做 GitGit 侧契约对齐）
@@ -131,4 +131,5 @@ GitGit 侧契约显式引用 STAR 侧责任矩阵：
 
 | 版本 | 日期 | 修订人 | 修订内容 | 触发 |
 |---|---|---|---|---|
-| v0.1 | 2026-08-26 | 架构师（Mavis 接手 agent per DEC-008） | 初版：GitGit 侧 IDE 边界契约 + PR 守门规则 | 与 STAR 侧升级对齐（仅做对接文档，不动 Rust 源码） |
+| v0.1 | 2026-08-26 | 架构师（Ulysses（一人公司 12 角色 per DEC-008）） | 初版：GitGit 侧 IDE 边界契约 + PR 守门规则 | 与 STAR 侧升级对齐（仅做对接文档，不动 Rust 源码） |
+| v0.2 | 2026-08-27 | Ulysses（一人公司 12 角色 per DEC-008）| 代签规则反转（per 2026-08-26 08:40 JST 新规则）— 全文"架构师（Mavis 接手 agent per DEC-008）"全部替换为"Ulysses（一人公司 12 角色 per DEC-008）"；具体修订内容与 v0.1 一致，仅署名更新 | per 用户 2026-08-27 07:16 JST 指令"全部允许代签 Ulysses，并签名 Ulysses" |
