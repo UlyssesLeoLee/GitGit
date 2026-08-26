@@ -13,14 +13,14 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use axum::body::Body;
-use axum::extract::{Path, Query, Request, State};
+use axum::extract::{Path, Request, State};
 use axum::http::{header, HeaderValue, Response, StatusCode};
-use axum::middleware::{self, Next};
 use axum::response::IntoResponse;
-use axum::routing::{get, post};
+use axum::routing::get;
 use axum::Router;
-use serde::Deserialize;
+use futures_util::StreamExt;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use url::form_urlencoded;
 
 use crate::config::Config;
 use crate::error::GitGitError;
@@ -44,45 +44,13 @@ impl AppState {
 
 /// Build the axum [`Router`] for the smart-HTTP server.
 pub fn build_router(state: AppState) -> Router {
-    let receive_pack = Router::new()
-        .route("/git-receive-pack", post(handle_receive_pack))
-        .route_layer(middleware::from_fn(auth_middleware));
-
+    // All endpoints are addressed under `/repos/<name>.git/...`. A single
+    // catch-all wildcard captures the full tail and dispatches in-handler
+    // to the appropriate smart-HTTP sub-handler. Authentication for
+    // receive-pack is enforced in the dispatch handler itself.
     Router::new()
-        .route("/info/refs", get(handle_info_refs))
-        .route("/git-upload-pack", post(handle_upload_pack))
-        .merge(receive_pack)
+        .route("/repos/*key", get(handle_repo_any).post(handle_repo_any))
         .with_state(state)
-}
-
-/// Query parameters for `/info/refs`.
-#[derive(Debug, Deserialize)]
-pub struct InfoRefsQuery {
-    pub service: String,
-}
-
-/// Parse the repo name out of a URL like `/repos/demo.git/info/refs` or
-/// `/repos/demo.git/git-upload-pack`. The first segment is always `/repos/`
-/// (the path the brief asks git clients to use).
-fn parse_repo_name(path: &str) -> Option<(&str, &str)> {
-    // Strip leading `/`, split into segments.
-    let trimmed = path.trim_start_matches('/');
-    let mut iter = trimmed.split('/');
-    let first = iter.next()?;
-    if first != "repos" {
-        return None;
-    }
-    let name = iter.next()?;
-    if name.is_empty() {
-        return None;
-    }
-    // The remainder is everything after `<name>.git`. We only need the
-    // first segment of the remainder to dispatch on the endpoint, so we
-    // can borrow it from the input string.
-    let after_name = trimmed.strip_prefix("repos/")?.strip_prefix(name)?;
-    // `after_name` starts with `/` (e.g. `/info/refs`) or is empty.
-    let suffix = after_name.trim_start_matches('/');
-    Some((name, suffix))
 }
 
 /// Look up the on-disk path of a bare repo, or 404.
@@ -123,34 +91,69 @@ fn unauthorized() -> Response<Body> {
     resp
 }
 
-/// Auth middleware: runs only on the receive-pack router. The wrapped handler
-/// will already have parsed headers, but middleware is the simplest place to
-/// enforce auth without per-handler boilerplate.
-async fn auth_middleware(request: Request, next: Next) -> Response<Body> {
-    match require_basic(request.headers()) {
-        Ok(()) => next.run(request).await,
-        Err(GitGitError::Unauthenticated) => unauthorized(),
-        Err(e) => internal_error(e),
+/// Dispatch a request that arrived at `/repos/<name>.git/<endpoint>`.
+///
+/// `key` is the wildcard path after `/repos/`, e.g. `demo.git/info/refs`
+/// or `demo.git/git-upload-pack`. We split on the last `/` to recover
+/// the endpoint tail, then call the appropriate handler.
+///
+/// The query extractor is intentionally optional: the GET branch needs
+/// `?service=...`, but POSTs to `/git-upload-pack` and `/git-receive-pack`
+/// carry no query string at all.
+async fn handle_repo_any(
+    State(state): State<AppState>,
+    Path(key): Path<String>,
+    request: Request,
+) -> Response<Body> {
+    let Some((name, tail)) = key.split_once('/') else {
+        return bad_request(format!(
+            "expected /repos/<name>.git/<endpoint>, got /repos/{key}"
+        ));
+    };
+    match (request.method().as_str(), tail) {
+        ("GET", "info/refs") => {
+            // Extract the `service` query parameter manually so a missing
+            // or malformed value is a clean 400 instead of an axum extractor
+            // error.
+            let service = match request.uri().query() {
+                Some(q) => match form_urlencoded::parse(q.as_bytes())
+                    .find(|(k, _)| k == "service")
+                    .map(|(_, v)| v.into_owned())
+                {
+                    Some(s) if s == "git-upload-pack" || s == "git-receive-pack" => s,
+                    Some(s) => return bad_request(format!("unsupported service: {s}")),
+                    None => return bad_request("missing service query parameter".to_string()),
+                },
+                None => return bad_request("missing service query parameter".to_string()),
+            };
+            serve_info_refs(&state, name, &service).await
+        }
+        ("POST", "git-upload-pack") => {
+            serve_rpc(&state, name, "upload-pack", request, "application/x-git-upload-pack-result").await
+        }
+        ("POST", "git-receive-pack") => {
+            if let Err(e) = require_basic(request.headers()) {
+                return match e {
+                    GitGitError::Unauthenticated => unauthorized(),
+                    other => internal_error(other),
+                };
+            }
+            serve_rpc(&state, name, "receive-pack", request, "application/x-git-receive-pack-result").await
+        }
+        _ => bad_request(format!("unsupported /repos/{key} via {}", request.method())),
     }
 }
 
-/// `GET /info/refs?service=git-upload-pack`
-async fn handle_info_refs(
-    State(state): State<AppState>,
-    Path(path): Path<String>,
-    Query(q): Query<InfoRefsQuery>,
-) -> Response<Body> {
-    let Some((name, _suffix)) = parse_repo_name(&path) else {
-        return bad_request("expected /repos/<name>.git/info/refs");
-    };
-    let subcmd = match q.service.as_str() {
+/// `GET /repos/<name>.git/info/refs?service=git-{upload,receive}-pack`
+async fn serve_info_refs(state: &AppState, name: &str, service: &str) -> Response<Body> {
+    let subcmd = match service {
         "git-upload-pack" => "upload-pack",
         "git-receive-pack" => "receive-pack",
         other => {
             return bad_request(format!("unsupported service: {other}"));
         }
     };
-    let repo = match resolve_repo(&state, name) {
+    let repo = match resolve_repo(state, name) {
         Ok(p) => p,
         Err(resp) => return resp,
     };
@@ -167,16 +170,27 @@ async fn handle_info_refs(
     // Drain stdout into a Vec<u8>.
     let mut buf = Vec::with_capacity(4096);
     if let Err(e) = child.stdout.read_to_end(&mut buf).await {
+        tracing::error!(error = %e, "failed reading git stdout");
         return internal_error(GitGitError::Io(e));
     }
 
     if let Err(e) = await_success(child.child, &format!("git {subcmd} --advertise-refs")).await {
+        tracing::error!(error = %e, "git child failed");
         return internal_error(e);
     }
 
     // Prepend the smart-HTTP announcement frame.
-    let mut body = announce_frame(&q.service);
+    let mut body = announce_frame(service);
     body.append(&mut buf);
+
+    // The Content-Type depends on which service the client requested:
+    // upload-pack and receive-pack each have their own MIME type.
+    let content_type = match service {
+        "git-receive-pack" => "application/x-git-receive-pack-advertisement",
+        // Default to upload-pack; the only other valid value is also
+        // git-upload-pack and that's what the match above handles.
+        _ => "application/x-git-upload-pack-advertisement",
+    };
 
     let mut resp = match Response::builder()
         .status(StatusCode::OK)
@@ -187,44 +201,13 @@ async fn handle_info_refs(
     };
     resp.headers_mut().insert(
         header::CONTENT_TYPE,
-        HeaderValue::from_static("application/x-git-upload-pack-advertisement"),
+        HeaderValue::from_static(content_type),
     );
     resp.headers_mut().insert(
         header::CACHE_CONTROL,
         HeaderValue::from_static("no-cache"),
     );
     resp
-}
-
-/// `POST /git-upload-pack`
-async fn handle_upload_pack(
-    State(state): State<AppState>,
-    Path(path): Path<String>,
-    request: Request,
-) -> Response<Body> {
-    let Some((name, _suffix)) = parse_repo_name(&path) else {
-        return bad_request("expected /repos/<name>.git/git-upload-pack");
-    };
-    serve_rpc(&state, name, "upload-pack", request, "application/x-git-upload-pack-result").await
-}
-
-/// `POST /git-receive-pack` (auth already enforced by middleware).
-async fn handle_receive_pack(
-    State(state): State<AppState>,
-    Path(path): Path<String>,
-    request: Request,
-) -> Response<Body> {
-    let Some((name, _suffix)) = parse_repo_name(&path) else {
-        return bad_request("expected /repos/<name>.git/git-receive-pack");
-    };
-    serve_rpc(
-        &state,
-        name,
-        "receive-pack",
-        request,
-        "application/x-git-receive-pack-result",
-    )
-    .await
 }
 
 /// Generic smart-HTTP RPC: stream request body to git, stream git's stdout
@@ -247,19 +230,25 @@ async fn serve_rpc(
     };
 
     // Spawn a task that streams the request body into the child's stdin.
+    //
+    // We use `into_data_stream` (rather than the `frame()` loop) because
+    // HTTP/1.1 keep-alive clients such as `git` may leave the body stream
+    // open even after sending all data: the `frame()` future will then
+    // hang waiting for trailers that never come. `into_data_stream`
+    // surfaces data frames only and completes at the end of the body or
+    // when the upstream errors. A 64 MiB cap is a comfortable upper bound
+    // for `git push` payloads in MVP.
     let body = request.into_body();
     let stdin = child.stdin;
     let copy_in = tokio::spawn(async move {
         use http_body_util::BodyExt;
         let mut sink = stdin;
-        let mut src = body;
-        while let Some(frame) = src.frame().await {
-            match frame {
-                Ok(frame) => {
-                    if let Ok(data) = frame.into_data() {
-                        if sink.write_all(&data).await.is_err() {
-                            break;
-                        }
+        let mut src = BodyExt::into_data_stream(body);
+        while let Some(chunk) = src.next().await {
+            match chunk {
+                Ok(bytes) => {
+                    if sink.write_all(&bytes).await.is_err() {
+                        break;
                     }
                 }
                 Err(_) => break,

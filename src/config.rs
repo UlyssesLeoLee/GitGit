@@ -48,24 +48,39 @@ impl Config {
     }
 
     /// Resolve the on-disk path for a repo name: `<repos_dir>/<name>.git`.
+    ///
+    /// Git clients address bare repos with the conventional `.git` suffix
+    /// (e.g. `demo.git`), so we accept both `demo` and `demo.git` and
+    /// normalize to a single canonical form (`demo.git`) on disk.
     pub fn repo_path(&self, name: &str) -> Result<PathBuf> {
         validate_repo_name(name)?;
-        Ok(self.repos_dir.join(format!("{name}.git")))
+        let stem = name.strip_suffix(".git").unwrap_or(name);
+        // Re-validate after stripping the suffix to make sure a name
+        // like `..git` doesn't smuggle a path traversal.
+        validate_repo_name(stem)?;
+        Ok(self.repos_dir.join(format!("{stem}.git")))
     }
 }
 
 /// Validate that a repository name is safe to embed in a path.
 ///
-/// Rejects empty names, names with `..`, names with path separators, and names
-/// containing characters that would be rejected by `git init` itself on most
-/// platforms.
+/// Rejects empty names, names with `..`, names with path separators, and
+/// control characters. The name may contain `.` (e.g. `demo.git`) since
+/// that is the conventional bare-repo name suffix.
 pub fn validate_repo_name(name: &str) -> Result<()> {
     if name.is_empty() {
         return Err(GitGitError::InvalidRepoName(name.to_string()));
     }
-    if name.contains('/') || name.contains('\\') || name.contains("..") {
+    if name.contains('/') || name.contains('\\') {
         return Err(GitGitError::InvalidRepoName(name.to_string()));
     }
+    // Reject `..` as a whole segment (path traversal). We disallow any
+    // occurrence of `..` to be safe even within a name like `foo..bar`,
+    // since `foo..bar` could be ambiguous.
+    if name == ".." || name.contains("..") {
+        return Err(GitGitError::InvalidRepoName(name.to_string()));
+    }
+    // Reject names that start with a dot (hidden / traversal-like).
     if name.starts_with('.') {
         return Err(GitGitError::InvalidRepoName(name.to_string()));
     }
