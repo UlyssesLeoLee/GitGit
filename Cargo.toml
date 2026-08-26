@@ -1,209 +1,55 @@
-# GitGit Platform - Cargo Workspace
-# 详细设计：参见 docs/design/detailed-design/00-overview.md §0.5 (crate 拆分) 与
-#          docs/design/detailed-design/00-overview.md §0.11 (部署包)
-# 实施前 QA 关联：QA-017 (crate 拆分合理性) / QA-022 (Cargo.lock 锁定)
+# gitgit — single-crate MVP for a local Git HTTP server.
+# See README.md for the design context.
+# This is intentionally a single crate, NOT a workspace. The previous 14-crate
+# design is archived in docs_archive_rust_impl_2026_08_26/.
 
-[workspace]
-resolver = "2"
-members = [
-    "crates/gitgit-errors",
-    "crates/gitgit-config",
-    "crates/gitgit-observability",
-    "crates/gitgit-proto",
-    "crates/gitgit-core",
-    "crates/gitgit-graph",
-    "crates/gitgit-policy",
-    "crates/gitgit-ai",
-    "crates/gitgit-agent",
-    "crates/gitgit-app",
-    "crates/gitgit-git",
-    "crates/gitgit-server",
-    "crates/gitgit-admin",
-    "crates/gitgit-cli",
-]
-
-[workspace.package]
+[package]
+name = "gitgit"
 version = "0.1.0"
 edition = "2021"
-rust-version = "1.75"          # MSRV (详见 tech-selection.md §15)
+rust-version = "1.75"
 license = "Apache-2.0"
-repository = "https://github.com/gitgit-platform/gitgit"
-authors = ["GitGit Team"]
 publish = false
 
-[workspace.dependencies]
-# 异步运行时 (tech-selection.md §3)
+[[bin]]
+name = "gitgit"
+path = "src/main.rs"
+
+[dependencies]
 tokio = { version = "1.40", features = ["full"] }
-tokio-util = { version = "0.7", features = ["io"] }
-tokio-stream = { version = "0.1", features = ["sync"] }
-async-trait = "0.1"
-futures = "0.3"
-futures-util = "0.3"
-
-# HTTP 框架 (tech-selection.md §4)
-axum = { version = "0.7", features = ["macros", "http2", "ws", "matched-path", "tracing"] }
-tower = { version = "0.5", features = ["util", "limit", "load-shed", "timeout"] }
-tower-http = { version = "0.6", features = ["trace", "cors", "compression-gzip", "request-id", "util"] }
-hyper = { version = "1.4", features = ["full"] }
-
-# gRPC (tech-selection.md §5)
-tonic = { version = "0.12", features = ["transport", "tls", "gzip", "zstd"] }
-tonic-reflection = "0.12"
-prost = "0.13"
-prost-types = "0.13"
-
-# 数据库 (tech-selection.md §6)
-sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio-rustls", "postgres", "uuid", "chrono", "json", "migrate", "macros"] }
-deadpool-postgres = "0.14"
-# pgbouncer 客户端: V1+ 启用（不在 workspace dependencies，每个 crate 单独 optional）
-
-# Git 库 (tech-selection.md §7)
-gix = { version = "0.66", default-features = false, features = ["max-performance", "pack-cache-lru-dynamic", "zlib-ng"] }
-
-# 认证 / 凭证 (tech-selection.md §8)
-jsonwebtoken = "9.3"
-argon2 = "0.5"
-totp-rs = { version = "5.7", features = ["gen_secret", "otpauth"] }
-webauthn-rs = { version = "0.5" }
-
-# 加密原语 (tech-selection.md §9)
-# 注意：原 "rust-crypto" crate 已 deprecated 且库名带连字符无法编译
-# 改用独立的 RustCrypto 生态 crate
-chacha20poly1305 = "0.10"
-aead = "0.5"
-sha2 = "0.10"
-hmac = "0.12"
-p256 = "0.13"
-ed25519-dalek = "2.1"
-ssh-key = { version = "0.6", features = ["ed25519", "rsa"] }
-age = "0.11"
-subtle = "2.6"
-zeroize = { version = "1.8", features = ["zeroize_derive"] }
-# RSA / ed25519 签名 (JWT 用)
-rsa = { version = "0.9", features = ["sha2"] }
-
-# HTTP 客户端 (tech-selection.md §10)
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "gzip"] }
-
-# 可观测性 (tech-selection.md §11)
-tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter", "json", "fmt", "registry"] }
-tracing-opentelemetry = "0.25"
-opentelemetry = "0.24"
-opentelemetry_sdk = { version = "0.24", features = ["rt-tokio", "trace", "metrics"] }
-opentelemetry-otlp = { version = "0.17", features = ["tonic", "grpc-tonic", "metrics"] }
-opentelemetry-prometheus = "0.16"
-prometheus = "0.13"
-
-# 配置 (tech-selection.md §12)
-figment = { version = "0.10", features = ["toml", "yaml", "env"] }
-
-# 序列化
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
-serde_yaml = "0.9"
-rmp-serde = "1.3"          # msgpack 用于 App 内部协议
-base64 = "0.22"
-url = "2.5"
-
-# 时间 / ID
-chrono = { version = "0.4", features = ["serde", "clock"] }
-uuid = { version = "1.10", features = ["v4", "v7", "serde"] }
-ulid = { version = "1.1", features = ["serde"] }
-
-# 错误处理
+axum = "0.7"
+tower = "0.5"
+tower-http = { version = "0.6", features = ["trace"] }
+hyper = "1.4"
+clap = { version = "4.5", features = ["derive"] }
 thiserror = "1.0"
 anyhow = "1.0"
-
-# CLI
-clap = { version = "4.5", features = ["derive", "env", "unicode", "wrap_help"] }
-
-# 校验
-validator = { version = "0.18", features = ["derive"] }
-
-# MCP（外部 AI 客户端用）
-rmcp = { version = "0.1", features = ["server", "client", "transport-sse", "transport-io", "macros"] }
-
-# 工具
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+base64 = "0.22"
 bytes = "1.7"
-parking_lot = "0.12"
-dashmap = "6.1"
-once_cell = "1.20"
-arc-swap = "1.7"
-mime = "0.3"
-urlencoding = "2.2"
-regex = "1.10"
-semver = { version = "1.0", features = ["serde"] }
-walkdir = "2.5"
-tempfile = "3.13"
+http = "1.1"
+http-body-util = "0.1"
+futures-util = "0.3"
 
-# 测试
-
-mockall = "0.13"
-wiremock = "0.6"
-testcontainers = "0.23"
-testcontainers-modules = { version = "0.11", features = ["postgres", "redis"] }
-proptest = "1.5"
-pretty_assertions = "1.4"
-rstest = "0.23"
-insta = { version = "1.41", features = ["yaml", "redactions"] }
-cargo-husky = "1.5"
-
-# 内部依赖 — recursive self 引用也需在 workspace.dependencies 声明
-gitgit-errors = { path = "crates/gitgit-errors" }
-gitgit-config = { path = "crates/gitgit-config" }
-gitgit-observability = { path = "crates/gitgit-observability" }
-gitgit-proto = { path = "crates/gitgit-proto" }
-gitgit-core = { path = "crates/gitgit-core" }
-gitgit-graph = { path = "crates/gitgit-graph" }
-gitgit-policy = { path = "crates/gitgit-policy" }
-gitgit-ai = { path = "crates/gitgit-ai" }
-gitgit-agent = { path = "crates/gitgit-agent" }
-gitgit-app = { path = "crates/gitgit-app" }
-gitgit-git = { path = "crates/gitgit-git" }
-gitgit-server = { path = "crates/gitgit-server" }
-gitgit-admin = { path = "crates/gitgit-admin" }
-gitgit-cli = { path = "crates/gitgit-cli" }
-
-# Profile 设置 (tech-selection.md §15.1: 性能与安全)
-[profile.release]
-opt-level = 3
-lto = "thin"
-codegen-units = 1
-panic = "abort"
-strip = "symbols"
-debug = false
-
-[profile.release-debug]
-inherits = "release"
-debug = true
-strip = "none"
-
-# Bench profile
-[profile.bench]
-inherits = "release"
-debug = true
-
-# 强约束 (REQ-TS 强制) — 在每个 crate 的 [lints] 段引用 workspace=true
-# workspace 级别 lints 不能在 virtual manifest 设置 (Rust 1.74+ 限制)
-# 改为每个 crate 独立设置：见 crates/gitgit-*/Cargo.toml
-
-# 工作区 metadata
-
-[workspace.lints.rust]
+[lints.rust]
 unsafe_code = "forbid"
 unused_must_use = "deny"
-missing_docs = "warn"
 
-[workspace.lints.clippy]
+[lints.clippy]
 unwrap_used = "deny"
 expect_used = "deny"
 panic = "deny"
 todo = "warn"
 
-[workspace.lints.rustdoc]
-broken_intra_doc_links = "warn"
-[workspace.metadata.docs.rs]
-all-features = true
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+strip = "symbols"
 
-
+[profile.dev]
+opt-level = 0
+debug = true
