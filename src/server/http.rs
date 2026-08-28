@@ -293,3 +293,178 @@ async fn serve_rpc(
     );
     resp
 }
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod tests {
+    use super::*;
+    use crate::config::Config;
+    use crate::repo::create_bare_repo;
+    use axum::body::to_bytes;
+    use axum::http::{Request as HttpRequest, StatusCode as AxStatusCode};
+    use base64::Engine;
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use tower::ServiceExt;
+
+    fn unique_temp(label: &str) -> std::path::PathBuf {
+        static COUNTER: AtomicU64 = AtomicU64::new(0);
+        let n = COUNTER.fetch_add(1, Ordering::SeqCst);
+        let pid = std::process::id();
+        let dir = std::env::temp_dir().join(format!(
+            "gitgit-test-http-{label}-{pid}-{n}-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    /// Set up a `Config` whose `repos_dir` is a unique temp dir, and
+    /// pre-create a real bare repo named `name` so that the GET
+    /// `/info/refs?service=...` path can spawn a real `git
+    /// upload-pack --advertise-refs` against it.
+    async fn app_with_repo(label: &str, name: &str) -> (AppState, std::path::PathBuf) {
+        let repos = unique_temp(label);
+        let cfg = Config::new("127.0.0.1:0", repos.clone());
+        create_bare_repo(&cfg, name).await.unwrap();
+        (AppState::new(cfg), repos)
+    }
+
+    #[tokio::test]
+    async fn app_state_holds_config() {
+        let repos = unique_temp("app-state");
+        let cfg = Config::new("127.0.0.1:9999", repos);
+        let state = AppState::new(cfg.clone());
+        assert_eq!(state.config.bind, "127.0.0.1:9999");
+        assert_eq!(state.config.repos_dir, cfg.repos_dir);
+    }
+
+    #[tokio::test]
+    async fn info_refs_unknown_repo_returns_404() {
+        let (state, _repos) = app_with_repo("notfound", "demo").await;
+        let app = build_router(state);
+        // No "demo2" repo on disk.
+        let req = HttpRequest::builder()
+            .method("GET")
+            .uri("/repos/demo2.git/info/refs?service=git-upload-pack")
+            .body(Body::empty())
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), AxStatusCode::NOT_FOUND);
+        let body = to_bytes(resp.into_body(), 4096).await.unwrap();
+        let s = std::str::from_utf8(&body).unwrap();
+        assert!(s.contains("repo not found"), "got: {s}");
+    }
+
+    #[tokio::test]
+    async fn info_refs_missing_service_returns_400() {
+        let (state, _repos) = app_with_repo("noservice", "demo").await;
+        let app = build_router(state);
+        // No `?service=...` query string at all.
+        let req = HttpRequest::builder()
+            .method("GET")
+            .uri("/repos/demo.git/info/refs")
+            .body(Body::empty())
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), AxStatusCode::BAD_REQUEST);
+        let body = to_bytes(resp.into_body(), 4096).await.unwrap();
+        let s = std::str::from_utf8(&body).unwrap();
+        assert!(s.contains("missing service"), "got: {s}");
+    }
+
+    #[tokio::test]
+    async fn info_refs_unsupported_service_returns_400() {
+        let (state, _repos) = app_with_repo("badservice", "demo").await;
+        let app = build_router(state);
+        // The router only knows git-upload-pack / git-receive-pack.
+        let req = HttpRequest::builder()
+            .method("GET")
+            .uri("/repos/demo.git/info/refs?service=git-upload-archive")
+            .body(Body::empty())
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), AxStatusCode::BAD_REQUEST);
+        let body = to_bytes(resp.into_body(), 4096).await.unwrap();
+        let s = std::str::from_utf8(&body).unwrap();
+        assert!(s.contains("unsupported service"), "got: {s}");
+    }
+
+    #[tokio::test]
+    async fn receive_pack_without_auth_returns_401_with_www_authenticate() {
+        let (state, _repos) = app_with_repo("noauth", "demo").await;
+        let app = build_router(state);
+        // POST receive-pack with NO Authorization header.
+        let req = HttpRequest::builder()
+            .method("POST")
+            .uri("/repos/demo.git/git-receive-pack")
+            .body(Body::empty())
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), AxStatusCode::UNAUTHORIZED);
+        // RFC 7235: 401 must carry a WWW-Authenticate challenge.
+        let challenge = resp
+            .headers()
+            .get(header::WWW_AUTHENTICATE)
+            .expect("WWW-Authenticate must be present on 401");
+        let s = challenge.to_str().unwrap();
+        assert!(
+            s.contains("Basic") && s.contains("gitgit"),
+            "expected Basic challenge with realm=\"gitgit\", got: {s}"
+        );
+    }
+
+    #[tokio::test]
+    async fn receive_pack_with_wrong_password_returns_401() {
+        let (state, _repos) = app_with_repo("wrongpw", "demo").await;
+        let app = build_router(state);
+        // Send a Basic header that decodes to "admin:nope".
+        let bad = base64::engine::general_purpose::STANDARD.encode(b"admin:nope");
+        let req = HttpRequest::builder()
+            .method("POST")
+            .uri("/repos/demo.git/git-receive-pack")
+            .header(header::AUTHORIZATION, format!("Basic {bad}"))
+            .body(Body::empty())
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), AxStatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn info_refs_happy_path_returns_advertisement() {
+        // End-to-end: a real bare repo, real `git upload-pack
+        // --advertise-refs`, smart-HTTP announcement frame, and the
+        // Content-Type the git client expects.
+        let (state, _repos) = app_with_repo("happyrefs", "demo").await;
+        let app = build_router(state);
+        let req = HttpRequest::builder()
+            .method("GET")
+            .uri("/repos/demo.git/info/refs?service=git-upload-pack")
+            .body(Body::empty())
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), AxStatusCode::OK);
+        // Content-Type must be the upload-pack advertisement MIME.
+        let ct = resp
+            .headers()
+            .get(header::CONTENT_TYPE)
+            .expect("Content-Type must be present")
+            .to_str()
+            .unwrap();
+        assert_eq!(ct, "application/x-git-upload-pack-advertisement");
+        // Cache-Control: no-cache (per the wire-format requirement).
+        let cc = resp.headers().get(header::CACHE_CONTROL).unwrap();
+        assert_eq!(cc.to_str().unwrap(), "no-cache");
+        // Body must start with the announcement frame: hex length +
+        // "# service=git-upload-pack\n" + "0000" flush.
+        let body = to_bytes(resp.into_body(), 64 * 1024).await.unwrap();
+        let prefix = std::str::from_utf8(&body[0..4]).unwrap();
+        let total: usize = usize::from_str_radix(prefix, 16).unwrap();
+        assert!(total > 4, "announcement frame length too small: {total}");
+        let line = std::str::from_utf8(&body[4..total]).unwrap();
+        assert_eq!(line, "# service=git-upload-pack\n");
+        assert_eq!(&body[total..total + 4], b"0000");
+    }
+}

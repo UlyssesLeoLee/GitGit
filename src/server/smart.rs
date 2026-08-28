@@ -37,9 +37,18 @@ pub fn announce_frame(service: &str) -> Vec<u8> {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 mod tests {
     use super::*;
+
+    /// Helper: parse the first 4 bytes as a hex length prefix and return
+    /// (prefix_len, body_len) where body_len is the number of bytes that
+    /// follow the 4-byte prefix within the framed line.
+    fn parse_prefix(frame: &[u8]) -> (usize, usize) {
+        let len_hex = std::str::from_utf8(&frame[0..4]).unwrap();
+        let total = usize::from_str_radix(len_hex, 16).unwrap();
+        (4, total - 4)
+    }
 
     #[test]
     fn announce_frame_format() {
@@ -56,5 +65,41 @@ mod tests {
         assert_eq!(line, "# service=git-upload-pack\n");
         // Then a flush packet.
         assert_eq!(&f[len..len + 4], b"0000");
+    }
+
+    #[test]
+    fn announce_frame_for_receive_pack() {
+        // Both services must be supported. The body line differs only in
+        // the service name; framing rules are identical.
+        let f = announce_frame("git-receive-pack");
+        let (_, body_len) = parse_prefix(&f);
+        let body = std::str::from_utf8(&f[4..4 + body_len]).unwrap();
+        assert_eq!(body, "# service=git-receive-pack\n");
+        // Total length must equal 4 (prefix) + body + 4 (flush packet).
+        assert_eq!(f.len(), 4 + body_len + 4);
+        // Flush packet is always exactly "0000".
+        assert_eq!(&f[4 + body_len..], b"0000");
+    }
+
+    #[test]
+    fn announce_frame_total_size_is_deterministic() {
+        // Lock down the exact byte length so a future refactor that
+        // accidentally drops the trailing NUL flush packet (or changes
+        // the prefix width) is caught by a unit test.
+        let f = announce_frame("git-upload-pack");
+        // "# service=git-upload-pack\n" is 26 bytes; prefix=4, flush=4.
+        assert_eq!(f.len(), 4 + 26 + 4);
+    }
+
+    #[test]
+    fn announce_frame_flush_packet_is_4_zero_bytes() {
+        // The flush packet "0000" is 4 ASCII zeros, not 4 NUL bytes. The
+        // wire format is hex ASCII.
+        let f = announce_frame("git-upload-pack");
+        let (_, body_len) = parse_prefix(&f);
+        let flush = &f[4 + body_len..4 + body_len + 4];
+        assert_eq!(flush, b"0000");
+        // Specifically: not the NUL byte (0x00) repeated.
+        assert_ne!(flush, &[0u8, 0, 0, 0]);
     }
 }

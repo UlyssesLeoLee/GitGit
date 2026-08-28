@@ -151,3 +151,118 @@ fn apply_no_window(cmd: &mut Command, flags: u32) {
     use std::os::windows::process::CommandExt;
     cmd.as_std_mut().creation_flags(flags);
 }
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    fn unique_temp(label: &str) -> PathBuf {
+        static COUNTER: AtomicU64 = AtomicU64::new(0);
+        let n = COUNTER.fetch_add(1, Ordering::SeqCst);
+        let pid = std::process::id();
+        let dir = std::env::temp_dir().join(format!(
+            "gitgit-test-subproc-{label}-{pid}-{n}-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn git_stateless_rpc_rejects_unknown_subcommand() {
+        // The allow-list is the security boundary: any subcmd other than
+        // upload-pack / receive-pack must produce a clean Http error
+        // BEFORE we spawn a process. A `git foo` would otherwise
+        // potentially execute arbitrary user-supplied side.
+        let dir = unique_temp("reject-sub");
+        let err = match git_stateless_rpc("log", &dir, false, &[]) {
+            Ok(_) => panic!("expected error for subcmd 'log'"),
+            Err(e) => e,
+        };
+        let msg = format!("{err}");
+        assert!(msg.contains("unsupported git subcommand"), "got: {msg}");
+    }
+
+    #[test]
+    fn git_stateless_rpc_rejects_shadowed_subcommand() {
+        // Even with the right prefix, a partial match must be rejected
+        // (e.g. "upload-pack; rm -rf /"). The match is exact.
+        let dir = unique_temp("reject-shadow");
+        let err = match git_stateless_rpc("upload-pack; rm -rf /", &dir, false, &[]) {
+            Ok(_) => panic!("expected error for subcmd 'upload-pack; rm -rf /'"),
+            Err(e) => e,
+        };
+        let msg = format!("{err}");
+        assert!(msg.contains("unsupported git subcommand"), "got: {msg}");
+    }
+
+    #[tokio::test]
+    async fn git_init_bare_creates_bare_repo() {
+        // This test requires the real `git` binary on PATH.
+        let target = unique_temp("init-bare").join("foo.git");
+        git_init_bare(&target).await.unwrap();
+        // Bare repo signature: HEAD + objects/ + refs/.
+        assert!(target.join("HEAD").is_file(), "HEAD missing");
+        assert!(target.join("objects").is_dir());
+        assert!(target.join("refs").is_dir());
+    }
+
+    #[tokio::test]
+    async fn await_success_reports_nonzero_exit() {
+        // Spawn a deliberately-failing command and confirm await_success
+        // surfaces the exit code via GitGitError::GitExit. We use the
+        // platform's `false` equivalent: on both Windows and Unix shells,
+        // `cmd /C exit 7` (Windows) or `sh -c 'exit 7'` (Unix) returns 7.
+        let mut cmd = if cfg!(windows) {
+            let mut c = Command::new("cmd");
+            c.args(["/C", "exit 7"]);
+            c
+        } else {
+            let mut c = Command::new("sh");
+            c.args(["-c", "exit 7"]);
+            c
+        };
+        cmd.stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::piped());
+        #[cfg(windows)]
+        {
+            const CREATE_NO_WINDOW: u32 = 0x08000000;
+            apply_no_window(&mut cmd, CREATE_NO_WINDOW);
+        }
+        let child = cmd.spawn().unwrap();
+        let err = await_success(child, "exit-7").await.unwrap_err();
+        match err {
+            GitGitError::GitExit { status, cmd, .. } => {
+                assert_eq!(status, 7, "expected exit code 7, got {status}");
+                assert_eq!(cmd, "exit-7");
+            }
+            other => panic!("expected GitExit, got: {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn await_success_reports_success() {
+        // Symmetric: a real successful command must not produce an error.
+        // Use `git --version` which is universally available wherever
+        // `git` is on PATH and exits 0.
+        let mut cmd = Command::new("git");
+        cmd.arg("--version");
+        cmd.stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::piped());
+        #[cfg(windows)]
+        {
+            const CREATE_NO_WINDOW: u32 = 0x08000000;
+            apply_no_window(&mut cmd, CREATE_NO_WINDOW);
+        }
+        let child = cmd.spawn().unwrap();
+        await_success(child, "git --version").await.unwrap();
+    }
+}
