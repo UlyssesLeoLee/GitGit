@@ -2,13 +2,13 @@
 
 | 字段 | 值 |
 |---|---|
-| **Status** | Accepted (2026-08-26) |
+| **Status** | Accepted (2026-08-26) / Revised (2026-08-30 — Credential Vault → minIO) |
 | **Supersedes** | (无) |
 | **Superseded by** | (无) |
-| **Authors** | Mavis（架构师，per DEC-008） |
+| **Authors** | Ulysses（一人公司 12 角色 per DEC-008）— Mavis 接手 agent |
 | **Reviewers** | Ulysses（DDD Review，pending） |
 | **Deciders** | Ulysses |
-| **Tags** | gui, tauri, svelte, v0, keychain, ai-provider |
+| **Tags** | gui, tauri, svelte, v0, keychain, ai-provider, minio, s3-compatible, vault |
 
 ---
 
@@ -125,9 +125,26 @@ trait Vault {
 ```
 
 实现：
-- `WindowsVault` → `keyring` crate 调 Windows Credential Manager
-- `FileVault` → 落 `~/.config/gitgit/credentials.toml`（0600 文件权限）
-- MVP 默认 `FileVault`（避免 UAC 问题），V1 推 `WindowsVault` 为默认
+- `MinioVault` → minIO S3-compatible 对象存储客户端，PUT/GET `gitgit-vault` bucket 中 `s3://gitgit-vault/<key>` object
+- `FileVault` → 落 `~/.config/gitgit/credentials.toml`（0600 文件权限），降级 fallback
+- `WindowsVault`（暂不实现，V1 视 minIO 商业化评估再决定）→ `keyring` crate 调 Windows Credential Manager
+- V0 默认 `MinioVault`（per 8/30 15:42 JST 拍板），fallback `FileVault`（仅 minIO 不可达时）
+- 详见 [ADR-0021](0021-v0-minio-credential-vault.md)
+
+#### 2.5.1 minIO 部署要求
+
+| 项 | 要求 | 备注 |
+|---|---|---|
+| Bucket 命名 | `gitgit-vault` | V0 单桶；V1+ 可按 provider 拆桶（`gitgit-vault-ai` / `gitgit-vault-remote`） |
+| Versioning | 启用 | 防止误删覆盖 |
+| Lifecycle | 90d 自动 expire deleted objects | 软删除痕迹保留 90d 后清理 |
+| Erasure coding | 默认 4+2（minIO 默认） | 抗单盘/单节点故障 |
+| 网络 | `localhost:9000` (dev) / K8s Service (V1+) | 容器内 `http://minio:9000` |
+| 凭证 | minIO root user/password 由 FileVault 启动时引导存（仅 dev 阶段递归引用）；**禁止 .env 入仓** | V1+ 推进 KMS / Secret Manager |
+| 备份 | dev 单节点 erasure coding 即可；V1+ 跨节点 site replication | T11 部署后置步骤 |
+| TLS | dev 阶段 HTTP 关闭（仅 localhost）；V1+ 强制 HTTPS | 证书走 cert-manager (V1) |
+| License | 社区版 AGPL-3.0 | 商业部署前评估 Enterprise License 或切换 Ceph RGW / SeaweedFS / Garage |
+| Client SDK | V0 Rust 端走 `s3` crate（pure-Rust，AWS Signature V4）；V1 评估 `rust-s3` 切换 | 不引 minIO 官方 Go SDK（跨语言不必要） |
 
 ### 2.6 SQL schema（V0 范围）
 
@@ -172,7 +189,7 @@ CREATE TABLE remote_configs (
     provider TEXT NOT NULL,     -- github / gitlab / gitee / bitbucket / custom
     base_url TEXT NOT NULL,
     auth_kind TEXT NOT NULL,    -- pat / basic / none
-    vault_key TEXT,             -- credential vault key for this remote
+    vault_key TEXT,             -- credential vault key for this remote (per 8/30 15:42 JST: points to minIO `gitgit-vault` bucket object key, e.g. `gitee/alice/pat`)
     last_sync_at TIMESTAMPTZ,
     last_sync_status TEXT,      -- ok / diverged / error
     UNIQUE (repo_path, name)
@@ -227,6 +244,9 @@ CREATE TABLE user_prefs (
 - WebView2 依赖 Win 10+1809 — 你机器 Win 11 满足 ✅
 - PG 18.6 是相对新版本，sqlx 0.8 完整支持（PG ≥ 11）
 - 多 remote sync 的冲突策略留 V1，本轮**只支持 fast-forward sync**
+- **minIO 部署依赖 docker** (per 8/30 15:42 JST 新增) — Win 11 上 `docker desktop` / `Rancher Desktop` 需预装；无 docker 容器 runtime 时 minIO binary standalone 也可起，但 V0 推荐 docker-compose
+- **minIO AGPL-3.0 license 风险** (per 8/30 15:42 JST 新增) — 商业部署需 Enterprise License 或切换 S3-compatible 替代 (Ceph RGW / SeaweedFS / Garage)
+- **minIO root 凭证递归引用 vault 自身** (per 8/30 15:42 JST 新增) — V0 简化：FileVault 启动引导存；V1 推进 KMS / Secret Manager
 
 ### 3.3 推翻的备选
 
@@ -239,6 +259,8 @@ CREATE TABLE user_prefs (
 | SQLite 替代 PG | 与 D:\GitGit 设计文档冲突（要 PG 落库） |
 | 重写 graph 引擎 V0 | 不在 MVP 范围，V1 再说 |
 | 写 TortoiseGit 风格右键菜单 | UAC + Windows Defender warning，V1 |
+| **`FileVault` 作为 V0 默认** (per 8/30 15:42 JST 推翻) | 类型仅 `String`、跨节点访问难、备份手工；改 `MinioVault` 默认 + `FileVault` 降级 fallback (详见 [ADR-0021](0021-v0-minio-credential-vault.md)) |
+| **`WindowsVault` 作为 V0 默认** (per 8/30 15:42 JST 推迟到 V1 评估) | 绑定 Windows 平台；V0 跨平台 (Win/macOS/Linux) 需要 minIO 统一抽象；UAC 弹窗体验差 |
 
 ## 4. 验证 / Verification
 
@@ -264,4 +286,4 @@ V0 完成的验收清单：
 
 ---
 
-**Status: Accepted** | 2026-08-26 17:00 JST
+**Status: Accepted** | 2026-08-26 17:00 JST (initial) / 2026-08-30 15:42 JST (Credential Vault → minIO 修订)
