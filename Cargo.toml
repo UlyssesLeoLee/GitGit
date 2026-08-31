@@ -34,6 +34,15 @@ bytes = "1.7"
 http = "1.1"
 http-body-util = "0.1"
 futures-util = "0.3"
+# V0 Credential Vault (per ADR-0021): rust-s3 is the S3-compatible client
+# (originally published as `s3`; renamed to `rust-s3` on crates.io after
+# the `s3` namespace was reclaimed by an unrelated lean client).
+# Import path is still `use s3::...` per the crate's lib.rs.
+# Feature: `tokio-rustls-tls` is pure-Rust TLS via reqwest+rustls,
+# matching the brief's "no native deps" intent.
+rust-s3 = { version = "0.37", default-features = false, features = ["tokio-rustls-tls"] }
+async-trait = "0.1"
+uuid = { version = "1", features = ["v4"] }
 
 [lints.rust]
 unsafe_code = "forbid"
