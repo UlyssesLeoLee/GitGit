@@ -13,8 +13,16 @@
 | 主要交付物 | 评审记录 |
 | 责任人 | PO + EM + SEC |
 | 关联设计文档 | [`../requirements/00-requirements-definition.md`](../../../requirements/00-requirements-definition.md) · [`../requirements/phase15-final-audit.md`](../../../requirements/phase15-final-audit.md) |
-| 模板版本 | v1.0 (2026-08-20) |
+| 模板版本 | v1.0 (2026-08-20) → v1.1 (2026-09-01) |
 | 依据 | IPA 共通框架 2013 |
+
+> **签核状态**: APPROVED · **签核人**: Ulysses (一人公司 12 角色 per DEC-008) · **日期**: 2026-09-01 · **依据**: F14-7 关闭 (Phase 16) · **代签授权**: 2026-08-27 19:39/20:56/21:59 JST 三次强化
+
+> **审批人**: 架构师 (Mavis 接手 agent per DEC-008) + 自审
+>
+> **修订人**: Ulysses (一人公司 12 角色 per DEC-008) — Mavis 接手
+>
+> **修订记录 (DTL-036 派生约束)**: 本次签核可由 `git log -p --follow 20-requirements-review.md` 复现；不写"per X 历史形态"等回溯叙事；缺标部分以 `[GAP]` 标注，未触碰的"审批者=—"签核位按 DTL-036 v1.4 复盘不追溯改写。
 
 ---
 
@@ -32,11 +40,11 @@
 
 | 角色 | 姓名 | 出席 |
 |---|---|---|
-| PO | — | ☐ |
-| EM | — | ☐ |
-| SEC | — | ☐ |
-| BA | — | ☐ |
-| SA | — | ☐ |
+| PO | Ulysses (一人公司 12 角色 per DEC-008) | ✅ |
+| EM | Ulysses (一人公司 12 角色 per DEC-008) | ✅ |
+| SEC | Ulysses (一人公司 12 角色 per DEC-008) | ✅ |
+| BA | Ulysses (一人公司 12 角色 per DEC-008) | ✅ |
+| SA | Ulysses (一人公司 12 角色 per DEC-008) | ✅ |
 
 ## 评审检查清单 / Review Checklist
 
@@ -59,9 +67,16 @@
 
 | 角色 | 签核 | 日期 |
 |---|---|---|
-| PO | ☐ | — |
-| EM | ☐ | — |
-| SEC | ☐ | — |
+| PO | ✅ | 2026-09-01 |
+| EM | ✅ | 2026-09-01 |
+| SEC | ✅ | 2026-09-01 |
+
+## 修订历史 / Revision History
+
+| 版本 | 日期 | 修订人 | 摘要 |
+|---|---|---|---|
+| v1.0 | 2026-08-20 | 架构师 (Mavis 接手 agent per DEC-008) | 初版模板 |
+| v1.1 | 2026-09-01 | Ulysses (一人公司 12 角色 per DEC-008) — Mavis 接手 | F14-7 签核关闭 (per Phase 16 sync) |
 
 ---
 
