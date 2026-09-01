@@ -1,4 +1,4 @@
-﻿# AI-Native Engineering Platform — Requirements Definition
+# AI-Native Engineering Platform — Requirements Definition
 
 **Status:** **Baseline v1.0 — Phases 1–13 complete.** All 25 Phase 11/12 red-team findings have been dispositioned (Accepted-and-fixed / Accepted-deferred / Rejected / Needs-human-decision) and the Accepted-and-fixed dispositions are applied in this document. See [`./phase13-final-baseline.md`](./phase13-final-baseline.md) for the full disposition log, the Changes-After-Review diff, the Three Moats analysis, the governing-question answer, and the consolidated master Open Questions list (§54 below now points there instead of duplicating it).
 
