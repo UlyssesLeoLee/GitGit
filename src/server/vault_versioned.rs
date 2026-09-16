@@ -325,6 +325,53 @@ fn filevault_timeline_path(vault: &FileVault, key: &str) -> PathBuf {
     filevault_sidecar_path(vault.root(), key)
 }
 
+/// Attachments live in `<root>/_attachments/<encoded>/v<N>.bin`.
+///
+/// One file per (key, version). `set_with_version` writes the bytes
+/// into the next slot *atomically* (temp+rename, same pattern as
+/// `Vault::set`). `restore_to_version` reads a previous slot and
+/// re-points the main object at it; `get_at_version` does the same.
+/// This sidesteps the rust-s3 0.37 `versionId` lookup gap for V0.
+fn filevault_attachment_path(root: &Path, key: &str, version: i32) -> PathBuf {
+    let encoded = key.replace(['/', '\\'], "__");
+    root.join("_attachments")
+        .join(encoded)
+        .join(format!("v{version}.bin"))
+}
+
+async fn filevault_write_attachment(
+    vault: &FileVault,
+    key: &str,
+    version: i32,
+    bytes: &[u8],
+) -> Result<()> {
+    let path = filevault_attachment_path(vault.root(), key, version);
+    if let Some(parent) = path.parent() {
+        tokio::fs::create_dir_all(parent).await?;
+    }
+    let mut tmp = path.clone();
+    let tmp_name = format!(".tmp.{}", uuid::Uuid::new_v4().simple());
+    tmp.set_file_name(tmp_name);
+    tokio::fs::write(&tmp, bytes).await?;
+    if let Err(e) = tokio::fs::rename(&tmp, &path).await {
+        let _ = tokio::fs::remove_file(&tmp).await;
+        return Err(VersionedVaultError::from(e).into());
+    }
+    Ok(())
+}
+
+async fn filevault_read_attachment(
+    vault: &FileVault,
+    key: &str,
+    version: i32,
+) -> Result<Vec<u8>> {
+    let path = filevault_attachment_path(vault.root(), key, version);
+    let bytes = tokio::fs::read(&path)
+        .await
+        .map_err(VersionedVaultError::from)?;
+    Ok(bytes)
+}
+
 async fn filevault_load_timeline(
     vault: &FileVault,
     key: &str,
@@ -384,19 +431,50 @@ impl VersionedVault for FileVault {
         // bucket versioning when enabled) apply identically.
         self.set(key, value).await?;
         let mut tl = filevault_load_timeline(self, key).await?;
+        // Sidecar metadata first so `find_version` is satisfiable.
         append_version(&mut tl, value.as_bytes(), None);
         filevault_store_timeline(self, &tl).await?;
+        // Then the attachment bytes so a future `get_at_version` /
+        // `restore_to_version` can read the exact value of this
+        // version. Idempotent re-set ⇒ no new entry ⇒ no new
+        // attachment slot. The "skip" path leaves the prior slot
+        // intact (defensive: re-setting same bytes is a no-op, never
+        // shadows existing data).
+        if let Some(last) = tl.versions.last() {
+            if last.version == tl.versions.len() as i32 {
+                filevault_write_attachment(self, key, last.version, value.as_bytes()).await?;
+            }
+        }
         Ok(tl.versions.last().map(|v| v.version).unwrap_or(1))
     }
 
-    async fn get_at_version(&self, key: &str, _version: i32) -> Result<Option<String>> {
-        // V0: FileVault returns the latest value regardless of version.
-        // Historical bytes for FileVault have been overwritten by `set`
-        // and are not recoverable; the sidecar metadata records
-        // bytes_sha256 / byte_len for audit, but the actual past value
-        // lives only in the most recent file. Document the limitation
-        // (see module-level "Known gaps").
-        self.get(key).await
+    async fn get_at_version(&self, key: &str, version: i32) -> Result<Option<String>> {
+        let tl = filevault_load_timeline(self, key).await?;
+        let _ = find_version(&tl, version)?;
+        match filevault_read_attachment(self, key, version).await {
+            Ok(bytes) => match String::from_utf8(bytes) {
+                Ok(s) => Ok(Some(s)),
+                Err(e) => Ok(Some(format!(
+                    "[non-utf8 attachment for v{version}, {} bytes]",
+                    e.into_bytes().len()
+                ))),
+            },
+            // Missing attachment is recoverable (the sidecar metadata is
+            // reliable, but the byte payload may have been pruned by an
+            // out-of-band cleanup). Surface `Ok(None)` rather than
+            // failing the call so callers can distinguish "no data"
+            // from "invalid request".
+            Err(e) => {
+                tracing::warn!(
+                    backend = "FileVault",
+                    key = %key,
+                    version,
+                    error = %e,
+                    "Vault get_at_version attachment missing — timeline present but bytes gone"
+                );
+                Ok(None)
+            }
+        }
     }
 
     async fn restore_to_version(&self, key: &str, target_version: i32) -> Result<i32> {
@@ -404,12 +482,15 @@ impl VersionedVault for FileVault {
         if tl.versions.is_empty() {
             return Err(VersionedVaultError::NoHistory(key.to_string()).into());
         }
-        let _ = find_version(&tl, target_version)?;
+        // Read the historical bytes from the attachment slot BEFORE
+        // bumping the timeline so the read is safe even if the bump
+        // path mutates any state.
+        let target_bytes = filevault_read_attachment(self, key, target_version).await?;
+        let target_text = String::from_utf8_lossy(&target_bytes).into_owned();
 
-        // Read current value (may be None if key was deleted).
         let current = self.get(key).await?;
-        let current_bytes = current.clone().unwrap_or_default();
-        // Record what we replaced in the audit trail.
+        let current_bytes = current.unwrap_or_default();
+        let pre_restore_sha = sha256_hex(current_bytes.as_bytes());
         bump_timeline(
             &mut tl,
             current_bytes.as_bytes(),
@@ -418,30 +499,30 @@ impl VersionedVault for FileVault {
             )),
         );
 
-        // Build the "restored" value. FileVault cannot recover the
-        // historical bytes, so we surface that gap in a marker that
-        // names the target version. Follow-up PRs can add off-object
-        // archival for FileVault if real restore is needed.
-        let marker = format!(
-            "[restored-to-v{target_version}-bytes-not-recoverable-from-filevault]"
-        );
-        self.set(key, &marker).await?;
+        // Real byte-level restore: write the historical attachment
+        // bytes back into the main slot, then record the restored
+        // entry whose hash naturally points at the restored payload.
+        self.set(key, &target_text).await?;
         bump_timeline(
             &mut tl,
-            marker.as_bytes(),
+            target_bytes.as_slice(),
             Some(&format!(
-                "Restored from version {target_version} (FileVault bytes not recoverable; \
-                 see ADR-0022 — switch to MinioVault for true byte-level restore)"
+                "Restored from version {target_version} (FileVault, byte-level)"
             )),
         );
         filevault_store_timeline(self, &tl).await?;
+        // Also stamp the attachment for the NEW current version so a
+        // later reader that gets pointed here finds the bytes.
+        if let Some(last) = tl.versions.last() {
+            filevault_write_attachment(self, key, last.version, target_bytes.as_slice()).await?;
+        }
         tracing::info!(
             backend = "FileVault",
             key = %key,
             target_version,
+            pre_restore_sha = %pre_restore_sha,
             new_version = tl.versions.last().map(|v| v.version).unwrap_or(0),
-            "Vault restore (FileVault): sidecar metadata updated; \
-             bytes not recoverable — use MinioVault for full byte restore"
+            "Vault restore (FileVault): byte-level restore succeeded"
         );
         Ok(tl.versions.last().map(|v| v.version).unwrap_or(0))
     }
@@ -476,6 +557,45 @@ fn minio_sidecar_object_key(prefix: &str, key: &str) -> String {
     } else {
         format!("{prefix}{key}.versions.json")
     }
+}
+
+fn minio_attachment_object_key(prefix: &str, key: &str, version: i32) -> String {
+    if prefix.is_empty() {
+        format!("{key}.v{version}.bin")
+    } else {
+        format!("{prefix}{key}.v{version}.bin")
+    }
+}
+
+async fn minio_write_attachment(
+    vault: &MinioVault,
+    key: &str,
+    version: i32,
+    bytes: &[u8],
+) -> Result<()> {
+    let object_key = minio_attachment_object_key(vault.key_prefix(), key, version);
+    vault
+        .put_object_for_sidecar(&object_key, bytes)
+        .await?;
+    Ok(())
+}
+
+async fn minio_read_attachment(
+    vault: &MinioVault,
+    key: &str,
+    version: i32,
+) -> Result<Vec<u8>> {
+    let object_key = minio_attachment_object_key(vault.key_prefix(), key, version);
+    vault
+        .get_object_for_sidecar(&object_key)
+        .await?
+        .map(|b| b.to_vec())
+        .ok_or_else(|| {
+            VersionedVaultError::Serde(format!(
+                "minio attachment for {key:?} v{version} not found"
+            ))
+            .into()
+        })
 }
 
 async fn minio_load_timeline(vault: &MinioVault, key: &str) -> Result<VersionedTimeline> {
@@ -521,20 +641,26 @@ impl VersionedVault for MinioVault {
         let mut tl = minio_load_timeline(self, key).await?;
         append_version(&mut tl, value.as_bytes(), None);
         minio_store_timeline(self, &tl).await?;
+        if let Some(last) = tl.versions.last() {
+            if last.version == tl.versions.len() as i32 {
+                minio_write_attachment(self, key, last.version, value.as_bytes()).await?;
+            }
+        }
         Ok(tl.versions.last().map(|v| v.version).unwrap_or(1))
     }
 
     async fn get_at_version(&self, key: &str, version: i32) -> Result<Option<String>> {
         let tl = minio_load_timeline(self, key).await?;
-        let summary = find_version(&tl, version)?;
-        // V0: only the latest version's bytes are recoverable. Anything
-        // older returns Ok(None). Same caveat as FileVault — bytes
-        // recovery deferred until `rust-s3` 0.37 surfaces versionId
-        // lookups (or until we upgrade to a later release).
-        let latest = tl.versions.last();
-        match latest {
-            Some(latest) if latest.version == summary.version => self.get(key).await,
-            _ => Ok(None),
+        let _ = find_version(&tl, version)?;
+        match minio_read_attachment(self, key, version).await {
+            Ok(bytes) => match String::from_utf8(bytes) {
+                Ok(s) => Ok(Some(s)),
+                Err(e) => Ok(Some(format!(
+                    "[non-utf8 attachment for v{version}, {} bytes]",
+                    e.into_bytes().len()
+                ))),
+            },
+            Err(_) => Ok(None),
         }
     }
 
@@ -543,41 +669,38 @@ impl VersionedVault for MinioVault {
         if tl.versions.is_empty() {
             return Err(VersionedVaultError::NoHistory(key.to_string()).into());
         }
-        let _target_summary = find_version(&tl, target_version)?;
+        let target_bytes = minio_read_attachment(self, key, target_version).await?;
+        let target_text = String::from_utf8_lossy(&target_bytes).into_owned();
 
-        // Read the current value so we can record it as the next version
-        // entry (preserving the audit trail of what we replaced).
-        let pre_restore = self.get(key).await?;
-        let pre_restore_bytes = pre_restore.unwrap_or_default();
+        let current = self.get(key).await?;
+        let current_bytes = current.unwrap_or_default();
+        let pre_restore_sha = sha256_hex(current_bytes.as_bytes());
         bump_timeline(
             &mut tl,
-            pre_restore_bytes.as_bytes(),
+            current_bytes.as_bytes(),
             Some(&format!(
                 "Pre-restore snapshot before going back to v{target_version}"
             )),
         );
-
-        // V0 marker for the same reason as FileVault: restoring the
-        // historical *bytes* is deferred until minIO versionId lookups
-        // land. The metadata layer is fully complete.
-        let marker = format!("[minio-restore-pending-to-v{target_version}]");
-        self.set(key, &marker).await?;
+        self.set(key, &target_text).await?;
         bump_timeline(
             &mut tl,
-            marker.as_bytes(),
+            target_bytes.as_slice(),
             Some(&format!(
-                "Restore target=v{target_version} (MinioVault: bytes recovery deferred; \
-                 see ADR-0022 follow-up — wire minIO versionId lookups for full byte restore)"
+                "Restored from version {target_version} (MinioVault, byte-level)"
             )),
         );
         minio_store_timeline(self, &tl).await?;
-
+        if let Some(last) = tl.versions.last() {
+            minio_write_attachment(self, key, last.version, target_bytes.as_slice()).await?;
+        }
         tracing::info!(
             backend = "MinioVault",
             key = %key,
             target_version,
+            pre_restore_sha = %pre_restore_sha,
             new_version = tl.versions.last().map(|v| v.version).unwrap_or(0),
-            "Vault restore (MinioVault): sidecar updated; bytes recovery deferred"
+            "Vault restore (MinioVault): byte-level restore succeeded"
         );
         Ok(tl.versions.last().map(|v| v.version).unwrap_or(0))
     }

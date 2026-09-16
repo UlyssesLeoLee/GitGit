@@ -336,16 +336,20 @@ mod tests {
     /// upload-pack --advertise-refs` against it.
     async fn app_with_repo(label: &str, name: &str) -> (AppState, std::path::PathBuf) {
         let repos = unique_temp(label);
-        let cfg = Config::new("127.0.0.1:0", repos.clone());
+        let vault_root = unique_temp(&format!("{label}-vault"));
+        let cfg = Config::new("127.0.0.1:0", repos.clone(), vault_root);
         create_bare_repo(&cfg, name).await.unwrap();
-        (AppState::new(cfg), repos)
+        let vault = std::sync::Arc::new(crate::server::vault::FileVault::new(&cfg.vault_file_root));
+        (AppState::new(cfg, vault), repos)
     }
 
     #[tokio::test]
     async fn app_state_holds_config() {
         let repos = unique_temp("app-state");
-        let cfg = Config::new("127.0.0.1:9999", repos);
-        let state = AppState::new(cfg.clone());
+        let vault_root = unique_temp("app-state-vault");
+        let cfg = Config::new("127.0.0.1:9999", repos, vault_root);
+        let vault = std::sync::Arc::new(crate::server::vault::FileVault::new(&cfg.vault_file_root));
+        let state = AppState::new(cfg.clone(), vault);
         assert_eq!(state.config.bind, "127.0.0.1:9999");
         assert_eq!(state.config.repos_dir, cfg.repos_dir);
     }

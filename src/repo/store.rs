@@ -141,7 +141,8 @@ mod tests {
         // container without git the test would fail with a subprocess
         // error which is also acceptable evidence.
         let repos = unique_temp("create");
-        let cfg = Config::new("127.0.0.1:0", repos.clone());
+        let vault_root = unique_temp("create-vault");
+        let cfg = Config::new("127.0.0.1:0", repos.clone(), vault_root);
         let path = create_bare_repo(&cfg, "demo").await.unwrap();
 
         // Path must be `<repos>/demo.git`
@@ -162,7 +163,8 @@ mod tests {
         // Path traversal / empty name must be rejected before we touch
         // the filesystem. `Config::repo_path` is the gatekeeper.
         let repos = unique_temp("reject");
-        let cfg = Config::new("127.0.0.1:0", repos);
+        let vault_root = unique_temp("reject-vault");
+        let cfg = Config::new("127.0.0.1:0", repos, vault_root);
         let err = create_bare_repo(&cfg, "../escape").await.unwrap_err();
         let msg = format!("{err}");
         assert!(
