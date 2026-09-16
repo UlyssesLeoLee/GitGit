@@ -27,17 +27,26 @@ use crate::error::GitGitError;
 use crate::server::auth::require_basic;
 use crate::server::smart::announce_frame;
 use crate::server::subprocess::{git_stateless_rpc, await_success};
+use crate::server::vault::Vault;
 
 /// Shared application state.
 #[derive(Clone)]
 pub struct AppState {
     pub config: Arc<Config>,
+    /// V0 Credential Vault backend (per ADR-0021 §1.2). Held as
+    /// `Arc<dyn Vault>` so handlers can later upgrade to
+    /// `Arc<dyn VersionedVault>` without recompiling every downstream
+    /// call site (per ADR-0022 §follow-up). For now, no HTTP handler
+    /// touches the vault; the field exists so future commits can
+    /// thread commands through `Cmd::Key` without revisiting AppState.
+    pub vault: Arc<dyn Vault>,
 }
 
 impl AppState {
-    pub fn new(config: Config) -> Self {
+    pub fn new(config: Config, vault: Arc<dyn Vault>) -> Self {
         Self {
             config: Arc::new(config),
+            vault,
         }
     }
 }

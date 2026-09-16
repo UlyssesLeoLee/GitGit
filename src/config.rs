@@ -10,6 +10,16 @@ pub const DEFAULT_BIND: &str = "0.0.0.0:8080";
 /// Subdirectory under the current working directory where bare repos live.
 pub const DEFAULT_REPOS_DIR: &str = "repos";
 
+/// Default on-disk root for the V0 Credential Vault (per ADR-0021).
+///
+/// Per ADR-0021 §1.2 the MVP is a single-crate binary with zero
+/// platform-specific code; the credential backend is therefore the
+/// `FileVault` rooted here. Operators can override via
+/// `GITGIT_VAULT_FILE_ROOT` (or `--vault-file-root` on the CLI). The
+/// commit that exposes a `MinioVault` runtime toggled by
+/// `GITGIT_VAULT_BACKEND=minio` follows in V0 close-out.
+pub const DEFAULT_VAULT_FILE_ROOT: &str = ".gitgit/vault";
+
 /// Hard-coded credentials for the MVP.
 ///
 /// The brief is explicit: single hard-coded user. We never read these from
@@ -24,14 +34,24 @@ pub struct Config {
     pub bind: String,
     /// Directory under which bare repos are stored (`<dir>/<name>.git/`).
     pub repos_dir: PathBuf,
+    /// V0 Credential Vault root directory (per ADR-0021 §1.2 default).
+    /// Currently only used by `FileVault`; reserved for a minIO backend
+    /// in V0 close-out.
+    pub vault_file_root: PathBuf,
 }
 
 impl Config {
-    /// Build a config from explicit values, defaulting the bind address.
-    pub fn new(bind: impl Into<String>, repos_dir: impl Into<PathBuf>) -> Self {
+    /// Build a config from explicit values, defaulting the bind address
+    /// and the vault file root.
+    pub fn new(
+        bind: impl Into<String>,
+        repos_dir: impl Into<PathBuf>,
+        vault_file_root: impl Into<PathBuf>,
+    ) -> Self {
         Self {
             bind: bind.into(),
             repos_dir: repos_dir.into(),
+            vault_file_root: vault_file_root.into(),
         }
     }
 
@@ -43,6 +63,21 @@ impl Config {
         }
         if !self.repos_dir.is_dir() {
             return Err(GitGitError::InvalidReposDir(self.repos_dir.clone()));
+        }
+        Ok(())
+    }
+
+    /// Ensure that `vault_file_root` exists and is a directory. Creates
+    /// it if missing. Mirrors `ensure_repos_dir`'s semantics.
+    pub fn ensure_vault_root(&self) -> Result<()> {
+        if !self.vault_file_root.exists() {
+            std::fs::create_dir_all(&self.vault_file_root)?;
+            return Ok(());
+        }
+        if !self.vault_file_root.is_dir() {
+            return Err(GitGitError::InvalidReposDir(
+                self.vault_file_root.clone(),
+            ));
         }
         Ok(())
     }
