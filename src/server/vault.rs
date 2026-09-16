@@ -241,6 +241,37 @@ impl MinioVault {
             format!("{}{}", self.key_prefix, key)
         }
     }
+
+    /// Write a raw sidecar object (used by the versioned-vault module
+    /// to persist the JSON timeline). Visible only inside the crate —
+    /// external callers should go through [`Vault`] / [`Vault::set`].
+    pub(crate) async fn put_object_for_sidecar(
+        &self,
+        object_key: &str,
+        bytes: &[u8],
+    ) -> std::result::Result<(), VaultError> {
+        self.bucket
+            .put_object(object_key, bytes)
+            .await
+            .map(|_| ())
+            .map_err(VaultError::from)
+    }
+
+    /// Read a raw sidecar object. Returns:
+    /// * `Ok(Some(bytes))` — object present, S3 call succeeded.
+    /// * `Ok(None)` — object absent (mapped from `NoSuchKey` / 404 the
+    ///   same way `MinioVault::get` does for plain vaults).
+    /// * `Err(_)` — transport / decode failure.
+    pub(crate) async fn get_object_for_sidecar(
+        &self,
+        object_key: &str,
+    ) -> std::result::Result<Option<bytes::Bytes>, VaultError> {
+        match self.bucket.get_object(object_key).await {
+            Ok(resp) => Ok(Some(resp.bytes().clone())),
+            Err(e) if is_not_found(&e) => Ok(None),
+            Err(e) => Err(VaultError::from(e)),
+        }
+    }
 }
 
 #[async_trait]

@@ -5,5 +5,6 @@ pub mod http;
 pub mod smart;
 pub mod subprocess;
 pub mod vault;
+pub mod vault_versioned;
 
 pub use http::{build_router, AppState};
