@@ -47,3 +47,18 @@ export const useToastsStore = create<ToastsState>((set, get) => ({
     set({ toasts: [] });
   },
 }));
+
+/**
+ * Ergonomic helper: returns the store's `push` function bound to the
+ * current state. Caller-friendly shape: `const toasts = useToasts();
+ *  toasts.push({ kind: 'success', message: 'OK' });`
+ */
+export function useToasts() {
+  const push = useToastsStore((s) => s.push);
+  return {
+    push: (input: { kind: ToastKind; message: string; duration?: number }) =>
+      push(input.kind, input.message, input.duration != null ? { duration: input.duration } : undefined),
+    dismiss: useToastsStore((s) => s.dismiss),
+    clear: useToastsStore((s) => s.clear),
+  };
+}

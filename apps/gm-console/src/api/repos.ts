@@ -1,5 +1,12 @@
 import { getClient } from './client';
-import type { RepoDetail, RepoLogEntry, RepoRef, RepoSummary } from './types';
+import type { HealthResponse, RepoDetail, RepoLogEntry, RepoRef, RepoSummary } from './types';
+
+/** Health probe — returns null on failure so the Settings page can
+ *  render a generic "offline" badge without a thrown query. */
+export async function health(): Promise<HealthResponse> {
+  const resp = await getClient().get<HealthResponse>('/health');
+  return resp.data;
+}
 
 /** List every repo currently registered with the server. */
 export async function listRepos(): Promise<RepoSummary[]> {
