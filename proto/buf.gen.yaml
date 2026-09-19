@@ -1,4 +1,0 @@
-version: v1
-plugins:
-  - plugin: buf-rust
-    out: ../crates/gitgit-proto/src/gen
