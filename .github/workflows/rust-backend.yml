@@ -1,0 +1,62 @@
+# Rust backend CI — covers gitgit-server itself.
+#
+# Triggers: every push or PR that touches `src/**` or `Cargo.toml`. Runs
+# `cargo fmt`, `cargo clippy`, and `cargo test --bins` on stable. The
+# minIO e2e test is marked `#[ignore]` so the unit suite is the only
+# required gate here; minIO coverage lives in a separate self-hosted
+# runner workflow (out of scope for V0.1).
+name: rust-backend
+
+on:
+  push:
+    branches: [dev, main, feature/gm-console-v0.1, feature/gm-desktop-v0.1]
+    paths:
+      - 'src/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - '.github/workflows/rust-backend.yml'
+  pull_request:
+    branches: [dev, main]
+    paths:
+      - 'src/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - '.github/workflows/rust-backend.yml'
+
+concurrency:
+  group: rust-backend-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: fmt + clippy + test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache cargo registry & target
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: '.'
+          cache-on-failure: true
+
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+      - name: Clippy (deny warnings)
+        run: cargo clippy --all-targets --locked -- -D warnings
+
+      - name: Run unit tests
+        run: cargo test --bins
+
+      - name: Run doc tests
+        run: cargo test --doc
+
+      - name: Build release
+        run: cargo build --release
