@@ -1,0 +1,89 @@
+[package]
+# `gm-desktop` — V0 desktop shell for the gitgit MVP, per ADR-0020.
+# Strict dependency policy: only public Rust crates from crates.io that are
+# pre-2026 stable (Tauri 2.x is already GA) plus the in-tree `gitgit`
+# library target exposed by the parent crate (`D:/GitGit/Cargo.toml`).
+name = "gm-desktop"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.75"
+license = "Apache-2.0"
+publish = false
+description = "Local desktop shell for gitgit (V0, per ADR-0020)"
+
+[lib]
+# The Tauri runtime prefers a `lib` target so its `tauri::generate_handler!`
+# macros can resolve commands from either a `lib.rs` or `main.rs`. We follow
+# the official Tauri 2.x template layout.
+name = "gm_desktop_lib"
+path = "src/lib.rs"
+
+[[bin]]
+name = "gm-desktop"
+path = "src/main.rs"
+
+[build-dependencies]
+# The tauri-build crate runs at compile time to expand the
+# `tauri.conf.json` schema and produce the capability/command bindings.
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+# We reuse the parent crate's library target via a `path` dependency so
+# the desktop shell can construct the same `Config`, `FileVault`, and
+# `VersionedVault` instances that `gitgit serve` would use. This is the
+# brief's "复用 gitgit-server 的 crate 内的模块" requirement; it does
+# *not* duplicate any vault / config / repo logic.
+gitgit = { path = "../../.." }
+
+# Tauri 2.x runtime.
+tauri = { version = "2", features = ["tray-icon", "image-png"] }
+tauri-plugin-log = "2"
+tauri-plugin-notification = "2"
+tauri-plugin-clipboard-manager = "2"
+tauri-plugin-dialog = "2"
+tauri-plugin-shell = "2"
+tauri-plugin-opener = "2"
+tauri-plugin-fs = "2"
+# The updater plugin requires a sidecar manifest at the configured
+# endpoint; we ship a stub endpoint in `tauri.conf.json` so the binary
+# compiles even when no real release channel is configured.
+tauri-plugin-updater = "2"
+
+# Async runtime + utilities.
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "process", "sync", "io-util", "fs"] }
+
+# HTTP client for inter-process checks (the desktop shell's own server
+# health endpoint). We deliberately do NOT use this to talk to the
+# gitgit smart-HTTP endpoints — those are not REST; the browser side
+# fetches them directly through Tauri's asset / fetch sandbox.
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+
+# Serialization for command payloads and config persistence.
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Error handling.
+thiserror = "1"
+anyhow = "1"
+
+# Tracing sinks are routed through `tauri-plugin-log` so the UI log
+# viewer in the Settings page can stream them. The plain `tracing`
+# crate is what the actual log lines are emitted with.
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+
+# Time formatting for log timestamps.
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+
+# UUID for spawned-child pid-less identifiers and for log record IDs.
+uuid = { version = "1", features = ["v4"] }
+
+[lints.rust]
+unsafe_code = "forbid"
+unused_must_use = "deny"
+
+[lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+todo = "warn"

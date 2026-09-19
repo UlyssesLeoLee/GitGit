@@ -1,0 +1,27 @@
+# Build artifacts
+node_modules/
+dist/
+.vite/
+coverage/
+
+# Tauri build / target
+src-tauri/target/
+src-tauri/gen/
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+*.tmp
+.tmp-build.log
+
+# Local secrets (per 8/27 11:06 JST env var hard ban)
+.env
+.env.*
+*.pem
+*.key
+*.pfx

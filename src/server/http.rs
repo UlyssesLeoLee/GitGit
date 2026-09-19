@@ -33,13 +33,12 @@ use crate::server::vault_versioned::VersionedVault;
 #[derive(Clone)]
 pub struct AppState {
     pub config: Arc<Config>,
-    /// V0 Credential Vault backend (per ADR-0021 §1.2 + ADR-0022
-    /// §follow-up). Held as `Arc<dyn VersionedVault>` so the gm-console
-    /// REST surface (`src/server/api.rs`) and future handlers can call
-    /// the versioned write/diff/restore methods directly. Callers that
-    /// only need the 5 KV operations can auto-deref to the `Vault`
-    /// super-trait. `src/main.rs::build_vault` already returns this
-    /// type, so no constructor change is needed there.
+    /// V0 Credential Vault backend. Held as `Arc<dyn VersionedVault>`
+    /// (per ADR-0022) so handlers — including the gm-console REST API
+    /// in `server::api` — can call the version-management surface
+    /// (`list_versions`, `diff_versions`, `restore_to_version`, ...).
+    /// Callers that only need the 5 KV operations of the super-trait
+    /// `Vault` continue to work because `VersionedVault: Vault`.
     pub vault: Arc<dyn VersionedVault>,
 }
 
@@ -53,18 +52,16 @@ impl AppState {
 }
 
 /// Build the axum [`Router`] for the smart-HTTP server.
+///
+/// In addition to the Git-protocol routes under `/repos/*key`, this
+/// also mounts the gm-console REST API at `/api/*` (see
+/// [`crate::server::api`]). The two sub-routers share the same
+/// [`AppState`] so API handlers can reach the versioned vault.
 pub fn build_router(state: AppState) -> Router {
-    // All endpoints are addressed under `/repos/<name>.git/...`. A single
-    // catch-all wildcard captures the full tail and dispatches in-handler
-    // to the appropriate smart-HTTP sub-handler. Authentication for
-    // receive-pack is enforced in the dispatch handler itself.
-    //
-    // The gm-console REST surface (per gm-console v0.1 brief) lives under
-    // `/api/*` and is registered via `nest` so it cannot collide with
-    // `/repos/*` Git-protocol paths.
+    let api = crate::server::api::build_api_router();
     Router::new()
         .route("/repos/*key", get(handle_repo_any).post(handle_repo_any))
-        .nest("/api", crate::server::api::build_api_router())
+        .merge(api)
         .with_state(state)
 }
 

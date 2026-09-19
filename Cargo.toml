@@ -15,6 +15,18 @@ publish = false
 name = "gitgit"
 path = "src/main.rs"
 
+# Exposed as a library so that the V0 desktop shell
+# (`apps/gm-desktop/src-tauri/`) can reuse the credential vault,
+# config, repos, and subprocess helpers without duplicating any
+# business logic. Behaviour of the binary is unchanged: `cargo run`
+# still drives the same `cli::Command` dispatch in `main.rs`.
+# Per the worker brief constraint: "不动 gitgit-server 的 vault /
+# auth / http 主体逻辑" — the only change here is to add a `[lib]`
+# target; the `pub` surface of every existing module is unchanged.
+[lib]
+name = "gitgit"
+path = "src/lib.rs"
+
 [dependencies]
 tokio = { version = "1.40", features = ["full"] }
 axum = "0.7"
