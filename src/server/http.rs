@@ -27,23 +27,24 @@ use crate::error::GitGitError;
 use crate::server::auth::require_basic;
 use crate::server::smart::announce_frame;
 use crate::server::subprocess::{git_stateless_rpc, await_success};
-use crate::server::vault::Vault;
+use crate::server::vault_versioned::VersionedVault;
 
 /// Shared application state.
 #[derive(Clone)]
 pub struct AppState {
     pub config: Arc<Config>,
-    /// V0 Credential Vault backend (per ADR-0021 §1.2). Held as
-    /// `Arc<dyn Vault>` so handlers can later upgrade to
-    /// `Arc<dyn VersionedVault>` without recompiling every downstream
-    /// call site (per ADR-0022 §follow-up). For now, no HTTP handler
-    /// touches the vault; the field exists so future commits can
-    /// thread commands through `Cmd::Key` without revisiting AppState.
-    pub vault: Arc<dyn Vault>,
+    /// V0 Credential Vault backend (per ADR-0021 §1.2 + ADR-0022
+    /// §follow-up). Held as `Arc<dyn VersionedVault>` so the gm-console
+    /// REST surface (`src/server/api.rs`) and future handlers can call
+    /// the versioned write/diff/restore methods directly. Callers that
+    /// only need the 5 KV operations can auto-deref to the `Vault`
+    /// super-trait. `src/main.rs::build_vault` already returns this
+    /// type, so no constructor change is needed there.
+    pub vault: Arc<dyn VersionedVault>,
 }
 
 impl AppState {
-    pub fn new(config: Config, vault: Arc<dyn Vault>) -> Self {
+    pub fn new(config: Config, vault: Arc<dyn VersionedVault>) -> Self {
         Self {
             config: Arc::new(config),
             vault,
@@ -57,8 +58,13 @@ pub fn build_router(state: AppState) -> Router {
     // catch-all wildcard captures the full tail and dispatches in-handler
     // to the appropriate smart-HTTP sub-handler. Authentication for
     // receive-pack is enforced in the dispatch handler itself.
+    //
+    // The gm-console REST surface (per gm-console v0.1 brief) lives under
+    // `/api/*` and is registered via `nest` so it cannot collide with
+    // `/repos/*` Git-protocol paths.
     Router::new()
         .route("/repos/*key", get(handle_repo_any).post(handle_repo_any))
+        .nest("/api", crate::server::api::build_api_router())
         .with_state(state)
 }
 
