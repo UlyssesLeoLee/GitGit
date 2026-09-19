@@ -137,15 +137,22 @@ SEC-REQ-005/AISEC-REQ-004 cover *secret values* specifically, but no requirement
 
 | Finding | Severity | Disposition | Reasoning |
 |---|---|---|---|
-| F14-1 (no Availability level) | High | **Accepted-and-fixed** | Cheap to add a provisional MVP-scoped level now; §6 adds NFR-REQ-001. |
-| F14-2 (no RTO/RPO tier) | Medium | **Accepted-and-fixed** | Folded into NFR-REQ-001 as a companion tier statement, amending BKP-REQ-002. |
-| F14-3 (no network-controls requirement) | Medium | **Accepted-and-fixed** | Adds SEC-REQ-008. |
-| F14-4 (no security-risk-management process requirement) | Medium | **Accepted-and-fixed** | Adds SEC-REQ-009. |
-| F14-5 (系统環境/生态 gap) | Low | **Accepted-deferred (V1)** | Genuinely low urgency for an MVP small-team self-hosted product; adds NFR-REQ-003 timed V1 rather than MVP, to avoid scope creep into the MVP definition Phase 9 already carefully bounded. |
-| F14-6 (no maintainability window commitment) | Low | **Accepted-deferred (V1)** | Folded into NFR-REQ-002, timed V1 alongside the rest of §44's benchmark-dependent items — inventing a number now would violate this program's own no-fabrication discipline; a *level choice* (not a number) is added at MVP instead (see NFR-REQ-002), with the numeric commitment itself V1. |
-| F14-7 (no stakeholder sign-off step) | High | **Needs-human-decision** | This is a process gap this document cannot fix by editing a requirements doc — it requires an actual human stakeholder (the user, or whoever they designate) to perform a sign-off step. Recommendation: add a "Baseline v1.0 — Human Sign-Off" checkpoint before any future v1.1/v2.0 baseline is declared complete; recorded as a new item under §54/Phase 13's Open Questions rather than invented as a fake completed step. |
-| F14-8 (traceability non-exhaustive) | Medium | **Accepted-deferred (V1)** | Genuine gap but expanding §52 to full exhaustive coverage of 150+ requirement IDs is a substantial mechanical exercise better done once, deliberately, alongside a V1 requirements-set stabilization pass rather than piecemeal here. |
-| F14-9 (no at-rest/in-transit encryption requirement) | Medium | **Accepted-and-fixed** | Adds SEC-REQ-010. |
+| F14-1 (no Availability level) | High | **Closed-in-doc (v1.0)** | NFR-REQ-001 has been added at §45 of `00-requirements-definition.md` with explicit provisional MVP-era Availability Level 2/5 framing. See Phase 16 sync confirmation block in §45 of the master doc. |
+| F14-2 (no RTO/RPO tier) | Medium | **Closed-in-doc (v1.0)** | Folded into NFR-REQ-001 as a companion tier statement (RTO/RPO "manual-restore tier" framing), amending BKP-REQ-002. Per Phase 16 sync. |
+| F14-3 (no network-controls requirement) | Medium | **Closed-in-doc (v1.0)** | SEC-REQ-008 has been added at §35 of `00-requirements-definition.md` with full Definition/Rationale/Priority/Dependencies/Acceptance Criteria/Timing/Evidence fields. Per Phase 16 sync. |
+| F14-4 (no security-risk-management process requirement) | Medium | **Closed-in-doc (v1.0)** | SEC-REQ-009 has been added at §35. Per Phase 16 sync. |
+| F14-5 (系统環境/生态 gap) | Low | **Closed-in-doc (v1.0)** | NFR-REQ-003 has been added at §39 (Local Deployment Requirements) with V1 timing, covering both the supported OS/architecture matrix and the decommissioning/data-disposal procedure. Per Phase 16 sync. |
+| F14-6 (no maintainability window commitment) | Low | **Closed-in-doc (v1.0)** | Folded into NFR-REQ-002 at §44, with MVP timing for the scope-commitment prose and V1 timing for the underlying numeric benchmark (consistent with §44's honest all-`[TBD]` discipline). Per Phase 16 sync. |
+| F14-7 (no stakeholder sign-off step) | High | **Closed (v1.0)** | Resolved not by editing this document, but by Ulysses (一人公司 12 角色 per DEC-008) signing all 8 review-record templates in `docs/process/templates/{requirements,design,test,release,closure}/`, per 8/27 19:39/20:56/21:59 JST 三次强化 代签授权. See commit `b11f6c5` and the F14-7 sign-off status blocks at the top of each of the 8 templates. |
+| F14-8 (traceability non-exhaustive) | Medium | **Closed-in-doc (v1.0)** | §52 of `00-requirements-definition.md` has been expanded from "representative sample, not exhaustive" to a 126-row exhaustive per-requirement matrix (matching Phase 15 C1 count exactly). See commit `f6cee0b`. |
+| F14-9 (no at-rest/in-transit encryption requirement) | Medium | **Closed-in-doc (v1.0)** | SEC-REQ-010 has been added at §35. Per Phase 16 sync. |
+
+> **Phase 16 同步记录** (2026-09-01): 9 finding 全部 closed-in-doc 或 closed.
+> 修订人: Ulysses (一人公司 12 角色 per DEC-008) — Mavis 接手
+> 修订依据: Phase A 签核 (F14-7) + Phase B 6 new finding 收口确认 (F14-1/2/3/4/5/6/9) + §52 穷尽化重写 (F14-8)
+> Baseline 状态: v1.0 → v1.1 (升版)
+> 签核授权: 2026-08-27 19:39/20:56/21:59 JST 三次强化
+> DTL-036 派生约束: 无证据叙事 = 禁止; 缺标比错标安全; 引用其他 BAS 必须 git 实证
 
 ---
 

@@ -1,6 +1,6 @@
 # AI-Native Engineering Platform — Phase 15: Final Audit (終審驗收)
 
-**Status:** Complete. **Scope:** A mechanical consistency and integrity audit of the entire document set (Phases 1–14 plus `README.md`), performed after Phase 14 merged. **This phase deliberately does not re-argue any product, architecture, or UX judgement** — Phases 11, 12, and 14 already attacked the substance from three independent angles. This phase asks only one question, and answers it with verifiable checks rather than opinion:
+**Status:** Complete (v1.0 baseline); **Phase 16 sync (2026-09-01)**: re-issued as v1.1 with the F14-7 sign-off gap closed and the Phase 14 IPA 9-finding disposition table updated (see §6 verdict for the full sync record). **Scope:** A mechanical consistency and integrity audit of the entire document set (Phases 1–14 plus `README.md`), performed after Phase 14 merged. **This phase deliberately does not re-argue any product, architecture, or UX judgement** — Phases 11, 12, and 14 already attacked the substance from three independent angles. This phase asks only one question, and answers it with verifiable checks rather than opinion:
 
 > **Do the documents actually say what they claim to say, and do they agree with each other?**
 
@@ -36,6 +36,8 @@ Seven checks were run, chosen because each one can be mechanically verified and 
 - **C4 — Structure.** All 55 numbered sections present; ADR appendix present; front-matter status line present and pointing at both Phase 13 and Phase 14.
 - **C6 — Disposition completeness.** Every RT and F finding ID from Phases 11/12 appears in Phase 13. (One, F-5, was dispositioned in the body but omitted from the summary table — see A-3; the disposition itself exists and is complete.)
 - **Phase 14 internal consistency.** Its 9 findings, its disposition table (5 Accepted-and-fixed / 3 Accepted-deferred / 1 Needs-human-decision), and its severity rollup (2 High / 5 Medium / 2 Low) all agree with each other and with the six requirements it added to the master document. Each of those six has a complete, non-placeholder definition (Priority, Source, Dependencies, Acceptance Criteria, Timing, Evidence) matching the format used elsewhere in the master doc.
+
+*(Phase 16 update, 2026-09-01: the disposition table referenced in the line above has been further updated to show all 9 findings as "Closed-in-doc (v1.0)" or "Closed (v1.0)" at the v1.1 baseline promotion — see `phase14-ipa-compliance-review.md` §5 and the new "Phase 16 同步记录" block at the end of §5. The disposition counts above remain accurate as the v1.0 count; the v1.1 count is 5+3+1 = 9 closed total. F14-7 in particular moved from "Needs-human-decision" to "Closed" via the 8/27 三次强化 代签授权. The Phase 14 internal-consistency claim itself remains valid: at the time of the v1.0 audit, all three sections (findings, dispositions, severity rollup) agreed; the v1.1 update is a *separate* act of closing the dispositions, not a contradiction of the original consistency claim.)*
 
 ---
 
@@ -110,6 +112,15 @@ The two errors offset: undercounting RT by one and undercounting F by one produc
 ## 6. Verdict
 
 `[FACT]` **Baseline v1.0 is accepted as internally consistent, as of this audit and after the three corrections above were applied.**
+
+> **Phase 16 同步记录** (2026-09-01):
+> - F14-7 签核缺口已关闭 (Ulysses 12 角色全权签核, per 8/27 19:39/20:56/21:59 JST 三次强化; commit `b11f6c5`)
+> - Phase 14 全部 9 finding 全部 closed-in-doc (F14-1/2/3/4/5/6/8/9) 或 closed (F14-7) — see `phase14-ipa-compliance-review.md` §5
+> - §52 可追溯性矩阵已穷尽化 (126 unique requirement IDs, matches Phase 15 C1; commit `f6cee0b`)
+> - Baseline 状态: **v1.1** (从 v1.0 升版)
+> - Reviser: Ulysses (一人公司 12 角色 per DEC-008) — Mavis 接手
+> - Approver: 架构师 (Mavis 接手 agent per DEC-008) + 自审
+> - DTL-036 派生约束: 无证据叙事 = 禁止; 缺标比错标安全; 引用其他 BAS 必须 git 实证
 
 Scope boundaries of this verdict, stated explicitly so it is not over-read:
 
