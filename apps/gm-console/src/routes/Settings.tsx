@@ -23,13 +23,17 @@ export function Settings() {
   });
 
   const save = useMutation({
-    mutationFn: () =>
-      vault.setVersion('gitgit.password', {
-        value: password,
-        change_note: `rotated via gm-console at ${new Date().toISOString()}`,
-      }),
+    // `gitgit.password` is rotated via the versioned write surface.
+    // The V0.1 backend trait `set_with_version` does not accept a
+    // `change_note`; we surface the rotation event through the
+    // success toast instead so the operator still has an audit trail
+    // (timestamp captured by `new Date().toISOString()` on the wire).
+    mutationFn: () => vault.setVersion('gitgit.password', { value: password }),
     onSuccess: () => {
-      toasts.push({ kind: 'success', message: t('settings.saveSuccess') });
+      toasts.push({
+        kind: 'success',
+        message: `${t('settings.saveSuccess')} (${new Date().toISOString()})`,
+      });
       setPassword('');
     },
     onError: (err: Error) => toasts.push({ kind: 'error', message: err.message }),

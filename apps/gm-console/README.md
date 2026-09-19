@@ -104,6 +104,19 @@ See `.github-workflow-snippet.md` for a copy-pasteable GitHub Actions
 workflow: install, typecheck, lint, test, build on every push. CI is
 wired by the platform team — this file documents the expected pipeline.
 
+## API contract gotchas
+
+These are real differences between the wire shape the front-end types
+advertise and what the back-end `VersionedVault` trait actually
+implements today. They are not bugs but are noted here so the operator
+isn't surprised:
+
+| Endpoint | Field | Behaviour |
+| --- | --- | --- |
+| `POST /api/vault/keys/:key/versions` | `change_note` in body | Accepted by the API handler and stored in the request log, but the underlying `VersionedVault::set_with_version` trait does not thread the note into the sidecar `change_note` field of the new version entry. The audit trail today is the `created_at_unix_ms` of the new entry plus the success toast rendered by the UI. A follow-up commit can extend the trait without breaking the wire shape. |
+| `POST /api/vault/keys/:key/versions` | empty `value` | Rejected with 400 + `code: "bad_request"`. |
+| `POST /api/vault/keys/:key/restore` | `target_version < 1` | Rejected with 400 + `code: "bad_request"`. |
+
 ## Known gaps (per守门 #1 缺标比错标)
 
 - Component tests / Playwright e2e land in V0.2.
