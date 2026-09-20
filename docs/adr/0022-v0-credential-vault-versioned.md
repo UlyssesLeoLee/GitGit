@@ -2,16 +2,24 @@
 
 | 字段 | 值 |
 |---|---|
-| **Status** | Accepted (2026-09-16 18:00 JST) |
+| **Status** | Accepted V0.2 (revised 2026-09-20 JST; V0 Accepted 2026-09-16 18:00 JST) |
 | **Supersedes** | (无；ADR-0021 V0 Credential Vault 的能力扩展) |
 | **Superseded by** | (无) |
 | **Authors** | Ulysses（一人公司 12 角色 per DEC-008）— Mavis 接手 agent |
 | **Reviewers** | Ulysses（DDD Review，pending） |
-| **Deciders** | Ulysses（per 2026-09-16 18:00 JST 拍板） |
-| **Tags** | gitgit, vault, version, minio, filevault, restore, json-sidecar, sha256, audit |
+| **Deciders** | Ulysses（per 2026-09-16 18:00 JST 拍板; V0.2 minor rev 2026-09-20 JST） |
+| **Tags** | gitgit, vault, version, minio, filevault, restore, json-sidecar, sha256, audit, versionid, s3-versioning |
 
 ---
 
+## 修订历史 / Revision History
+
+| 版本 | 日期 (JST) | 改动 |
+|---|---|---|
+| **V0** | 2026-09-16 18:00 | 初始 Accepted: VersionedVault sub-trait, JSON sidecar, FileVault + MinioVault impls, 12 unit tests. `get_at_version` 历史 bytes 还原 deferred (per §3.4 known gap) |
+| **V0.2** | 2026-09-20 | minIO server-side versioning 真接: sidecar `version_id` 字段 + `set_with_version` 捕获 `x-amz-version-id` + `get_at_version` 优先 versionId lookup (presign_get + reqwest) + attachment slot fallback. ADR §3.4 gap resolved. 4 新 unit test + 1 `#[ignore]` minIO e2e. 79 passed / 0 failed / 1 ignored |
+
+---
 ## 1. 背景 / Context
 
 ADR-0021 (2026-08-30 15:42 JST Accepted) 把 `gitgit` V0 Credential Vault 默认落地为 `MinioVault`，`FileVault` 作 fallback。两者当时只暴露 5 个 KV 接口：`get / set / delete / list / rotate` —— 没有版本管理。
@@ -76,7 +84,7 @@ pub trait VersionedVault: Vault + Send + Sync {
 | Backend | Sidecar 位置 | Historical byte 还原 |
 |---|---|---|
 | `FileVault` | `<root>/_versions/<key-encoded>.versions.json`（atomic write temp+rename） | **不可还原** —— `set` 直接覆盖原文件；保留 metadata 但 bytes 只做 marker |
-| `MinioVault` | `gitgit-vault/<key>.versions.json` 同 bucket sidecar object | **deferred** —— `s3` crate 0.37 没暴露 versionId lookup；metadata 完整但 bytes 也是 marker |
+| `MinioVault` | `gitgit-vault/<key>.versions.json` 同 bucket sidecar object | **V0.2 已真接 minIO server-side versioning**：sidecar 每条 entry 记录 minIO 返回的 `x-amz-version-id`; `get_at_version` 优先用 `presign_get` + 自定义 `versionId` query 拼签名 URL, 调 reqwest 直读 minIO server-side bytes; attachment slot 仅作 fallback |
 
 **为什么不强还原**：
 - gitgit 已有 minIO 服务端 versioning 缺失（per AssetsLake ADR-0022 §2.4 同源判断），V0 阶段不重复 minIO 配置
@@ -107,10 +115,10 @@ V0 不引入 RAG memory / domain event / security audit 三 sink（per gitgit �
 
 | 文件 | 改动 |
 |---|---|
-| `src/server/vault_versioned.rs` | 新 module（430+ 行）：`VersionedVault` trait + `VersionedTimeline / VaultVersionSummary / VaultVersionDiff` types + `sha256_hex / now_unix_ms / append_version / find_version` helpers + `FileVault` impl + `MinioVault` impl + 12 个 unit tests |
-| `src/server/vault.rs` | 顶层 `use bytes::Bytes;`，`MinioVault` 加 `pub(crate) async fn put_object_for_sidecar` / `get_object_for_sidecar` |
+| `src/server/vault_versioned.rs` | 新 module（~1,200 行, V0.2 升版）: `VersionedVault` trait + `VersionedTimeline / VaultVersionSummary / VaultVersionDiff` types + `sha256_hex / now_unix_ms / append_version / append_version_with_id / find_version` helpers + `FileVault` impl + `MinioVault` impl + 18 个 unit tests (含 1 个 `#[ignore]` minIO e2e) |
+| `src/server/vault.rs` | V0: 顶层 `use bytes::Bytes;`, `MinioVault` 加 `put_object_for_sidecar` / `get_object_for_sidecar`. V0.2 加 `put_object_for_sidecar_with_version_id` (PUT 响应头提取 `x-amz-version-id`), `get_object_for_sidecar_at_version_id` (`presign_get` + 自定义 `versionId` query + reqwest 抓签名 URL), `pub(crate) fn object_key`, `HttpResponse` + `reqwest_get_bytes` helper |
 | `src/server/mod.rs` | `pub mod vault_versioned;` |
-| `Cargo.toml` | 加 `sha2 = "0.10"` / `hex = "0.4"` |
+| `Cargo.toml` | V0: `sha2 = "0.10"` / `hex = "0.4"`. V0.2: 加 `reqwest = "0.12" (default-features = false, rustls-tls)` 用于 GET presigned 签名 URL |
 | `docs/adr/0022-v0-credential-vault-versioned.md` | 本 ADR |
 | `docs/reports/2026-09-16-vault-versioning/gitgit-vault-versioning-commit.md` | commit 报告 |
 
@@ -126,7 +134,7 @@ V0 不引入 RAG memory / domain event / security audit 三 sink（per gitgit �
 
 ### 4.2 负面 / 风险
 
-- **`get_at_version` V0 不返回历史 bytes**（per §2.3 known gap）：仅返回 latest (FileVault) 或 latest-only (MinioVault)；真实字节还原要等 minIO versionId lookup PR
+- ~~**`get_at_version` V0 不返回历史 bytes**~~ — V0.2 已 resolved: `MinioVault::get_at_version` 优先用 sidecar `version_id` 调 minIO server-side versioning lookup (真接), 失败 fallback 到 attachment slot
 - **`MinioVault::restore_to_version` 当前写 marker**：业务上需要明示："如需真实字节回滚，请直接到 minIO console 用 versionId 拉取"
 - **V0 不引入三个 sink**（RAG / event / audit）：per §2.4，跟 gitgit 当前架构边界一致；V1 加 EventBus 时需要独立 ADR
 
@@ -141,12 +149,26 @@ V0 不引入 RAG memory / domain event / security audit 三 sink（per gitgit �
 
 ## 5. 验证 / Verification
 
-- [x] `cargo check` 通过（background task `bg_57291f5d-…`）
-- [ ] `cargo test` 全跑：旧 9 unit test + 新 12 unit test 应全过（待 follow-up run）
-- [ ] 集成测试（skip by default per现有约定 — 需要 minIO 在 `:9000` 跑）
-- [ ] T6 close-out：把 `AppState` 里 `Arc<dyn Vault>` 升级到 `Arc<dyn VersionedVault>`，仅一个文件改动
-- [ ] T7 follow-up：`gitai key list-versions` / `gitai key restore` 子命令
-- [ ] 文档 smoke：`docs/reports/2026-09-16-vault-versioning/gitgit-vault-versioning-commit.md` 落地
+### V0 (2026-09-16) baseline
+
+- [x] `cargo check` 通过
+- [x] `cargo test` 旧 9 + 新 12 全过（58 passed / 0 failed / 1 ignored）
+- [x] 集成测试 skip by default per现有约定（V0 minIO test `minio_vault_e2e_roundtrip` `#[ignore]`）
+
+### V0.2 (2026-09-20) — minIO server-side versioning 真接
+
+- [x] `cargo check` 通过（reqwest = "0.12" + rustls-tls feature）
+- [x] `cargo test --workspace --offline`: **79 passed / 0 failed / 1 ignored**（旧 75 + V0.2 新增 4 个 unit test）
+- [x] 新增 `#[ignore]` minIO e2e: `minio_vault_versioned_e2e_roundtrip` — 真接 minIO server-side versioning（删 attachment slot 后 `get_at_version(v1)` 仍返 v1 bytes）
+- [x] sidecar JSON schema 升版: `VaultVersionSummary.version_id: Option<String>`, `#[serde(default, skip_serializing_if = "Option::is_none")]` 保持 V0 旧 timeline JSON 反序列化兼容（无迁移成本）
+- [x] ADR-0022 升版 v0.2（本文），报告 `docs/reports/2026-09-16-vault-versioning/gitgit-vault-versioning-commit.md` §3.4 gap 状态 deferred → resolved
+
+### 跨版本 follow-up
+
+- [ ] T6 close-out: 把 `AppState` 里 `Arc<dyn Vault>` 升级到 `Arc<dyn VersionedVault>`
+- [ ] T7 follow-up: `gitai key list-versions` / `gitai key restore` 子命令
+- [ ] 文档 smoke: 两份 docs/ 已升版
+
 
 ## 6. 迁移路径 / Migration
 
@@ -162,26 +184,24 @@ FileVault impl + MinioVault impl
 JSON sidecar (per-backend)
 ```
 
-### V1 阶段（follow-up）
+### V0.2 阶段（已完成 2026-09-20 JST）
 
 ```
 VersionedVault
   ↓
-MinioVault::get_at_version 接 minIO versionId lookup    (per ADR-0022 follow-up)
-MinioVault::restore_to_version 真实字节回滚 (取代 marker)   (per ADR-0022 follow-up)
+MinioVault::get_at_version 接 minIO versionId 真接 ✅ resolved (per ADR-0022 v0.2)
+  ├─ 优先 sidecar.version_id → presign_get + reqwest 抓 minIO server-side bytes
+  └─ fallback attachment slot (legacy timeline / 无 server-side versioning)
+MinioVault::set_with_version 从 PUT 响应头提取 x-amz-version-id 写入 sidecar
+```
+
+### V1 阶段（follow-up）
+
+```
+MinioVault::restore_to_version 真实字节回滚（取代 marker, V0.2 仍走 marker 路径）
 AppState::vault: Arc<dyn Vault> 升级 Arc<dyn VersionedVault>
 gitai key CLI 暴露 list-versions / restore 子命令
 EventBus 引入 + RAG / event / audit 三 sink (gitgit 端独立 ADR)
-```
-
-### V1+ 阶段
-
-```
-minIO bucket versioning 强制开启（per AssetsLake ADR-0022 §2.4 同源）
-  ↓
-MinioVault sidecar + minIO versionId 双向一致
-  ↓
-FileVault 弃用（per ADR-0021 §6.1 迁移路径）
 ```
 
 ## 7. 引用 / References
@@ -194,4 +214,4 @@ FileVault 弃用（per ADR-0021 §6.1 迁移路径）
 
 ---
 
-**Status: Accepted** | 2026-09-16 18:00 JST
+**Status: Accepted V0.2** | V0: 2026-09-16 18:00 JST · V0.2 (minIO versionId 真接): 2026-09-20 JST

@@ -570,6 +570,7 @@ dependencies = [
  "http",
  "http-body-util",
  "hyper",
+ "reqwest",
  "rust-s3",
  "serde",
  "serde_json",
