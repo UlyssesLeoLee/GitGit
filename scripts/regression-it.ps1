@@ -76,9 +76,6 @@ if (-not $bin) {
         $report = Write-RegressionReport -Run $run -OutFile (Join-Path (Get-LogRoot) 'it-setup-error.json')
         exit 2
     }
-    # Build into our per-worktree target dir. Use the bash-wrapper
-    # pattern as regression-ut.ps1 to dodge the PowerShell
-    # Start-Process + bash.exe exit-code-empty bug.
     Write-Step "cargo build (debug, into $script:RegressionTargetDir)"
     $bash = (Get-Command bash.exe -ErrorAction SilentlyContinue)
     if (-not $bash) {
@@ -176,7 +173,6 @@ try {
         -RedirectStandardOutput $logFile `
         -RedirectStandardError "$logFile.err"
 
-    # Wait for /api/health to come up. Probe with curl.
     $ready = Wait-HttpReady -Url "$baseUrl/api/health"
     if (-not $ready) {
         Write-Fail "server did not become ready"
@@ -192,68 +188,66 @@ try {
             $name += '.with-body'
         }
         $uri = $baseUrl + $ep.path
-        # `--noproxy *` already tells curl to bypass the env proxy
-        # in the inherited environment (HTTPS_PROXY=127.0.0.1:10808
-        # in this user's bash, which curl's libcurl picks up by
-        # default on Windows).
-        $curlArgs = @('--noproxy','*','--silent','--show-error','-o',(Join-Path $scratch 'body.json'),
-                      '-w','%{http_code}','--max-time','5')
+
+        # Build a cmd.exe command-line that invokes curl. We do this
+        # instead of `Start-Process curl.exe -ArgumentList @args`
+        # because PowerShell's call-operator argument expansion under
+        # WinPS 5.1 silently strips `"` characters from each argv
+        # element before passing them to the child process, which
+        # mangles every JSON body like `{"value":"x"}` into
+        # `{value:x}` and makes the server return 400. Using cmd.exe
+        # /c with a properly-quoted command line avoids that
+        # expansion entirely; cmd.exe handles the quoting natively.
+        $cmdLine = '/c "C:\Windows\System32\curl.exe --noproxy * --silent -o "' +
+                    (Join-Path $scratch 'body.json') +
+                    '" -w %{http_code} --max-time 5'
         if ($ep.method -in @('POST','PUT','DELETE')) {
-            $curlArgs += @('-X',$ep.method)
+            $cmdLine += ' -X ' + $ep.method
         }
         if ($ep.PSObject.Properties.Name -contains 'body' -and $ep.body) {
-            # PowerShell's `& curl.exe @curlArgs` strips `"` chars
-            # from each argument during expansion, so JSON bodies
-            # like `{"value":"x"}` arrive at curl as `{value:x}` and
-            # fail JSON parsing. Backslash-escape every quote in
-            # the body before passing it.
-            $bodyEscaped = $ep.body -replace '"','\"'
-            $curlArgs += @('-H','content-type: application/json','-d', $bodyEscaped)
+            $bodyFile = Join-Path $scratch ('req-body-' + ($name -replace '[\\\[\]:\?\*\/]', '_') + '.json')
+            Set-Content -Path $bodyFile -Value $ep.body -Encoding ascii -Force
+            $cmdLine += ' -H "content-type: application/json" --data-binary "@' + $bodyFile + '"'
         }
-        $curlArgs += @($uri)
+        $cmdLine += ' "' + $uri + '" 1>"'
 
-        # Capture stdout (http code from -w) + stderr (progress
-        # bars). curl writes the progress meter to stderr even with
-        # -sS in some Windows builds; that stderr gets re-classified
-        # by PowerShell as a RemoteException which, under
-        # ErrorActionPreference=Stop, aborts the script. Suppress
-        # errors at the call boundary by reading stdout/stderr into
-        # separate buffers. Then take the LAST non-empty line of
-        # the merged stream as the http code (curl writes the -w
-        # template once, at the end of stdout, so it survives even
-        # after progress bars).
-        $stdoutFile = Join-Path $scratch 'curl-stdout.txt'
-        $stderrFile = Join-Path $scratch 'curl-stderr.txt'
+        $stdoutFile = Join-Path $scratch ('curl-stdout-' + ($name -replace '[\\\[\]:\?\*\/]', '_') + '.txt')
+        $stderrFile = Join-Path $scratch ('curl-stderr-' + ($name -replace '[\\\[\]:\?\*\/]', '_') + '.txt')
         if (Test-Path $stdoutFile) { Remove-Item $stdoutFile -Force }
         if (Test-Path $stderrFile) { Remove-Item $stderrFile -Force }
-        $proc = Start-Process -FilePath curl.exe -ArgumentList $curlArgs `
-            -NoNewWindow -PassThru `
-            -RedirectStandardOutput $stdoutFile `
-            -RedirectStandardError $stderrFile
-        $proc.WaitForExit(30000) | Out-Null
+
+        $cmdLine += $stdoutFile + '" 2>"' + $stderrFile + '""'
+
+        $proc = Start-Process -FilePath 'cmd.exe' `
+            -ArgumentList $cmdLine `
+            -NoNewWindow -PassThru -Wait `
+            -WorkingDirectory (Get-RepoRoot)
+        $exit = $proc.ExitCode
+
         $stdoutText = if (Test-Path $stdoutFile) { Get-Content $stdoutFile -Raw -ErrorAction SilentlyContinue } else { '' }
-        $stderrText = if (Test-Path $stderrFile) { Get-Content $stderrFile -Raw -ErrorAction SilentlyContinue } else { '' }
-        # curl writes the -w template to stdout (last line), the
-        # progress meter to stderr. Status code = LAST non-empty
-        # line of stdout (the body, if any, comes before).
-        $statusStr = ($stdoutText.Trim() -split "`n" | Where-Object { $_.Trim() } | Select-Object -Last 1).Trim()
-        if ($LASTEXITCODE -ne 0) {
+        $bodyPath = Join-Path $scratch 'body.json'
+        $body = if (Test-Path $bodyPath) { Get-Content -Raw $bodyPath } else { '' }
+
+        # curl exits 0 on 4xx/5xx (those are valid HTTP responses).
+        # We only fail out if curl itself errored (network/timeout).
+        if ($exit -ne 0) {
             Assert-True -Run $run -Name $name -Condition $false `
-                -Detail "curl exited $LASTEXITCODE"
+                -Detail "curl exited $exit; stdout=[$stdoutText]"
             continue
         }
+
+        # The `-w "%{http_code}"` template writes the http code as
+        # the ONLY line on stdout (no body — body goes to body.json).
+        $statusStr = ($stdoutText.Trim() -split "`n" | Where-Object { $_.Trim() } | Select-Object -Last 1).Trim()
         $statusCode = 0
         if (-not [int]::TryParse($statusStr, [ref]$statusCode)) {
             Assert-True -Run $run -Name $name -Condition $false `
-                -Detail "could not parse status '$statusStr'"
+                -Detail "could not parse status '$statusStr' body=[$($body.Substring(0, [Math]::Min(200, $body.Length)))]"
             continue
         }
 
         Assert-StatusCode -Run $run -Name "$name.status" `
             -Expected ([int]$ep.expectStatus) -Actual $statusCode
-
-        $bodyPath = Join-Path $scratch 'body.json'
-        $body = if (Test-Path $bodyPath) { Get-Content -Raw $bodyPath } else { '' }
 
         if ($ep.PSObject.Properties.Name -contains 'expectJsonContains') {
             foreach ($needle in $ep.expectJsonContains) {
@@ -268,19 +262,12 @@ try {
                                     elseif ($v -in @('true','false','null')) { ".${k} == ${v}" }
                                     else { $null }
                         if ($jqFilter) {
-                            # PowerShell's `& jq.exe @argv` expansion
-                            # strips `"` literals from each argument,
-                            # so filters like `.status == "ok"`
-                            # become `.status == ok` by the time jq
-                            # sees them — and jq parses that as a
-                            # division. Workaround: write the filter
-                            # to a temp .jq file and invoke with
-                            # `-f`, which is also how the same pattern
-                            # is documented for jq invocations from
-                            # shell wrappers.
+                            # jq can't read a file passed as an argv
+                            # element via PowerShell's Start-Process
+                            # either (same quote-stripping issue).
+                            # Write the filter to a temp file and
+                            # invoke via `-f`.
                             $jqPath = Join-Path $env:TEMP ("gitgit-regression-it-filter-{0}.jq" -f ([guid]::NewGuid().ToString('N')))
-                            # Use ASCII encoding (no BOM) — PowerShell's
-                            # `utf8` adds a BOM which jq then chokes on.
                             Set-Content -Path $jqPath -Value $jqFilter -Encoding ascii -Force
                             try {
                                 $jqOut = & jq.exe -e -f $jqPath $bodyPath 2>$null
