@@ -73,10 +73,16 @@ MinioVault:  gitgit-vault/<key>.versions.json       # 同 bucket sidecar object
 - **FileVault atomic write**：temp+rename 跟原 `FileVault::set` 模式一致
 - **MinioVault atomic write**：`put_object_for_sidecar` 单 atomic PUT
 
-### 3.4 已知 gap（V0 deferred）
+### 3.4 已知 gap（V0 deferred → V1 follow-up）
 
-- `get_at_version` 对 `version != latest` 返回 `Ok(None)`（metadata 完整，bytes 还原 deferred）
-- 真实字节复原因 `rust-s3` 0.37 不暴露 `versionId` lookup 而留 V1 接 minIO versioning 后处理
+
+> **状态更新 (2026-09-20 JST, ULYS-123 调研结论)**: rust-s3 0.37.2 是 crates.io 最新版本, 上游不暴露 `versionId` API.
+> V1 实装需替换为 `aws-sdk-s3` (官方 SDK, 完整 versionId 支持但引入 30-50 transitive deps) 或保留 rust-s3 + 接受 attachment slot fallback.
+> 详情见 `docs/reports/2026-09-20-minio-versionId-investigation/minio-versionId-investigation-report.md` §2-§3.
+
+- `get_at_version` 对 `version != latest` 返回 `Ok(None)`（metadata 完整，bytes 还原 deferred 到 V1）
+- V0 妥协: 真实字节从 attachment slot 读 (per `vault_versioned.rs:578-630` FileVault / `:652-672` MinioVault)
+- 真实字节复原因 `rust-s3` 0.37.2 不暴露 `versionId` lookup 而留 V1 接 minIO versioning 后处理
 - 写一个 marker string 标识当前状态 + `change_note` 说明
 
 ## 4. 验证 / Verification

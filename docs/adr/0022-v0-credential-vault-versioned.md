@@ -192,6 +192,13 @@ FileVault 弃用（per ADR-0021 §6.1 迁移路径）
 - `AssetsLake/database/migrations/022_…sql` — `ON CONFLICT` + append-only 语义来源
 - `src/server/vault.rs` — `Vault` trait + 现有 9 unit test 模板
 
+## 8. 修订历史 / Revision History
+
+| Version | Date | Change |
+|---|---|---|
+| **0.2** | 2026-09-20 JST | V1 follow-up 调研: rust-s3 0.37.2 上游不暴露 `versionId`, 推迟到 aws-sdk-s3 评估. 详情见 `docs/reports/2026-09-20-minio-versionId-investigation/minio-versionId-investigation-report.md` |
+| 0.1 | 2026-09-16 JST | 初始 V0 实现 (attachment slot fallback, 见 §3.4) |
+
 ---
 
 **Status: Accepted** | 2026-09-16 18:00 JST
