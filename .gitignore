@@ -26,3 +26,13 @@ apps/desktop/src-tauri/gen/schemas/
 # Local overrides
 .env
 .env.local
+
+# git worktree 路径 (ULYS-123 收尾清理, per D-Boy directive)
+/.worktrees/
+
+# apps/gm-desktop node_modules (apps/gm-console 已有自己的)
+/apps/gm-desktop/node_modules/
+
+# 本地 smoke server 错误日志
+/smoke_server.err
+/smoke_server.log
