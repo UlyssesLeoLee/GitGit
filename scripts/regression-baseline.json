@@ -1,0 +1,67 @@
+{
+  "$comment": "GitGit regression baseline — committed as the 'known-good' contract that scripts/regression-*.ps1 must satisfy. Updating any number here is a deliberate baseline change, not a silent drift; record the rationale in docs/reports/<date>-regression-test/REGRESSION-TEST-REPORT.md.",
+  "schemaVersion": "1.0",
+  "capturedAt": "2026-09-20",
+  "capturedFrom": {
+    "branch": "origin/dev",
+    "head": "151957d",
+    "rustToolchain": "cargo 1.98.1",
+    "os": "Windows 11 (git-bash + PowerShell 5.1)"
+  },
+  "ut": {
+    "expectedTotal": 76,
+    "expectedPassed": 75,
+    "expectedFailed": 0,
+    "expectedIgnored": 1,
+    "ignoredTest": "server::vault::tests::minio_vault_e2e_roundtrip (requires running minIO server)",
+    "perModule": {
+      "repo::refs": 7,
+      "repo::store": 6,
+      "server::api": 17,
+      "server::auth": 4,
+      "server::http": 7,
+      "server::smart": 4,
+      "server::subprocess": 5,
+      "server::vault": 12,
+      "server::vault_versioned": 14
+    },
+    "command": "cargo test --quiet",
+    "timeoutSec": 600,
+    "rationale": "Per ULYS-123 baseline (33 tests) plus 43 tests added by V0 Credential Vault work (feature/ide-boundary → dev merge 151957d). Counts cross-checked by `grep -cE '^\\s*#\\[(tokio::|async )?test\\]' src/<file>`."
+  },
+  "it": {
+    "description": "HTTP-level integration tests against a running gitgit server, hitting /api/* via curl. Distinct from ULYS-123's in-process axum oneshot tests in that these run against a real bound socket.",
+    "endpoints": [
+      { "method": "GET",  "path": "/api/health",                        "expectStatus": 200, "expectJsonContains": ["\"status\":\"ok\"", "\"backend\":\"versioned\"", "\"vault_online\":true"] },
+      { "method": "GET",  "path": "/api/repos",                          "expectStatus": 200, "expectJsonShape": "array", "expectArrayLenEq": 2 },
+      { "method": "GET",  "path": "/api/repos/does-not-exist",           "expectStatus": 404 },
+      { "method": "GET",  "path": "/api/repos/..%2Fescape",              "expectStatus": 400, "expectBodyContains": "invalid repo name" },
+      { "method": "GET",  "path": "/api/repos/alpha/refs",               "expectStatus": 200, "expectJsonShape": "array", "minArrayLen": 0 },
+      { "method": "GET",  "path": "/api/repos/alpha/log",                "expectStatus": 200, "expectJsonShape": "array" },
+      { "method": "GET",  "path": "/api/repos/alpha",                    "expectStatus": 200, "expectJsonContains": ["\"name\":\"alpha\"", "\"path\":", "\"refs\":", "\"log\":"] },
+      { "method": "GET",  "path": "/api/vault/keys",                     "expectStatus": 200, "expectJsonShape": "array", "expectArrayLenEq": 0 },
+      { "method": "POST", "path": "/api/vault/keys/openai/versions",     "expectStatus": 200, "body": "{\"value\":\"sk-openai-abc\"}", "expectJsonContains": ["\"version\":1", "\"key\":\"openai\""] },
+      { "method": "POST", "path": "/api/vault/keys/openai/versions",     "expectStatus": 400, "body": "{\"value\":\"\"}", "expectBodyContains": "value" },
+      { "method": "POST", "path": "/api/vault/keys/openai/versions",     "expectStatus": 200, "body": "{\"value\":\"sk-openai-def\"}", "expectJsonContains": ["\"version\":2"] },
+      { "method": "GET",  "path": "/api/vault/keys/openai",              "expectStatus": 200, "expectJsonContains": ["\"key\":\"openai\"", "\"current_version\":2"] },
+      { "method": "GET",  "path": "/api/vault/keys/openai/versions",     "expectStatus": 200, "expectJsonShape": "object", "expectJsonContains": ["\"key\":\"openai\"", "\"versions\":"] },
+      { "method": "GET",  "path": "/api/vault/keys/openai/diff?base=1&head=2", "expectStatus": 200, "expectJsonContains": ["\"base\":", "\"head\":", "\"object_changed\":"] },
+      { "method": "POST", "path": "/api/vault/keys/openai/restore",      "expectStatus": 200, "body": "{\"target_version\":1}", "expectJsonContains": ["\"new_version\":"] },
+      { "method": "POST", "path": "/api/vault/keys/openai/restore",      "expectStatus": 400, "body": "{\"target_version\":0}", "expectBodyContains": "target_version" },
+      { "method": "GET",  "path": "/api/vault/keys/nope",                "expectStatus": 200 },
+      { "method": "DELETE","path": "/api/vault/keys/openai",             "expectStatus": 204 }
+    ]
+  },
+  "st": {
+    "description": "End-to-end smoke: real git client against the HTTP smart protocol. Wraps scripts/smoke.ps1 unchanged.",
+    "command": "pwsh scripts/smoke.ps1",
+    "timeoutSec": 180,
+    "minAssertions": 7,
+    "rationale": "smoke.ps1 asserts: (1) build OK, (2) server ready, (3) first clone, (4) push to main, (5) feature branch push, (6) second clone + merge, (7) unauth push rejected. 7 step-level checks plus negative-auth fallbacks."
+  },
+  "orchestrator": {
+    "command": "pwsh scripts/regression.ps1",
+    "tiers": ["ut", "it", "st"],
+    "onFailure": "abort (continue-on-fail only with -ContinueOnFail flag)"
+  }
+}

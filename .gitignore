@@ -15,6 +15,9 @@ Thumbs.db
 # Local logs
 *.log
 
+# Per-worktree build cache used by scripts/regression*.ps1
+target-regression/
+
 # Build artifacts (Tauri/Svelte desktop app under apps/desktop/)
 apps/desktop/node_modules/
 apps/desktop/dist/
