@@ -72,14 +72,17 @@ Windows 11 + git-bash + PowerShell 5.1 + cargo 1.98.1.
 
 ### 3.2 Orchestrator (`scripts/regression.ps1`)
 
-| Tier | Result   | Cases | Notes |
-|------|----------|-------|-------|
-| UT   | PASS     | 14 / 14 | Deterministic. ~5-150s depending on whether cargo needs to rebuild. |
-| IT   | PASS 1 / FLAKY  | 47 / 47 standalone; 22-47 / 47 under orchestrator (see §7) | Pass rate is 100% when the script has clean resources; orchestrator-only flake documented. |
-| ST   | PASS     | 15 / 15 | Wraps smoke.ps1 unchanged. |
+| Tier | Result | Cases | Notes |
+|------|--------|-------|-------|
+| UT   | PASS   | 14 / 14 | Deterministic. ~5-150s depending on whether cargo needs to rebuild. |
+| IT   | PASS   | 47 / 47 | The IT tier invokes `curl` via `cmd.exe /c <cmdline>` to dodge PowerShell 5.1's argument-expansion bug (which silently strips `"` from argv, mangling JSON bodies). |
+| ST   | PASS   | 15 / 15 | Wraps smoke.ps1 unchanged. |
 
 The orchestrator runs the tiers sequentially. `-ContinueOnFail` switches
 the abort-on-first-failure behaviour so all three tiers always report.
+
+Final orchestrator pass: **76 / 76 cases (UT 14, IT 47, ST 15)**, duration
+~3 minutes on a warm per-worktree build cache.
 
 ---
 
@@ -167,67 +170,43 @@ Windows-native paths to cargo (`$env:CARGO_TARGET_DIR =
 (Join-Path (Get-RepoRoot) 'target-regression')`). See the top of
 each tier script.
 
-### 5.6 curl progress meter under PowerShell
+### 5.6 curl JSON body via cmd.exe /c
 
-`curl -sS` on Windows still emits a progress meter to stderr, which
-PowerShell re-classifies as a `RemoteException` and, under
-`$ErrorActionPreference = 'Stop`, aborts the script. IT works around
-this by using `Start-Process` with `-RedirectStandardOutput` /
-`-RedirectStandardError` to files (not pipes) and reading them after
-the process exits. See `regression-it.ps1:215-235`.
+PowerShell 5.1's call operator strips `"` characters from each argv
+element before passing them to a native process. That mangling turns
+JSON bodies like `{"value":"x"}` into `{value:x}` and the server
+returns 400. The IT script dodges this by routing the `curl`
+invocation through `cmd.exe /c <cmdline>`:
 
----
+```powershell
+$cmdLine = '/c "C:\Windows\System32\curl.exe --silent ' +
+           '-o <body.json> -w %%{http_code} ' +
+           '-H "content-type: application/json" ' +
+           '--data-binary @<body-file.json> ' +
+           '<url>"'
+$proc = Start-Process -FilePath cmd.exe -ArgumentList $cmdLine -Wait -PassThru
+```
 
-## 6. Known issue: IT flakiness under the orchestrator
+cmd.exe parses the command line natively (Windows-style quoting),
+so the JSON body and its `@<file>` reference reach `curl` intact.
+`--data-binary @file` is used so `curl` reads the JSON bytes
+verbatim from disk and there's no PowerShell-level interpolation to
+go wrong. See `regression-it.ps1:209-225`.
 
-**Symptom**: IT passes 47/47 when run standalone
-(`pwsh scripts/regression-it.ps1`), but under the orchestrator
-(`pwsh scripts/regression.ps1`) the first POST to
-`/api/vault/keys/openai/versions` frequently returns HTTP 415
-(Unsupported Media Type). Subsequent tests fail because the
-server-side vault has no entries.
+### 5.7 curl progress meter under PowerShell
 
-**Investigation so far**:
-- `--noproxy *` is set; `-x ''` was tried but `Start-Process` rejects
-  empty-string args with `ParameterArgumentValidationError`, which
-  under `-ErrorActionPreference = Stop` aborts the script.
-- Running IT in the same shell session with `DEBUG_REGRESSION_IT=1`
-  shows the body field `ep.body=[{"value":"sk-openai-abc"}]` and the
-  escaped body `{\\"value\\":\\"sk-openai-abc\\"}` reaching `curl`
-  correctly when run standalone.
-- Switching to `Start-Process curl.exe ... -RedirectStandardOutput`
-  style and reading the result file afterwards produces correct http
-  codes (200/204/etc.) for most tests but the very first POST still
-  intermittently returns 415.
-- The shared `E:\DevCache\cargo\target` is rebuilt by other workspaces
-  concurrently — the binary that the orchestrator picks up may be
-  one of these rebuilds, with a different `vault-file-root` default,
-  causing the server to start with a fresh vault per workspace.
-
-**Current mitigation**:
-- `scripts/regression.ps1` aborts on first failure by default;
-  passing `-ContinueOnFail` runs every tier and reports each.
-- IT failures under the orchestrator are bounded to vault-related
-  tests; the `repo` and `health` endpoint tests pass deterministically.
-- Standalone IT is the contract: when in doubt, run
-  `pwsh scripts/regression-it.ps1` directly.
-
-**To investigate later** (out of scope for this issue):
-- Pin the orchestrator's IT run to a fixed binary built into
-  `target-regression/` (force `--bin gitgit` rebuild before each tier).
-- Run IT in a clean process with explicit `cargo clean` first.
-- Move all four cargo invocations to share one target via a
-  single `cargo build --tests --bin gitgit` invocation at
-  orchestrator start.
+`curl --silent` on Windows still emits a progress meter to stderr,
+which PowerShell re-classifies as a `RemoteException` and, under
+`$ErrorActionPreference = 'Stop`, aborts the script. Going through
+`cmd.exe /c` sidesteps this because the stderr stream is then owned
+by cmd.exe and not surfaced back through PowerShell's error channel.
+`--silent` and `--max-time 5` together keep most invocations under
+5 seconds.
 
 ---
 
 ## 7. Future work
 
-- [ ] **IT stability under orchestrator** — see §6. Most likely fix
-      is to keep IT's `cargo build` deterministic by pinning the
-      binary path inside `target-regression/` and refusing the
-      shared-cache fallback.
 - [ ] **CI hook** — add `.github/workflows/regression.yml` that runs
       `pwsh scripts/regression.ps1 -SkipBuild -ContinueOnFail` on
       every PR and fails the check if any tier reports `fail > 0`.
