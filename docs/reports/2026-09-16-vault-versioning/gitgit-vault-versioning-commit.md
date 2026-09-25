@@ -2,7 +2,7 @@
 
 | 字段 | 值 |
 |---|---|
-| **Status** | Implemented (2026-09-16 19:27 JST) |
+| **Status** | Implemented V0.2 (revised 2026-09-20 JST; V0 implemented 2026-09-16 19:27 JST) |
 | **Authors** | Ulysses（一人公司 12 角色 per DEC-008）— Mavis 接手 agent |
 | **Reviewers** | Ulysses（DDD Review，pending） |
 | **Tags** | gitgit, vault, version, minio, filevault, restore, json-sidecar, sha256, audit, in-scope |
@@ -73,17 +73,23 @@ MinioVault:  gitgit-vault/<key>.versions.json       # 同 bucket sidecar object
 - **FileVault atomic write**：temp+rename 跟原 `FileVault::set` 模式一致
 - **MinioVault atomic write**：`put_object_for_sidecar` 单 atomic PUT
 
-### 3.4 已知 gap（V0 deferred → V1 follow-up）
+### 3.4 已知 gap（V0 deferred → V0.2 resolved 2026-09-20 per ADR-0022 v0.2 / ULYS-123）
 
+**V0 baseline**（此 commit, 2026-09-16）:
 
-> **状态更新 (2026-09-20 JST, ULYS-123 调研结论)**: rust-s3 0.37.2 是 crates.io 最新版本, 上游不暴露 `versionId` API.
-> V1 实装需替换为 `aws-sdk-s3` (官方 SDK, 完整 versionId 支持但引入 30-50 transitive deps) 或保留 rust-s3 + 接受 attachment slot fallback.
-> 详情见 `docs/reports/2026-09-20-minio-versionId-investigation/minio-versionId-investigation-report.md` §2-§3.
+> **调研记录 (2026-09-20 JST, ULYS-123 调研结论; 已被下方 V0.2 实装取代)**: rust-s3 0.37.2 是 crates.io 最新版本, 上游不暴露 `versionId` API.
+> 当时建议 V1 替换为 `aws-sdk-s3` 或保留 attachment slot fallback; V0.2 最终改走 `presign_get` + 自定义 `versionId` query, 无需替换 SDK.
+> 调研详情见 `docs/reports/2026-09-20-minio-versionId-investigation/minio-versionId-investigation-report.md` §2-§3.
 
 - `get_at_version` 对 `version != latest` 返回 `Ok(None)`（metadata 完整，bytes 还原 deferred 到 V1）
 - V0 妥协: 真实字节从 attachment slot 读 (per `vault_versioned.rs:578-630` FileVault / `:652-672` MinioVault)
 - 真实字节复原因 `rust-s3` 0.37.2 不暴露 `versionId` lookup 而留 V1 接 minIO versioning 后处理
 - 写一个 marker string 标识当前状态 + `change_note` 说明
+
+**V0.2 解决（2026-09-20 JST, per ADR-0022 v0.2 / ULYS-123, 详见文末 V0.2 修订补充节）**:
+
+- ✅ `MinioVault::get_at_version` 真接 minIO server-side versioning: sidecar 每条 entry 记录 `x-amz-version-id`；`get_at_version` 优先用 `Bucket::presign_get` + 自定义 `versionId` query 拼签名 URL, 调 reqwest 直读 minIO server-side bytes；attachment slot 仅作 fallback
+- ✅ 新增 `#[ignore]` minIO e2e `minio_vault_versioned_e2e_roundtrip` 验证关键路径：删 attachment slot 文件后 `get_at_version(v1)` 仍返 v1 bytes
 
 ## 4. 验证 / Verification
 
@@ -134,3 +140,61 @@ MinioVault:  gitgit-vault/<key>.versions.json       # 同 bucket sidecar object
 ---
 
 **Status: Implemented** | 2026-09-16 19:27 JST
+
+
+---
+
+## V0.2 修订补充（2026-09-20 JST，per ULYS-123 / ADR-0022 v0.2）
+
+**目的**：把 §3.4 "已知 gap (V0 deferred)" 推到 resolved —— `MinioVault::get_at_version` 真接 minIO server-side versioning，不再仅依赖 attachment slot marker。
+
+### V0.2 改动清单
+
+| # | 操作 | 文件 | 关键改动 |
+|---|---|---|---|
+| 1 | 改 | `src/server/vault.rs` | 加 `put_object_for_sidecar_with_version_id` (从 PUT 响应头提取 `x-amz-version-id`)；加 `get_object_for_sidecar_at_version_id` (presign_get + 自定义 `versionId` query + reqwest 抓签名 URL, 无 Authorization header)；加 `HttpResponse` + `reqwest_get_bytes` helper；`object_key` 改 `pub(crate)` |
+| 2 | 改 | `src/server/vault_versioned.rs` | `VaultVersionSummary` 加 `version_id: Option<String>` 字段 (`#[serde(default, skip_serializing_if = "Option::is_none")]`, 向后兼容 V0 timeline JSON)；加 `append_version_with_id` helper；`MinioVault::set_with_version` 捕获 version_id 写入 sidecar；`MinioVault::get_at_version` 优先 sidecar.version_id → minIO lookup, fallback 到 attachment slot；加 4 unit test + 1 `#[ignore]` minIO e2e |
+| 3 | 改 | `Cargo.toml` | 加 `reqwest = "0.12" (default-features = false, rustls-tls)` |
+| 4 | 改 | `docs/adr/0022-v0-credential-vault-versioned.md` | ADR 升版 V0.2：修订历史表 + Status 升 V0.2 + §2.3 MinioVault row 改 "V0.2 已真接" + §3 文件清单 V0.2 注解 + §4.2 gap strikethrough + §5 验证加 V0.2 子节 + §6 migration V0.2 标完成 + V1 标 follow-up |
+
+### V0.2 设计要点
+
+**为什么 stay-on `rust-s3` 0.37 而不是升级或换 aws-sdk-s3**
+
+`rust-s3` 0.37.2 是 crates.io 最新版本。`Command::GetObject` 的 URL builder (`request_trait.rs`) **不暴露 `versionId` query param** —— 唯一带 versionId 的是 `Command::GetObjectAttributes` (只返回 XML 元数据, 不是 bytes)。三条升级路径:
+
+1. **升 patch (0.37.x)** — 无新版带此功能
+2. **升 minor (0.38+)** — rust-s3 breaking change 频次高 (per `vault.rs:353` 注释)，未发布 minor
+3. **换 `aws-sdk-s3`** — 官方 SDK, 但 ~5MB 二进制膨胀, 与 ADR-0021 §1.2 "单一 crate + 零原生依赖 + 不引 EventBus/RAG" 边界冲突
+
+**最终方案**：保持 `rust-s3` 0.37.2 + 用现有 `Bucket::presign_get` 拼签名 URL (SigV4 canonical string 已经把 `custom_queries` 含进来 —— 见 `request_trait.rs:471` `flatten_queries`), 调 reqwest 抓无 Authorization header (header 会让 server 答 `SignatureDoesNotMatch`)。直接 dep reqwest = "0.12" (default-features = false, rustls-tls 跟现有 `rust-s3` 同栈)。
+
+**为什么 attachment slot 仍保留**
+
+双重保险: (1) minIO bucket versioning 没启用的部署 (V0 阶段常见) 仍能 fallback 到本地 attachment; (2) 删 attachment slot 文件不破坏 `get_at_version` 是 e2e 关键验证。两者并存。
+
+### V0.2 验证
+
+- [x] `cargo check` 干净通过（reqwest 加 rustls-tls 后 0 warning 0 error）
+- [x] `cargo test --workspace --offline`：**79 passed / 0 failed / 1 ignored**
+  - 旧 75 全过（含 V0 minIO `e2e_roundtrip` `#[ignore]`）
+  - V0.2 新增 4 unit test 全过：
+    - `version_summary_legacy_json_round_trip_with_none_version_id` —— V0 (2026-09-16) 旧 JSON 无 `version_id` 字段反序列化 `None`
+    - `append_version_with_id_stores_version_id` —— `version_id` 写入 + 幂等性保留
+    - `append_version_with_id_none_preserves_existing_contract` —— `None` 路径不破坏 `find_version` 等
+    - `bytes_to_string_or_marker_handles_utf8_and_binary` —— UTF-8 正常 + 非 UTF-8 给 marker
+  - V0.2 新增 1 `#[ignore]` minIO e2e: `minio_vault_versioned_e2e_roundtrip` —— 启 minIO + bucket versioning 后跑 (Docker 详设 §3.4 e2e 注释)
+- [x] ADR-0022 §3.4 gap 状态: ~~V0 deferred~~ → **V0.2 resolved**
+- [x] ADR-0022 v0.2 升版登记 (修订历史表)
+
+### V0.2 风险
+
+1. **`rust-s3` 升 minor/major 时 sigV4 canonical string 可能改变** —— 本 commit 锁定 0.37.2, 升级时必须重测 e2e
+2. **`presign_get` + custom_queries 行为依赖 rust-s3 内部 SigV4 实现** —— `flatten_queries` 在 0.37.2 已稳定多年, 但属于未公开契约
+3. **`reqwest::get` 默认无 connection pool** —— 单次拉取无影响, 高并发场景需要复用 client (V1 优化项, 不在 V0.2 范围)
+
+### V0.2 已知 follow-up
+
+- minIO bucket versioning 未启用的部署: `get_at_version(v != latest)` 仍 fallback 到 attachment slot (V0 行为不变, 兼容性 OK)
+- `MinioVault::restore_to_version` 仍走 attachment slot marker 路径, V1 接 turn-key audit 时改造 (独立 ADR, per V0.2 §6 follow-up)
+- `FileVault::get_at_version` 仍仅返 latest —— FileVault 无原生 versioning 概念, 由 caller 在选 backend 时决策 (per V0.2 §2.5)
