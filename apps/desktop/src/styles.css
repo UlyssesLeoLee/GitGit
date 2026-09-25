@@ -1,0 +1,146 @@
+/* GitGit Desktop — engineering graph dark theme */
+
+:root {
+  --bg-0: #0d1117;
+  --bg-1: #161b22;
+  --bg-2: #1f262e;
+  --bg-3: #2d333b;
+  --border: #30363d;
+  --border-strong: #484f58;
+  --fg-0: #e6edf3;
+  --fg-1: #b1bac4;
+  --fg-2: #7d8590;
+  --accent: #2f81f7;
+  --accent-soft: rgba(47, 129, 247, 0.15);
+  --green: #3fb950;
+  --orange: #d29922;
+  --red: #f85149;
+  --purple: #a371f7;
+  --node-issue: #f78166;
+  --node-requirement: #2f81f7;
+  --node-adr: #a371f7;
+  --node-pr: #3fb950;
+  --node-commit: #d2a8ff;
+  --node-agent: #ffa657;
+  --node-policy: #f85149;
+  --node-event: #7d8590;
+  --node-mvpreq: #d29922;
+  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    --bg-0: #ffffff;
+    --bg-1: #f6f8fa;
+    --bg-2: #eef1f4;
+    --bg-3: #e1e4e8;
+    --border: #d0d7de;
+    --border-strong: #afb8c1;
+    --fg-0: #1f2328;
+    --fg-1: #424a53;
+    --fg-2: #656d76;
+    --accent: #0969da;
+    --accent-soft: rgba(9, 105, 218, 0.1);
+    --node-issue: #bc4c00;
+    --node-requirement: #0969da;
+    --node-adr: #8250df;
+    --node-pr: #1a7f37;
+    --node-commit: #8250df;
+    --node-agent: #9a6700;
+    --node-policy: #cf222e;
+    --node-event: #656d76;
+    --node-mvpreq: #9a6700;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html, body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  background: var(--bg-0);
+  color: var(--fg-0);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+#app {
+  height: 100vh;
+  width: 100vw;
+  display: flex;
+  flex-direction: column;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 10px;
+  cursor: pointer;
+  transition: background 120ms, border-color 120ms;
+}
+
+button:hover {
+  background: var(--bg-3);
+  border-color: var(--border-strong);
+}
+
+button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: white;
+}
+
+button.primary:hover {
+  filter: brightness(1.1);
+}
+
+input, textarea, select {
+  font: inherit;
+  color: inherit;
+  background: var(--bg-1);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 8px;
+  outline: none;
+}
+
+input:focus, textarea:focus, select:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}
+
+code {
+  font-family: var(--font-mono);
+  background: var(--bg-2);
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-size: 0.9em;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 5px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--border-strong);
+}
