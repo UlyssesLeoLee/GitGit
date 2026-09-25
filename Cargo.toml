@@ -61,6 +61,18 @@ uuid = { version = "1", features = ["v4"] }
 # pulling in a crypto framework.
 sha2 = "0.10"
 hex = "0.4"
+# V0.2 Credential Vault version-management API (per ADR-0022 v0.2):
+# `rust-s3` 0.37 does not expose `versionId` on `Bucket::get_object`
+# (see https://docs.rs/rust-s3/0.37.2/s3/bucket/struct.Bucket.html —
+# `Command::GetObject` has no versionId field). We work around this by
+# asking rust-s3 to build a presigned GET URL with `versionId` as a
+# custom query param (SigV4 canonical string includes custom queries,
+# so the signature covers versionId), and then firing that URL with
+# reqwest — the SigV4 signature in the query string authorizes the
+# request, no `Authorization` header is added (adding one would cause
+# `SignatureDoesNotMatch`). reqwest is therefore a direct dependency
+# even though rust-s3 pulls it transitively.
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
 
 [lints.rust]
 unsafe_code = "forbid"

@@ -234,7 +234,7 @@ impl MinioVault {
     }
 
     /// Compose the full S3 object key for a logical vault key.
-    fn object_key(&self, key: &str) -> String {
+    pub(crate) fn object_key(&self, key: &str) -> String {
         if self.key_prefix.is_empty() {
             key.to_string()
         } else {
@@ -271,6 +271,49 @@ impl MinioVault {
             Err(e) if is_not_found(&e) => Ok(None),
             Err(e) => Err(VaultError::from(e)),
         }
+    }
+
+    /// PUT `bytes` under `object_key` and return the S3
+    /// `x-amz-version-id` response header when the server supplied one.
+    pub(crate) async fn put_object_for_sidecar_with_version_id(
+        &self,
+        object_key: &str,
+        bytes: &[u8],
+    ) -> std::result::Result<Option<String>, VaultError> {
+        let resp = self.bucket.put_object(object_key, bytes).await?;
+        let headers = resp.headers();
+        Ok(headers
+            .get("x-amz-version-id")
+            .or_else(|| headers.get("X-Amz-Version-Id"))
+            .cloned())
+    }
+
+    /// Read an object at a specific S3 `versionId` (server-side versioning restore).
+    pub(crate) async fn get_object_for_sidecar_at_version_id(
+        &self,
+        object_key: &str,
+        version_id: &str,
+    ) -> std::result::Result<Option<bytes::Bytes>, VaultError> {
+        let mut custom_queries = std::collections::HashMap::new();
+        custom_queries.insert("versionId".to_string(), version_id.to_string());
+        let url = self
+            .bucket
+            .presign_get(object_key, 60, Some(custom_queries))
+            .await
+            .map_err(VaultError::from)?;
+        let resp = crate::server::vault::reqwest_get_bytes(&url)
+            .await
+            .map_err(VaultError::Vault)?;
+        if resp.status == 404 {
+            return Ok(None);
+        }
+        if !(200..300).contains(&resp.status) {
+            return Err(VaultError::Vault(s3::error::S3Error::HttpFailWithBody(
+                resp.status,
+                String::from_utf8_lossy(&resp.body).into_owned(),
+            )));
+        }
+        Ok(Some(bytes::Bytes::from(resp.body)))
     }
 }
 
@@ -345,6 +388,40 @@ impl Vault for MinioVault {
         let value = format!("rotated-{ts}-{suffix}");
         self.set(key, &value).await
     }
+}
+
+/// Lightweight HTTP GET response wrapper used by [`get_object_for_sidecar_at_version_id`].
+///
+/// We do not import `reqwest::Response` directly because that pulls the
+/// entire response stream into the public API; the versioned-vault
+/// module only needs (status, body) bytes. The helper is `pub(crate)`
+/// so the same future S3 REST helper (e.g. a DELETE-by-versionId, or a
+/// POST restore-object-copy) can reuse it.
+#[derive(Debug)]
+pub(crate) struct HttpResponse {
+    pub status: u16,
+    pub body: Vec<u8>,
+}
+
+/// Issue an HTTP GET against `url` and return (status, body). No auth
+/// header is added; the caller is responsible for embedding the
+/// signature in the query string (see `MinioVault::presign_get`).
+pub(crate) async fn reqwest_get_bytes(url: &str) -> std::result::Result<HttpResponse, s3::error::S3Error> {
+    // `S3Error` is a permissive umbrella type for transport errors;
+    // reqwest's own error type doesn't implement Into<S3Error>, so we
+    // route any reqwest failure through `S3Error::HttpFail` with a
+    // synthetic 0 status code and the reqwest error message as body.
+    let resp = reqwest::get(url).await.map_err(|e| {
+        s3::error::S3Error::HttpFailWithBody(0, format!("reqwest GET failed: {e}"))
+    })?;
+    let status = resp.status().as_u16();
+    let body = resp.bytes().await.map_err(|e| {
+        s3::error::S3Error::HttpFailWithBody(status, format!("reqwest body read failed: {e}"))
+    })?;
+    Ok(HttpResponse {
+        status,
+        body: body.to_vec(),
+    })
 }
 
 /// Return `true` if the `S3Error` represents "object not present" rather
