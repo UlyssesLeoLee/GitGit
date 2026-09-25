@@ -20,6 +20,7 @@
 
 [CmdletBinding()]
 param(
+    [switch]$SkipBuild,
     [string]$Bind = '127.0.0.1:18098',
     [string]$RepoName = 'regression',
     [int]$TimeoutSec = 240
