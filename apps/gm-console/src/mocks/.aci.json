@@ -1,0 +1,43 @@
+{
+  "$schema": "https://ulysses-star.local/schemas/aci/v0.1.0-draft.json",
+  "aci_version": "0.1.0-draft",
+  "aci_compat_version": "0.1.0-draft",
+  "project": "gitgit-msw",
+  "description": "GitGit gm-console MSW frontend mock ACI 契约 v0.1 (per ULYS-191 v0.2 cross-project schema)",
+  "homepage": "https://github.com/UlyssesLeoLee/GitGit",
+  "supported_layers": ["ut", "st", "e2e"],
+  "severity_levels": ["critical", "high", "medium", "low", "info"],
+  "assertion_statuses": ["PASS", "FAIL", "WARN", "SKIP"],
+  "schema_required_fields": [
+    "assertion_id",
+    "aci_version",
+    "layer",
+    "scope",
+    "expect",
+    "actual",
+    "status",
+    "severity",
+    "reasoning",
+    "captured_at"
+  ],
+  "plugins": {
+    "health": {
+      "plugin_id": "health",
+      "enabled": true,
+      "default_mode": "offline",
+      "modules": {}
+    },
+    "repo": {
+      "plugin_id": "repo",
+      "enabled": true,
+      "default_mode": "offline",
+      "modules": {}
+    },
+    "vault": {
+      "plugin_id": "vault",
+      "enabled": true,
+      "default_mode": "offline",
+      "modules": {}
+    }
+  }
+}
