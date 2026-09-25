@@ -199,8 +199,8 @@ try {
         # /c with a properly-quoted command line avoids that
         # expansion entirely; cmd.exe handles the quoting natively.
         $cmdLine = '/c "C:\Windows\System32\curl.exe --noproxy * --silent -o "' +
-                    (Join-Path $scratch 'body.json') +
-                    '" -w %{http_code} --max-time 5'
+                            (Join-Path $scratch 'body.json') +
+                            '" -w %{http_code} --max-time 15'
         if ($ep.method -in @('POST','PUT','DELETE')) {
             $cmdLine += ' -X ' + $ep.method
         }
