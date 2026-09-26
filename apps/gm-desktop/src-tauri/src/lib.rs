@@ -5,6 +5,10 @@
 //! same process; the start/stop semantics are provided by
 //! `crate::state::ServerManager`.
 
+mod commands;
+mod error;
+mod state;
+
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -18,7 +22,6 @@ use tauri::{
     AppHandle, Manager, RunEvent, WindowEvent,
 };
 
-use crate::commands;
 use crate::error::{AppError, AppResult};
 use crate::state::{BufferLayer, DesktopState, LogBuffer, DEFAULT_BIND};
 
@@ -28,9 +31,7 @@ use crate::state::{BufferLayer, DesktopState, LogBuffer, DEFAULT_BIND};
 pub fn run() {
     init_tracing();
     tauri::Builder::default()
-        .plugin(tauri_plugin_log::init_with_config(
-            tauri_plugin_log::Config::default(),
-        ))
+        .plugin(tauri_plugin_log::Builder::new().build())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_dialog::init())

@@ -78,6 +78,12 @@ chrono = { version = "0.4", default-features = false, features = ["clock", "std"
 # UUID for spawned-child pid-less identifiers and for log record IDs.
 uuid = { version = "1", features = ["v4"] }
 
+# Embedded axum HTTP server (per ADR-0020 §2.2). The same axum version
+# is also declared in the parent `gitgit` crate; declaring it here
+# too lets the gm-desktop crate invoke `axum::serve` directly in
+# `commands::server`.
+axum = "0.7"
+
 [lints.rust]
 unsafe_code = "forbid"
 unused_must_use = "deny"
