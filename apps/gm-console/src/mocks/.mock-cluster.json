@@ -10,7 +10,11 @@
   "aci_compat_version": "0.1.0-draft",
   "supported_layers": ["ut", "st", "e2e"],
   "tags_taxonomy": ["msw", "frontend", "gm-console", "rest"],
-  "mock_switch_trace_format": "cluster.enabled={cluster.enabled}, cluster.mode={cluster.mode}, plugins=[health,repo,vault], modules=per_plugin (TBD)",
+  "mock_switch_trace_format": "cluster.enabled={cluster.enabled},mode={cluster.mode},plugins=[health(1m),repo(3m),vault(3m)]=7/7 modules",
+  "module_count_total": 7,
+  "module_count_enabled": 7,
+  "module_switch_stage": "stage1 (§4.4 ULYS-190 G-MS-04 cross-project pattern, mirror IM1.0 PR #24 + CATs PR #18 + Star PR #151 + RGS PR #51 commit 4193207613 + IDE1.0 PR #4 commit 54aacf06)",
+  "updated_at": "2026-09-26T12:35:00Z",
   "created_at": "2026-09-23T23:30:00Z",
   "schema_ref": {
     "design_analysis": "https://github.com/UlyssesLeoLee/Star/blob/agent/minimaxm3/ulys-190/docs/architecture/2026-09-22-mock-switches/00-design-analysis.md",
