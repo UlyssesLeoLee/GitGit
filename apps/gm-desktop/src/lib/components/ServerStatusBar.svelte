@@ -7,6 +7,7 @@
   import { server, serverBusy, startServer, stopServer } from '$lib/stores/server';
   import { t } from '$lib/i18n';
   import { formatUptime } from '$lib/utils/format';
+  import { catalog } from '$lib/i18n';
 </script>
 
 <header
@@ -21,11 +22,11 @@
       data-testid="server-indicator"
     ></span>
     <span class="font-medium">
-      {#if $server.running}{$t('dashboard.running')}{:else}{$t('dashboard.stopped')}{/if}
+      {#if $server.running}{$catalog['dashboard.running']}{:else}{$catalog['dashboard.stopped']}{/if}
     </span>
     {#if $server.running}
       <span class="text-slate-500 dark:text-slate-400">
-        · {$t('dashboard.port')} {$server.bind} · {$t('dashboard.uptime')} {formatUptime($server.uptime_secs)}
+        · {$catalog['dashboard.port']} {$server.bind} · {$catalog['dashboard.uptime']} {formatUptime($server.uptime_secs)}
       </span>
     {/if}
   </div>
@@ -39,7 +40,7 @@
         onclick={() => stopServer()}
         data-testid="stop-server"
       >
-        {$t('dashboard.stop')}
+        {$catalog['dashboard.stop']}
       </button>
     {:else}
       <button
@@ -49,7 +50,7 @@
         onclick={() => startServer()}
         data-testid="start-server"
       >
-        {$t('dashboard.start')}
+        {$catalog['dashboard.start']}
       </button>
     {/if}
   </div>

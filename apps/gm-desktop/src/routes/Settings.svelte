@@ -14,6 +14,7 @@
   import ThemeToggle from '$lib/components/ThemeToggle.svelte';
   import LocaleSwitcher from '$lib/components/LocaleSwitcher.svelte';
   import type { AdminPasswordStatus, AppInfo } from '$lib/api/types';
+  import { catalog } from '$lib/i18n';
 
   let info = $state<AppInfo | null>(null);
   let pwStatus = $state<AdminPasswordStatus | null>(null);
@@ -58,31 +59,31 @@
 </script>
 
 <section class="space-y-6" aria-labelledby="settings-h">
-  <h1 id="settings-h" class="text-2xl font-semibold">{$t('settings.heading')}</h1>
+  <h1 id="settings-h" class="text-2xl font-semibold">{$catalog['settings.heading']}</h1>
 
   <div class="grid gap-6 lg:grid-cols-2">
     <div class="card">
-      <h2 class="mb-2 text-sm font-semibold">{$t('settings.theme')}</h2>
+      <h2 class="mb-2 text-sm font-semibold">{$catalog['settings.theme']}</h2>
       <ThemeToggle />
     </div>
 
     <div class="card">
-      <h2 class="mb-2 text-sm font-semibold">{$t('settings.locale')}</h2>
+      <h2 class="mb-2 text-sm font-semibold">{$catalog['settings.locale']}</h2>
       <LocaleSwitcher />
     </div>
 
     <div class="card">
-      <h2 class="mb-2 text-sm font-semibold">{$t('settings.adminPassword')}</h2>
+      <h2 class="mb-2 text-sm font-semibold">{$catalog['settings.adminPassword']}</h2>
       {#if pwStatus}
         <p class="mb-2 text-xs text-slate-500" data-testid="admin-status">
           {#if pwStatus.is_set}
-            {$t('settings.adminPasswordSet').replace('{n}', String(pwStatus.length))}
+            {$catalog['settings.adminPasswordSet'].replace('{n}', String(pwStatus.length))}
           {:else}
-            {$t('settings.adminPasswordNotSet')}
+            {$catalog['settings.adminPasswordNotSet']}
           {/if}
         </p>
       {/if}
-      <label class="label" for="new-pw">{$t('settings.adminPasswordUpdate')}</label>
+      <label class="label" for="new-pw">{$catalog['settings.adminPasswordUpdate']}</label>
       <input
         id="new-pw"
         class="input"
@@ -92,33 +93,33 @@
       />
       <div class="mt-3 flex gap-2">
         <button class="btn-primary" type="button" disabled={updating} onclick={onSavePassword}>
-          {$t('common.save')}
+          {$catalog['common.save']}
         </button>
         <button class="btn-secondary" type="button" onclick={onClearPassword}>
-          {$t('settings.adminPasswordClear')}
+          {$catalog['settings.adminPasswordClear']}
         </button>
       </div>
     </div>
 
     <div class="card">
-      <h2 class="mb-2 text-sm font-semibold">{$t('settings.updates.title')}</h2>
+      <h2 class="mb-2 text-sm font-semibold">{$catalog['settings.updates.title']}</h2>
       <label class="flex items-center gap-2 text-sm">
         <input type="checkbox" bind:checked={updatesOnStartup} />
-        {$t('settings.updates.checkOnStartup')}
+        {$catalog['settings.updates.checkOnStartup']}
       </label>
-      <p class="mt-1 text-xs text-slate-500">{$t('settings.updates.placeholderNote')}</p>
+      <p class="mt-1 text-xs text-slate-500">{$catalog['settings.updates.placeholderNote']}</p>
     </div>
   </div>
 
   <div class="card">
-    <h2 class="mb-2 text-sm font-semibold">{$t('settings.about')}</h2>
+    <h2 class="mb-2 text-sm font-semibold">{$catalog['settings.about']}</h2>
     {#if info}
       <dl class="grid grid-cols-2 gap-2 text-xs">
-        <dt class="label">{$t('common.appName')}</dt>
+        <dt class="label">{$catalog['common.appName']}</dt>
         <dd class="font-mono">{info.name}</dd>
-        <dt class="label">{$t('common.version')}</dt>
+        <dt class="label">{$catalog['common.version']}</dt>
         <dd class="font-mono">{info.version}</dd>
-        <dt class="label">{$t('settings.dataDir')}</dt>
+        <dt class="label">{$catalog['settings.dataDir']}</dt>
         <dd class="break-all font-mono">{info.data_dir}</dd>
         <dt class="label">repos</dt>
         <dd class="break-all font-mono">{info.repos_dir}</dd>

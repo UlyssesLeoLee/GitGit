@@ -19,6 +19,7 @@
   import { pushToast } from '$lib/stores/toasts';
   import { shortSha } from '$lib/utils/format';
   import type { VersionDiffDto, VersionEntryDto } from '$lib/api/types';
+  import { catalog } from '$lib/i18n';
 
   let newKey = $state('');
   let newValue = $state('');
@@ -42,7 +43,7 @@
     saving = true;
     try {
       const ver = await vaultSet(newKey.trim(), newValue.trim());
-      pushToast('success', $t('vault.secretCreated').replace('{n}', String(ver)));
+      pushToast('success', t('vault.secretCreated').replace('{n}', String(ver)));
       newKey = '';
       newValue = '';
     } finally {
@@ -87,7 +88,7 @@
   }
 
   async function onDelete(key: string): Promise<void> {
-    if (!confirm($t('vault.confirmDelete').replace('{key}', key))) return;
+    if (!confirm(t('vault.confirmDelete').replace('{key}', key))) return;
     await vaultDelete(key);
     pushToast('info', `deleted ${key}`);
   }
@@ -95,37 +96,37 @@
 
 <section class="space-y-6" aria-labelledby="vault-h">
   <header>
-    <h1 id="vault-h" class="text-2xl font-semibold">{$t('vault.heading')}</h1>
-    <p class="mt-1 text-xs text-slate-500">{$t('vault.subhead')}</p>
+    <h1 id="vault-h" class="text-2xl font-semibold">{$catalog['vault.heading']}</h1>
+    <p class="mt-1 text-xs text-slate-500">{$catalog['vault.subhead']}</p>
   </header>
 
   <div class="card">
-    <h2 class="mb-2 text-sm font-semibold">{$t('vault.add')}</h2>
+    <h2 class="mb-2 text-sm font-semibold">{$catalog['vault.add']}</h2>
     <div class="grid gap-2 sm:grid-cols-2">
       <div>
-        <label class="label" for="vault-key">{$t('vault.keyLabel')}</label>
+        <label class="label" for="vault-key">{$catalog['vault.keyLabel']}</label>
         <input id="vault-key" class="input" type="text" bind:value={newKey} />
       </div>
       <div>
-        <label class="label" for="vault-val">{$t('vault.valueLabel')}</label>
+        <label class="label" for="vault-val">{$catalog['vault.valueLabel']}</label>
         <input id="vault-val" class="input" type="password" bind:value={newValue} />
       </div>
     </div>
     <button class="btn-primary mt-3" type="button" disabled={saving} onclick={onAdd}>
-      {$t('common.save')}
+      {$catalog['common.save']}
     </button>
   </div>
 
   {#if $vaultSecrets.length === 0}
-    <div class="card text-center text-sm text-slate-500">{$t('vault.empty')}</div>
+    <div class="card text-center text-sm text-slate-500">{$catalog['vault.empty']}</div>
   {:else}
     <div class="card overflow-hidden p-0">
       <table class="w-full table-auto text-sm">
         <thead class="bg-slate-100 dark:bg-slate-700">
           <tr>
-            <th class="px-3 py-2 text-left text-xs font-medium uppercase">{$t('vault.keyLabel')}</th>
-            <th class="px-3 py-2 text-left text-xs font-medium uppercase">{$t('vault.versions')}</th>
-            <th class="px-3 py-2 text-right text-xs font-medium uppercase">{$t('vault.actions')}</th>
+            <th class="px-3 py-2 text-left text-xs font-medium uppercase">{$catalog['vault.keyLabel']}</th>
+            <th class="px-3 py-2 text-left text-xs font-medium uppercase">{$catalog['vault.versions']}</th>
+            <th class="px-3 py-2 text-right text-xs font-medium uppercase">{$catalog['vault.actions']}</th>
           </tr>
         </thead>
         <tbody>
@@ -154,8 +155,8 @@
                       {@const d = diffs[s.key]}
                       {#if d}
                         <div class="mt-2 rounded bg-slate-100 p-2 text-xs dark:bg-slate-900" data-testid={`diff-${s.key}`}>
-                          {$t('vault.diffTitle').replace('{base}', String(d.base_version)).replace('{head}', String(d.head_version))}
-                          · {$t('vault.sizeDelta')} {d.file_size_delta}
+                          {$catalog['vault.diffTitle'].replace('{base}', String(d.base_version)).replace('{head}', String(d.head_version))}
+                          · {$catalog['vault.sizeDelta']} {d.file_size_delta}
                         </div>
                       {/if}
                     {/if}
@@ -167,13 +168,13 @@
               <td class="px-3 py-2 text-right align-top">
                 <div class="flex flex-wrap justify-end gap-1">
                   <button class="btn-secondary" type="button" onclick={() => onToggle(s.key)}>
-                    {openKey === s.key ? $t('common.close') : $t('vault.versions')}
+                    {openKey === s.key ? t('common.close') : t('vault.versions')}
                   </button>
                   <button class="btn-secondary" type="button" onclick={() => onRotate(s.key)}>
-                    {$t('vault.rotate')}
+                    {$catalog['vault.rotate']}
                   </button>
                   <button class="btn-danger" type="button" onclick={() => onDelete(s.key)}>
-                    {$t('common.delete')}
+                    {$catalog['common.delete']}
                   </button>
                 </div>
               </td>

@@ -5,6 +5,7 @@
 <script lang="ts">
   import { theme, setTheme, type ThemeMode } from '$lib/stores/theme';
   import { t } from '$lib/i18n';
+  import { catalog } from '$lib/i18n';
 
   const modes: ReadonlyArray<{ id: ThemeMode; labelKey: string }> = [
     { id: 'light', labelKey: 'settings.themeLight' },
@@ -14,7 +15,7 @@
 </script>
 
 <fieldset class="flex items-center gap-1" data-testid="theme-toggle">
-  <legend class="sr-only">{$t('settings.theme')}</legend>
+  <legend class="sr-only">{$catalog['settings.theme']}</legend>
   {#each modes as mode (mode.id)}
     <button
       type="button"
@@ -29,7 +30,7 @@
       aria-pressed={$theme === mode.id}
       data-testid={`theme-${mode.id}`}
     >
-      {$t(mode.labelKey)}
+      {$catalog[mode.labelKey]}
     </button>
   {/each}
 </fieldset>

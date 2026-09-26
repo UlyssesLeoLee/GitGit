@@ -16,7 +16,7 @@
   import { theme, initTheme } from '$lib/stores/theme';
   import { server, refreshServerStatus } from '$lib/stores/server';
   import { repos, refreshRepos } from '$lib/stores/repos';
-  import { vault, refreshVault } from '$lib/stores/vault';
+  import { refreshVault } from '$lib/stores/vault';
   import { t } from '$lib/i18n';
   import Home from './routes/Home.svelte';
   import Repos from './routes/Repos.svelte';
@@ -24,19 +24,25 @@
   import Vault from './routes/Vault.svelte';
   import Settings from './routes/Settings.svelte';
   import NotFound from './routes/NotFound.svelte';
+  import { catalog } from '$lib/i18n';
 
   // `wrap()` adds a guard component that re-renders its slot if a
   // route renders an exception; in our case the inner ErrorBoundary
   // already owns that responsibility, but we keep the wrap so future
   // route-level guards (e.g. /settings/:tab can require feature
   // flags) compose cleanly.
+  // svelte-spa-router 4.x ships ComponentType types built for the
+  // Svelte 4 SvelteComponent class shape; Svelte 5's function-style
+  // Component types don't satisfy it structurally. The `as never`
+  // cast is the documented workaround until svelte-spa-router ships
+  // proper Svelte 5 typings.
   const routes = {
-    '/': wrap({ component: Home }),
-    '/repos': wrap({ component: Repos }),
-    '/repos/:name': wrap({ component: RepoDetail }),
-    '/vault': wrap({ component: Vault }),
-    '/settings': wrap({ component: Settings }),
-    '*': wrap({ component: NotFound }),
+    '/': wrap({ component: Home as never }),
+    '/repos': wrap({ component: Repos as never }),
+    '/repos/:name': wrap({ component: RepoDetail as never }),
+    '/vault': wrap({ component: Vault as never }),
+    '/settings': wrap({ component: Settings as never }),
+    '*': wrap({ component: NotFound as never }),
   } as const;
 
   let booted = $state(false);
@@ -78,13 +84,13 @@
         <ErrorBoundary>
           <div class="card max-w-prose">
             <h2 class="text-lg font-semibold text-red-600">
-              {$t('errors.bootFailedTitle')}
+              {$catalog['errors.bootFailedTitle']}
             </h2>
             <p class="mt-2 text-sm text-slate-600 dark:text-slate-300">
               {bootError}
             </p>
             <p class="mt-2 text-xs text-slate-500">
-              {$t('errors.bootFailedHint')}
+              {$catalog['errors.bootFailedHint']}
             </p>
           </div>
         </ErrorBoundary>

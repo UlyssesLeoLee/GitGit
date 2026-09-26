@@ -6,7 +6,8 @@
  */
 
 import { writable } from 'svelte/store';
-import type { LocaleId } from '$lib/i18n';
+
+export type LocaleId = 'zh-CN' | 'en';
 
 const STORAGE_KEY = 'gm-desktop.locale';
 

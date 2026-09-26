@@ -10,6 +10,7 @@
   import { pushToast } from '$lib/stores/toasts';
   import { shortSha } from '$lib/utils/format';
   import type { RepoDetail, RefEntry } from '$lib/api/types';
+  import { catalog } from '$lib/i18n';
 
   interface Props { params?: { name?: string } }
   let { params }: Props = $props();
@@ -38,7 +39,7 @@
     if (!detail) return;
     const url = `http://127.0.0.1:38080/repos/${detail.name}.git`;
     const ok = await copyText(url);
-    pushToast(ok ? 'success' : 'error', $t('common.copiedToClipboard'));
+    pushToast(ok ? 'success' : 'error', t('common.copiedToClipboard'));
   }
 
   function filterLocal(refs: RefEntry[]): RefEntry[] {
@@ -55,30 +56,30 @@
 <section class="space-y-4" aria-labelledby="detail-h">
   <header class="flex flex-wrap items-end justify-between gap-3">
     <div>
-      <a class="text-xs text-slate-500 hover:underline" href="/repos">← {$t('repos.back')}</a>
+      <a class="text-xs text-slate-500 hover:underline" href="/repos">← {$catalog['repos.back']}</a>
       <h1 id="detail-h" class="text-2xl font-semibold">
-        {#if detail}{detail.name}{:else}{$t('common.loading')}{/if}
+        {#if detail}{detail.name}{:else}{$catalog['common.loading']}{/if}
       </h1>
     </div>
     <button class="btn-secondary" type="button" onclick={copyCloneUrl}>
-      {$t('repos.copyCloneUrl')}
+      {$catalog['repos.copyCloneUrl']}
     </button>
   </header>
 
   {#if loading}
-    <div class="card text-center text-sm text-slate-500">{$t('common.loading')}</div>
+    <div class="card text-center text-sm text-slate-500">{$catalog['common.loading']}</div>
   {:else if notFound}
     <div class="card border-red-300 bg-red-50 dark:border-red-800 dark:bg-red-900/30">
       <p class="text-sm text-red-700 dark:text-red-200">
-        {$t('repos.notFound').replace('{name}', params?.name ?? '')}
+        {$catalog['repos.notFound']}.replace('{name}', params?.name ?? '')}
       </p>
     </div>
   {:else if detail}
     <div class="grid gap-6 lg:grid-cols-2">
       <div class="card">
-        <h2 class="mb-2 text-sm font-semibold">{$t('repos.refsHeading')}</h2>
+        <h2 class="mb-2 text-sm font-semibold">{$catalog['repos.refsHeading']}</h2>
         {#if detail.refs.length === 0}
-          <p class="text-xs text-slate-500">{$t('repos.refs.none')}</p>
+          <p class="text-xs text-slate-500">{$catalog['repos.refs.none']}</p>
         {:else}
           <h3 class="label mt-2">local</h3>
           <ul class="space-y-1 text-xs font-mono">
@@ -112,7 +113,7 @@
         {/if}
 
         <details class="mt-4 text-xs text-slate-500">
-          <summary class="cursor-pointer">{$t('repos.branchGraph')}</summary>
+          <summary class="cursor-pointer">{$catalog['repos.branchGraph']}</summary>
           <pre class="mt-2 overflow-auto rounded-md bg-slate-50 p-2 dark:bg-slate-900">
 {[
   ...detail.refs.filter((r) => r.kind === 'local').map((r) => `  ${shortSha(r.sha, 7)} ${r.name}`),
@@ -124,9 +125,9 @@
       </div>
 
       <div class="card">
-        <h2 class="mb-2 text-sm font-semibold">{$t('repos.commitsHeading')}</h2>
+        <h2 class="mb-2 text-sm font-semibold">{$catalog['repos.commitsHeading']}</h2>
         {#if detail.commits.length === 0}
-          <p class="text-xs text-slate-500">{$t('repos.commits.none')}</p>
+          <p class="text-xs text-slate-500">{$catalog['repos.commits.none']}</p>
         {:else}
           <ol class="space-y-3 text-sm">
             {#each detail.commits as c (c.sha)}

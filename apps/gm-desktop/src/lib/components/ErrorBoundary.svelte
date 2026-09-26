@@ -7,6 +7,7 @@
 <script lang="ts">
   import type { Snippet } from 'svelte';
   import { t } from '$lib/i18n';
+  import { catalog } from '$lib/i18n';
 
   interface Props {
     children?: Snippet;
@@ -38,11 +39,11 @@
   {#if lastError}
     <div class="card border-red-300 bg-red-50 dark:border-red-800 dark:bg-red-900/30">
       <h3 class="text-sm font-semibold text-red-700 dark:text-red-300">
-        {$t('errors.routeTitle')}
+        {$catalog['errors.routeTitle']}
       </h3>
       <p class="mt-1 text-xs text-red-600 dark:text-red-200">{lastError.message}</p>
       <button class="btn-secondary mt-3" type="button" onclick={reset}>
-        {$t('errors.routeRetry')}
+        {$catalog['errors.routeRetry']}
       </button>
     </div>
   {:else if children}

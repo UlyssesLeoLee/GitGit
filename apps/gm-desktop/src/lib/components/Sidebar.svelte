@@ -10,6 +10,7 @@
   import { derived } from 'svelte/store';
   import ThemeToggle from './ThemeToggle.svelte';
   import LocaleSwitcher from './LocaleSwitcher.svelte';
+  import { catalog } from '$lib/i18n';
 
   type NavItem = { href: string; labelKey: string; icon: string };
 
@@ -34,7 +35,7 @@
 >
   <div class="flex items-center gap-2 px-4 py-4 text-base font-semibold">
     <span class="text-xl">🌿</span>
-    <span>{$t('common.appName')}</span>
+    <span>{$catalog['common.appName']}</span>
   </div>
 
   <nav class="flex-1 space-y-1 px-2" aria-label="primary">
@@ -51,7 +52,7 @@
         data-testid={`nav-${item.labelKey}`}
       >
         <span class="mr-2">{item.icon}</span>
-        <span>{$t(item.labelKey)}</span>
+        <span>{$catalog[item.labelKey]}</span>
       </a>
     {/each}
   </nav>

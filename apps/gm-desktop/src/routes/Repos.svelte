@@ -9,6 +9,7 @@
   import { copyText } from '$lib/utils/clipboard';
   import { formatBytes } from '$lib/utils/format';
   import { pushToast } from '$lib/stores/toasts';
+  import { catalog } from '$lib/i18n';
 
   let loading = $state(false);
   let query = $state('');
@@ -26,7 +27,7 @@
   async function onCopy(name: string): Promise<void> {
     const url = await cloneUrl(name);
     const ok = await copyText(url);
-    pushToast(ok ? 'success' : 'error', $t('common.copiedToClipboard'));
+    pushToast(ok ? 'success' : 'error', t('common.copiedToClipboard'));
   }
 
   async function onOpen(name: string): Promise<void> {
@@ -40,28 +41,28 @@
 
 <section class="space-y-4" aria-labelledby="repos-h">
   <header class="flex flex-wrap items-end justify-between gap-3">
-    <h1 id="repos-h" class="text-2xl font-semibold">{$t('repos.heading')}</h1>
+    <h1 id="repos-h" class="text-2xl font-semibold">{$catalog['repos.heading']}</h1>
     <div class="flex items-center gap-2">
       <input
         class="input w-56"
         type="search"
-        placeholder={$t('common.search')}
+        placeholder={$catalog['common.search']}
         bind:value={query}
         data-testid="repos-search"
       />
       <button class="btn-secondary" type="button" onclick={refreshRepos} disabled={loading}>
-        {$t('common.refresh')}
+        {$catalog['common.refresh']}
       </button>
     </div>
   </header>
 
   <p class="text-xs text-slate-500" data-testid="repos-count">
-    {$t('repos.countOne').replace('{n}', String(filtered.length))}
+    {$catalog['repos.countOne'].replace('{n}', String(filtered.length))}
   </p>
 
   {#if filtered.length === 0}
     <div class="card text-center text-sm text-slate-500" data-testid="repos-empty">
-      {$t('common.empty')}
+      {$catalog['common.empty']}
     </div>
   {:else}
     <ul class="grid gap-3 sm:grid-cols-2 xl:grid-cols-3" data-testid="repos-grid">
@@ -77,12 +78,12 @@
           <p class="text-xs text-slate-500">{formatBytes(repo.size_bytes)}</p>
 
           <div class="flex flex-wrap gap-2 pt-1">
-            <a class="btn-secondary" href={`/repos/${repo.name}`}>{$t('repos.detail')}</a>
+            <a class="btn-secondary" href={`/repos/${repo.name}`}>{$catalog['repos.detail']}</a>
             <button class="btn-secondary" type="button" onclick={() => onCopy(repo.name)}>
-              {$t('repos.copyCloneUrl')}
+              {$catalog['repos.copyCloneUrl']}
             </button>
             <button class="btn-secondary" type="button" onclick={() => onOpen(repo.name)}>
-              {$t('repos.openInFinder')}
+              {$catalog['repos.openInFinder']}
             </button>
           </div>
         </li>

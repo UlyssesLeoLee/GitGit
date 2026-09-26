@@ -13,6 +13,7 @@
   import { formatUptime } from '$lib/utils/format';
   import { pushToast } from '$lib/stores/toasts';
   import type { AppErrorPayload } from '$lib/api/types';
+  import { catalog } from '$lib/i18n';
 
   let bind = $state('127.0.0.1:38080');
   let logs = $state<string[]>([]);
@@ -37,7 +38,7 @@
   async function onStart(): Promise<void> {
     try {
       await startServer(bind);
-      pushToast('success', $t('dashboard.running'));
+      pushToast('success', t('dashboard.running'));
       await refreshLogs();
     } catch (e) {
       pushToast('error', friendlyError(e));
@@ -47,7 +48,7 @@
   async function onStop(): Promise<void> {
     try {
       await stopServer();
-      pushToast('info', $t('dashboard.stopped'));
+      pushToast('info', t('dashboard.stopped'));
       await refreshLogs();
     } catch (e) {
       pushToast('error', friendlyError(e));
@@ -65,7 +66,7 @@
       const tmplKey = `errors.kind.${e.kind}`;
       // The i18n lookup returns the key when missing; fall back to
       // the raw `message` so we still surface something useful.
-      const tmpl = $t(tmplKey);
+      const tmpl = t(tmplKey);
       return tmpl === tmplKey ? e.message : tmpl;
     }
     return String(err);
@@ -74,12 +75,12 @@
 
 <section class="space-y-6" aria-labelledby="home-h">
   <header class="flex items-center justify-between">
-    <h1 id="home-h" class="text-2xl font-semibold">{$t('dashboard.heading')}</h1>
+    <h1 id="home-h" class="text-2xl font-semibold">{$catalog['dashboard.heading']}</h1>
   </header>
 
   <div class="grid gap-6 lg:grid-cols-3">
     <div class="card lg:col-span-1">
-      <h2 class="mb-3 text-sm font-semibold">{$t('dashboard.bind')}</h2>
+      <h2 class="mb-3 text-sm font-semibold">{$catalog['dashboard.bind']}</h2>
       <label class="label" for="bind-input">host:port</label>
       <input
         id="bind-input"
@@ -89,31 +90,31 @@
         disabled={$server.running}
         data-testid="bind-input"
       />
-      <p class="mt-1 text-xs text-slate-500">{$t('dashboard.defaultBindHint')}</p>
+      <p class="mt-1 text-xs text-slate-500">{$catalog['dashboard.defaultBindHint']}</p>
 
       <div class="mt-4 flex gap-2">
         {#if $server.running}
           <button class="btn-secondary" type="button" disabled={$serverBusy} onclick={onStop}>
-            {$t('dashboard.stop')}
+            {$catalog['dashboard.stop']}
           </button>
         {:else}
           <button class="btn-primary" type="button" disabled={$serverBusy} onclick={onStart} data-testid="home-start">
-            {$serverBusy ? $t('dashboard.starting') : $t('dashboard.start')}
+            {$serverBusy ? t('dashboard.starting') : t('dashboard.start')}
           </button>
         {/if}
       </div>
 
       <dl class="mt-4 grid grid-cols-2 gap-2 text-xs text-slate-600 dark:text-slate-300">
         <div>
-          <dt class="label">{$t('dashboard.pid')}</dt>
+          <dt class="label">{$catalog['dashboard.pid']}</dt>
           <dd class="font-mono">{$server.pid || '—'}</dd>
         </div>
         <div>
-          <dt class="label">{$t('dashboard.uptime')}</dt>
+          <dt class="label">{$catalog['dashboard.uptime']}</dt>
           <dd class="font-mono">{formatUptime($server.uptime_secs)}</dd>
         </div>
         <div class="col-span-2">
-          <dt class="label">{$t('dashboard.port')}</dt>
+          <dt class="label">{$catalog['dashboard.port']}</dt>
           <dd class="font-mono break-all">{$server.bind || '—'}</dd>
         </div>
       </dl>
@@ -121,13 +122,13 @@
 
     <div class="card lg:col-span-2">
       <div class="mb-2 flex items-center justify-between">
-        <h2 class="text-sm font-semibold">{$t('dashboard.recentLogs')}</h2>
+        <h2 class="text-sm font-semibold">{$catalog['dashboard.recentLogs']}</h2>
         <div class="flex gap-2">
           <button class="btn-secondary" type="button" onclick={refreshLogs} disabled={refreshing}>
-            {$t('common.refresh')}
+            {$catalog['common.refresh']}
           </button>
           <button class="btn-secondary" type="button" onclick={onClearLogs}>
-            {$t('common.delete')}
+            {$catalog['common.delete']}
           </button>
         </div>
       </div>
