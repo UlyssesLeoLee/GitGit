@@ -7,6 +7,7 @@
 
 mod commands;
 mod error;
+mod graph;
 mod state;
 
 use std::path::PathBuf;
@@ -63,6 +64,13 @@ pub fn run() {
             commands::system::app_info,
             commands::system::set_clipboard_text,
             commands::system::vault_diagnostics,
+            commands::graph::graph_load,
+            commands::graph::graph_list_nodes,
+            commands::graph::graph_list_edges,
+            commands::graph::graph_get_node,
+            commands::graph::graph_stats,
+            commands::graph::docs_list,
+            commands::graph::docs_read,
         ])
         .on_window_event(handle_window_event)
         .build(tauri::generate_context!())

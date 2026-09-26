@@ -5,6 +5,7 @@
 //! `Serialize` impl in `crate::error`.
 
 pub mod auth;
+pub mod graph;
 pub mod repos;
 pub mod server;
 pub mod system;

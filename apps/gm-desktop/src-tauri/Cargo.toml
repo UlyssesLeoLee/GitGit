@@ -84,6 +84,12 @@ uuid = { version = "1", features = ["v4"] }
 # `commands::server`.
 axum = "0.7"
 
+# Knowledge-graph walker — ported from apps/desktop/src-tauri/src/graph.rs
+# per ADR-0023 (consolidate desktop apps). Walks docs/requirements/ and
+# extracts requirement IDs, ADR refs, RGS gates, etc.
+regex = "1"
+walkdir = "2"
+
 [lints.rust]
 unsafe_code = "forbid"
 unused_must_use = "deny"
