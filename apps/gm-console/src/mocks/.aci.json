@@ -21,23 +21,36 @@
     "captured_at"
   ],
   "plugins": {
-    "health": {
-      "plugin_id": "health",
-      "enabled": true,
-      "default_mode": "offline",
-      "modules": {}
+      "health": {
+        "plugin_id": "health",
+        "enabled": true,
+        "default_mode": "offline",
+        "modules": {
+          "heartbeat": {"module_id": "heartbeat", "enabled": true, "mode": "offline"}
+        }
+      },
+      "repo": {
+        "plugin_id": "repo",
+        "enabled": true,
+        "default_mode": "offline",
+        "modules": {
+          "list_repos": {"module_id": "list_repos", "enabled": true, "mode": "offline"},
+          "get_repo": {"module_id": "get_repo", "enabled": true, "mode": "offline"},
+          "get_refs": {"module_id": "get_refs", "enabled": true, "mode": "offline"}
+        }
+      },
+      "vault": {
+        "plugin_id": "vault",
+        "enabled": true,
+        "default_mode": "offline",
+        "modules": {
+          "list_keys": {"module_id": "list_keys", "enabled": true, "mode": "offline"},
+          "key_detail": {"module_id": "key_detail", "enabled": true, "mode": "offline"},
+          "versions": {"module_id": "versions", "enabled": true, "mode": "offline"}
+        }
+      }
     },
-    "repo": {
-      "plugin_id": "repo",
-      "enabled": true,
-      "default_mode": "offline",
-      "modules": {}
-    },
-    "vault": {
-      "plugin_id": "vault",
-      "enabled": true,
-      "default_mode": "offline",
-      "modules": {}
-    }
+    "module_count_total": 7,
+    "module_count_enabled": 7,
+    "module_switch_stage": "stage1 (§4.4 per ULYS-190 cross-project pattern G-MS-04)"
   }
-}
