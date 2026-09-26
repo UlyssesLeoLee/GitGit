@@ -36,12 +36,11 @@ pub async fn start_server(
     let repos_dir = state.repos_dir.clone();
     let bind_for_spawn = bind.clone();
 
-    state.server.start_with(bind, move |b| {
-        let vault = vault;
-        let repos_dir = repos_dir;
-        let bind_for_spawn = bind_for_spawn;
-        Box::pin(async move { spawn_embedded_server(b, vault, repos_dir, bind_for_spawn).await })
-    })
+    state.server
+        .start_with(bind, move |b| async move {
+            spawn_embedded_server(b, vault, repos_dir, bind_for_spawn).await
+        })
+        .await
 }
 
 /// Stop the embedded server. Returns the prior status snapshot.

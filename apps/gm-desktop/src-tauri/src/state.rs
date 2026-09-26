@@ -12,12 +12,13 @@
 //!    identical semantics to the gitgit CLI's `gitai key *` surface.
 //! 3. `LogBuffer` — a ring buffer fed by the tracing layer so the UI can
 //!    fetch recent log lines through the `server_logs` command.
-//!
+
 //! No part of this file touches gitgit's `vault / auth / http` business
 //! logic. Construction uses only `pub` types already exposed by the
 //! gitgit library target.
 
 use std::collections::VecDeque;
+use std::future::Future;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
@@ -114,22 +115,37 @@ impl ServerManager {
 
     /// Start the embedded server. Returns a [`ServerStatus`] snapshot on
     /// success, `ServerAlreadyRunning` if already up.
-    pub fn start_with<F>(
+    pub async fn start_with<F, Fut>(
         &self,
         bind: String,
         spawn: F,
     ) -> AppResult<ServerStatus>
     where
-        F: FnOnce(String) -> AppResult<JoinHandle<()>>,
+        F: FnOnce(String) -> Fut,
+        Fut: Future<Output = AppResult<JoinHandle<()>>>,
     {
+        // Phase 1: hold the lock long enough to mark the slot as
+        // "starting" (still None — pre-join). Drop the guard before
+        // awaiting the spawn closure so the lock isn't held across
+        // .await (MutexGuard is !Send).
+        let already_running = {
+            let guard = self
+                .inner
+                .lock()
+                .map_err(|_| AppError::ServerManagerPoisoned)?;
+            if guard.is_some() {
+                Err(AppError::ServerAlreadyRunning(std::process::id()))
+            } else {
+                Ok(())
+            }
+        }?;
+        // Phase 2: drive the spawn closure to completion (no lock held).
+        let join = spawn(bind.clone()).await?;
+        // Phase 3: re-acquire the lock and commit the JoinHandle.
         let mut guard = self
             .inner
             .lock()
             .map_err(|_| AppError::ServerManagerPoisoned)?;
-        if let Some(r) = &*guard {
-            return Err(AppError::ServerAlreadyRunning(std::process::id()));
-        }
-        let join = spawn(bind.clone())?;
         *guard = Some(Running {
             bind,
             started_at: Instant::now(),

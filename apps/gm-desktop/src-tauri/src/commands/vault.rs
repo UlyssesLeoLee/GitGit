@@ -4,9 +4,17 @@
 //! `gitgit::server::vault_versioned::VersionedVault`. The UI uses the
 //! version-management surface (list_versions / diff / restore) per
 //! ADR-0022 §2.
+//!
+//! Migration note: the upstream `vault_versioned` types are
+//! `VaultVersionSummary` / `VaultVersionDiff` (this file's prior draft
+//! called them `VersionEntry` / `VersionDiff`; the rename landed in the
+//! gitgit server crate in commit d3d184e and gm-desktop had not been
+//! updated since 2f8b9fc). We bridge here with `VersionEntryDto` /
+//! `VersionDiffDto` so the on-the-wire JSON contract with the Svelte
+//! frontend is unchanged.
 
 use gitgit::server::vault::Vault;
-use gitgit::server::vault_versioned::{VersionEntry, VersionedVault, VersionDiff};
+use gitgit::server::vault_versioned::{VaultVersionDiff, VaultVersionSummary, VersionedVault};
 use serde::Serialize;
 use tauri::State;
 
@@ -19,12 +27,16 @@ pub struct VersionEntryDto {
     pub version: i32,
     pub bytes_sha256: String,
     pub byte_len: u64,
-    pub created_at_unix_ms: u64,
+    /// Forwarded as `i64` from the upstream `VaultVersionSummary`; the
+    /// Svelte side reads it as a JS number so the signed/unsigned
+    /// difference does not affect UI behaviour for any plausible
+    /// 2026-2030 timestamp.
+    pub created_at_unix_ms: i64,
     pub change_note: Option<String>,
 }
 
-impl From<VersionEntry> for VersionEntryDto {
-    fn from(e: VersionEntry) -> Self {
+impl From<VaultVersionSummary> for VersionEntryDto {
+    fn from(e: VaultVersionSummary) -> Self {
         Self {
             version: e.version,
             bytes_sha256: e.bytes_sha256,
@@ -45,12 +57,12 @@ pub struct VersionDiffDto {
     pub file_size_delta: i64,
 }
 
-impl From<VersionDiff> for VersionDiffDto {
-    fn from(d: VersionDiff) -> Self {
+impl VersionDiffDto {
+    fn from_parts(key: String, d: VaultVersionDiff) -> Self {
         Self {
-            key: d.key,
-            base_version: d.base,
-            head_version: d.head,
+            key,
+            base_version: d.base.version,
+            head_version: d.head.version,
             object_changed: d.object_changed,
             file_size_delta: d.file_size_delta,
         }
@@ -89,10 +101,10 @@ pub async fn vault_set(
 pub async fn vault_rotate(
     state: State<'_, DesktopState>,
     key: String,
-) -> AppResult<i32> {
+) -> AppResult<()> {
     let vault = state.vault.clone();
-    let new_version = vault.rotate(&key).await?;
-    Ok(new_version)
+    vault.rotate(&key).await?;
+    Ok(())
 }
 
 #[tauri::command]
@@ -114,7 +126,7 @@ pub async fn vault_diff(
 ) -> AppResult<VersionDiffDto> {
     let vault = state.vault.clone();
     let diff = vault.diff_versions(&key, base, head).await?;
-    Ok(VersionDiffDto::from(diff))
+    Ok(VersionDiffDto::from_parts(key, diff))
 }
 
 #[tauri::command]

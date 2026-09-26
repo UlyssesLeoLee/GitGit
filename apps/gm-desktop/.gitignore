@@ -25,3 +25,4 @@ Thumbs.db
 *.pem
 *.key
 *.pfx
+apps/gm-desktop/package-lock.json
