@@ -24,6 +24,7 @@ const en: Readonly<Record<string, string>> = {
   'nav.dashboard': 'Overview',
   'nav.repos': 'Repositories',
   'nav.vault': 'Vault',
+  'nav.graph': 'Knowledge Graph',
   'nav.settings': 'Settings',
 
   'dashboard.heading': 'Server overview',
@@ -110,6 +111,24 @@ const en: Readonly<Record<string, string>> = {
   'errors.kind.Bridge': 'System bridge error',
   'errors.kind.Internal': 'Internal error',
   'errors.kind.InvalidRepoName': 'Invalid repository name',
+
+  'graph.heading': 'Engineering knowledge graph',
+  'graph.subhead': 'Local-first viewer · walked from docs/requirements/ via Rust backend',
+  'graph.searchPlaceholder': 'Filter by ID, title, tag, source…',
+  'graph.errorPrefix': 'Failed to load graph',
+  'graph.empty': 'No graph data — is the docs/requirements directory populated?',
+  'graph.nodesTitle': 'Nodes',
+  'graph.nodes': 'nodes',
+  'graph.edges': 'edges',
+  'graph.matching': 'matching',
+  'graph.more': 'more (refine search)',
+  'graph.detailEmptyTitle': 'Select a node',
+  'graph.detailEmptyHint': 'Pick something in the master list (left) or click a node in the visualization to inspect its definition, source, and graph neighbors.',
+  'graph.fromSource': 'from',
+  'graph.connections': 'Connections',
+  'graph.noConnections': 'No graph edges. This node is isolated (orphan or seed).',
+  'graph.outgoing': 'Outgoing',
+  'graph.incoming': 'Incoming',
 };
 
 export default en;

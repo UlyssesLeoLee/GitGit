@@ -23,6 +23,7 @@
   import RepoDetail from './routes/RepoDetail.svelte';
   import Vault from './routes/Vault.svelte';
   import Settings from './routes/Settings.svelte';
+  import Graph from './routes/Graph.svelte';
   import NotFound from './routes/NotFound.svelte';
   import { catalog } from '$lib/i18n';
 
@@ -41,6 +42,7 @@
     '/repos': wrap({ component: Repos as never }),
     '/repos/:name': wrap({ component: RepoDetail as never }),
     '/vault': wrap({ component: Vault as never }),
+    '/graph': wrap({ component: Graph as never }),
     '/settings': wrap({ component: Settings as never }),
     '*': wrap({ component: NotFound as never }),
   } as const;
