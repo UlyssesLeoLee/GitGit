@@ -29,6 +29,7 @@ const zh: Readonly<Record<string, string>> = {
   'nav.dashboard': '概览',
   'nav.repos': '仓库',
   'nav.vault': '凭证',
+  'nav.graph': '知识图谱',
   'nav.settings': '设置',
 
   // 概览 / 服务器
@@ -120,6 +121,25 @@ const zh: Readonly<Record<string, string>> = {
   'errors.kind.Bridge': '系统桥接错误',
   'errors.kind.Internal': '内部错误',
   'errors.kind.InvalidRepoName': '仓库名非法',
+
+  // 知识图谱（PR-C）
+  'graph.heading': '工程知识图谱',
+  'graph.subhead': '本地优先 · 由 Rust 后端遍历 docs/requirements/ 生成',
+  'graph.searchPlaceholder': '按 ID / 标题 / 标签 / 来源 筛选…',
+  'graph.errorPrefix': '加载图谱失败',
+  'graph.empty': '没有图谱数据 — docs/requirements/ 是否为空？',
+  'graph.nodesTitle': '节点',
+  'graph.nodes': '节点',
+  'graph.edges': '关系',
+  'graph.matching': '个匹配',
+  'graph.more': '更多（请细化搜索）',
+  'graph.detailEmptyTitle': '请选择一个节点',
+  'graph.detailEmptyHint': '从左侧主列表挑选节点，或在右侧可视化区点击节点，以查看其定义、来源及图关系。',
+  'graph.fromSource': '来源',
+  'graph.connections': '关系',
+  'graph.noConnections': '该节点无关系（孤立节点或种子节点）。',
+  'graph.outgoing': '出边',
+  'graph.incoming': '入边',
 };
 
 export default zh;

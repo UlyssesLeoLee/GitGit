@@ -9,6 +9,7 @@
 - 一键启停本地服务(可视化 PID / 端口 / 日志流)
 - 仓库列表 + 详情(refs / branch graph / 最近 commits / 克隆 URL)
 - Credential Vault 可视化管理(版本 / diff / restore / rotate / delete)
+- **工程知识图谱(`/graph`)** — 3 栏布局,master list + SVG 可视化 + 节点详情/关系(per ADR-0023 §3.2)
 - 系统托盘 + 关闭即隐藏(常驻后台)
 - 错误边界 + 多语言 + 暗色模式
 - 自动更新骨架(V0 占位,V1 真正推送)
@@ -114,9 +115,48 @@ pnpm check
 # ESLint
 pnpm lint
 
-# Rust 侧测试
+# Rust 侧测试 (含 PR-B graph 引擎)
 cd src-tauri && cargo test
 ```
+
+## 知识图谱 / Knowledge Graph (`/graph` route)
+
+按 **ADR-0023 §3.2** 合并后,`gm-desktop` 在侧边栏新增 **🕸️ 知识图谱** 入口,指向路由 `/graph`:
+
+### 路径
+
+- 侧边栏点 **🕸️ 知识图谱** → `/#/graph`
+- 或直接访问 `http://localhost:5173/#/graph`(纯前端调试)
+
+### 行为
+
+- **桌面运行时**:Tauri 后端(`src-tauri/src/commands/graph.rs`)遍历本地仓库的 `docs/requirements/` 目录,返回 `{ nodes, edges, docs }`;前端展示。
+- **纯前端调试**(`pnpm dev`,无 Tauri):`src/mocks/handlers.ts` 提供 mock fixture,UI 仍可渲染。
+- 3 栏布局:左侧 master list + 右上 SVG 可视化 + 右下节点详情/关系面板。
+- 搜索框按 `id / title / tag / source` 模糊匹配(`scoreNode` 评分)。
+- 点击节点 / 边按钮 → 选中,详情面板渲染出边/入边列表(各最多 50 条)。
+
+### 文件清单(PR-C 新增/修改)
+
+| 文件 | 动作 |
+|---|---|
+| `src/lib/api/graph.ts` | 新增 — 7 个 IPC 包装(`graphLoad` / `graphListNodes` / `graphListEdges` / `graphGetNode` / `graphStats` / `docsList` / `docsRead`) |
+| `src/lib/graph/parser.ts` | 新增 — 1:1 移植自 `apps/desktop/src/lib/parser.ts` |
+| `src/lib/stores/graph.ts` | 新增 — `writable` + `derived(filteredNodes)` + `derived(stats)` + `loadGraph()` |
+| `src/routes/Graph.svelte` | 新增 — 3 栏布局 |
+| `src/lib/api/types.ts` | 修改 — 增加 `GraphNode` / `GraphEdge` / `GraphStats` / `DocMeta` / `DocReadResult` / `GraphLoadResult` / `NodeKind` / `EdgeKind` |
+| `src/App.svelte` | 修改 — 注册 `/graph` 路由 |
+| `src/lib/components/Sidebar.svelte` | 修改 — 增加 `nav.graph` 项 |
+| `src/lib/i18n/{zh-CN,en}.ts` | 修改 — 增加 `nav.graph` + `graph.*` 文案 18 keys |
+| `tests/unit/graph-parser.test.ts` | 新增 — 8 个用例覆盖 `kindOf` / `parseDoc` / `docsToGraph` / `scoreNode` |
+| `src/mocks/handlers.ts` | 修改 — 增加 `graph_load` / `graph_list_*` / `graph_stats` / `docs_list` / `docs_read` mock |
+| `README.md` | 修改(本节) |
+
+### Rust 端对齐
+
+`src-tauri/src/commands/graph.rs` 已在 PR-B 合入(`549bd0c`+`6f28087c`),本 PR-C **不**触 Rust 端;前端仅消费其 7 个 IPC 命令的 `serde_json::Value` 输出并 cast 到类型化 `GraphNode` / `GraphEdge`。
+
+`apps/desktop/` 在 PR-C **不**动(PR-D 才整目录删除)。
 
 ## 跨平台构建 / Cross-platform build
 

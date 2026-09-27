@@ -88,3 +88,87 @@ export interface AppErrorPayload {
   message: string;
   source: string;
 }
+
+/* ---------- Knowledge graph (PR-B Rust backend) ----------
+ *
+ * Shapes mirror `commands/graph.rs`. The Rust side serializes
+ * graph nodes/edges as `serde_json::Value` so the JSON contract
+ * on the wire is `Record<string, unknown>`; we cast into our
+ * typed `GraphNode` / `GraphEdge` at the consumption boundary in
+ * `src/lib/graph/types.ts` (frontend fallback parser) and in the
+ * store (`src/lib/stores/graph.ts`).
+ */
+
+export type NodeKind =
+  | 'requirement'
+  | 'issue'
+  | 'pr'
+  | 'commit'
+  | 'adr'
+  | 'agent'
+  | 'policy'
+  | 'event'
+  | 'human'
+  | 'release'
+  | 'incident'
+  | 'document';
+
+export type EdgeKind =
+  | 'implements'
+  | 'depends_on'
+  | 'supersedes'
+  | 'gated_by'
+  | 'reviewed_by'
+  | 'derived_from'
+  | 'caused_by'
+  | 'created_by'
+  | 'references'
+  | 'blocks';
+
+export interface GraphNode {
+  id: string;
+  kind: NodeKind;
+  title: string;
+  body?: string;
+  tags: string[];
+  source?: string;
+  created_at: string;
+  updated_at: string;
+  properties?: Record<string, unknown>;
+}
+
+export interface GraphEdge {
+  id: string;
+  kind: EdgeKind;
+  from: string;
+  to: string;
+  weight?: number;
+  note?: string;
+  created_at: string;
+}
+
+export interface GraphStats {
+  nodes: number;
+  edges: number;
+  by_type: Record<string, number>;
+}
+
+export interface DocMeta {
+  path: string;
+  title: string;
+  preview: string;
+}
+
+export interface DocReadResult {
+  path: string;
+  title: string;
+  content: string;
+}
+
+export interface GraphLoadResult {
+  nodes: GraphNode[];
+  edges: GraphEdge[];
+  docs: DocMeta[];
+}
+
+export interface AppVersion { name: string; version: string; }

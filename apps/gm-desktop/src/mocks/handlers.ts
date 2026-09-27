@@ -99,6 +99,66 @@ function clone<T>(v: T): T {
   return JSON.parse(JSON.stringify(v)) as T;
 }
 
+/* ---------- Knowledge-graph mock fixtures (PR-C) ----------
+ *
+ * Tiny in-memory substitute for the Rust `graph_load` /
+ * `graph_list_*` / `graph_stats` / `docs_list` / `docs_read`
+ * surface. The real Tauri build never hits these branches — only
+ * `vite dev` without Tauri does.
+ */
+
+interface MockNode {
+  id: string;
+  kind: string;
+  title: string;
+  body?: string;
+  tags: string[];
+  source?: string;
+  created_at: string;
+  updated_at: string;
+}
+interface MockEdge {
+  id: string;
+  kind: string;
+  from: string;
+  to: string;
+  weight?: number;
+  note?: string;
+  created_at: string;
+}
+interface MockDoc { path: string; title: string; preview: string; }
+
+function graphFixtureNodes(): MockNode[] {
+  const now = '2026-09-19T00:00:00.000Z';
+  return [
+    { id: 'REQ-GRF-001',  kind: 'requirement', title: 'Queryable cross-object engineering graph', tags: ['graph', 'P0', 'MVP'], source: 'docs/requirements/00-requirements-definition.md', body: 'Master requirements book. 55 sections.', created_at: now, updated_at: now },
+    { id: 'REQ-AGT-001',  kind: 'requirement', title: 'First-class Agent node with policy gates', tags: ['agent', 'P0', 'MVP'], source: 'docs/requirements/00-requirements-definition.md', body: 'Agents participate in the graph as first-class nodes.', created_at: now, updated_at: now },
+    { id: 'REQ-OPS-001',  kind: 'requirement', title: 'Single self-hostable binary for MVP',      tags: ['ops', 'P0', 'MVP'],   source: 'docs/requirements/00-requirements-definition.md', created_at: now, updated_at: now },
+    { id: 'ADR-0001',     kind: 'adr',         title: 'Graph substrate: Node/Edge/Event/Policy/View', tags: ['phase6'], source: 'docs/requirements/phase6-primitives.md', created_at: now, updated_at: now },
+    { id: 'PR-001',       kind: 'pr',          title: 'feat: ingest requirement IDs into graph',  tags: [], created_at: now, updated_at: now },
+    { id: 'POL-001',      kind: 'policy',      title: 'Sensitive-data routing policy',             tags: [], created_at: now, updated_at: now },
+    { id: 'AGENT-claude', kind: 'agent',       title: 'Claude Code agent',                         tags: ['executor'], created_at: now, updated_at: now },
+  ];
+}
+
+function graphFixtureEdges(): MockEdge[] {
+  const now = '2026-09-19T00:00:00.000Z';
+  return [
+    { id: 'e1', kind: 'implements',   from: 'PR-001',       to: 'REQ-GRF-001', weight: 1.0, created_at: now },
+    { id: 'e2', kind: 'derived_from', from: 'REQ-GRF-001',  to: 'ADR-0001',    weight: 1.0, created_at: now },
+    { id: 'e3', kind: 'supersedes',   from: 'ADR-0001',     to: 'REQ-AGT-001', weight: 1.0, created_at: now },
+    { id: 'e4', kind: 'gated_by',     from: 'AGENT-claude', to: 'POL-001',     weight: 1.0, created_at: now },
+    { id: 'e5', kind: 'depends_on',   from: 'REQ-OPS-001',  to: 'REQ-GRF-001', weight: 1.0, created_at: now },
+  ];
+}
+
+function graphFixtureDocs(): MockDoc[] {
+  return [
+    { path: 'docs/requirements/00-requirements-definition.md', title: '00 — Requirements Definition (Baseline v1.0)', preview: 'Master requirements book. 55 sections.' },
+    { path: 'docs/requirements/phase6-primitives.md',         title: 'Phase 6 — Product Primitives',                preview: 'MVP substrate: Node, Edge, Event, Policy, View.' },
+  ];
+}
+
 async function handle(cmd: string, args?: Record<string, unknown>): Promise<unknown> {
   switch (cmd) {
     case 'server_status':
@@ -142,7 +202,6 @@ async function handle(cmd: string, args?: Record<string, unknown>): Promise<unkn
     case 'vault_list': return Array.from(STORE.versions.keys());
     case 'vault_get': {
       const key = String(args?.key);
-      // Return a stub value for any key with at least one version.
       const versions = STORE.versions.get(key);
       return versions && versions.length ? `value-for-${key}` : null;
     }
@@ -255,6 +314,37 @@ async function handle(cmd: string, args?: Record<string, unknown>): Promise<unkn
         root: '/var/data/com.gitgit.desktop/vault',
       };
     case 'set_clipboard_text': return null;
+
+    /* --- Knowledge-graph commands (PR-C) --- */
+    case 'graph_load':
+      return {
+        nodes: graphFixtureNodes(),
+        edges: graphFixtureEdges(),
+        docs: graphFixtureDocs(),
+      };
+    case 'graph_list_nodes':
+      return graphFixtureNodes();
+    case 'graph_list_edges':
+      return graphFixtureEdges();
+    case 'graph_get_node': {
+      const id = String(args?.id);
+      return graphFixtureNodes().find((n) => n.id === id) ?? null;
+    }
+    case 'graph_stats': {
+      const nodes = graphFixtureNodes();
+      const edges = graphFixtureEdges();
+      const by_type: Record<string, number> = {};
+      for (const n of nodes) by_type[n.kind] = (by_type[n.kind] ?? 0) + 1;
+      return { nodes: nodes.length, edges: edges.length, by_type };
+    }
+    case 'docs_list':
+      return graphFixtureDocs();
+    case 'docs_read': {
+      const path = String(args?.path);
+      const d = graphFixtureDocs().find((x) => x.path === path);
+      return d ? { path: d.path, title: d.title, content: d.preview } : null;
+    }
+
     default:
       throw new Error(`mock: command not implemented: ${cmd}`);
   }
