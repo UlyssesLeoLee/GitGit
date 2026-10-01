@@ -1281,8 +1281,8 @@ mod tests {
         //
         //    The attachment-slot file format is `<key>.v<version>.bin`
         //    under the same key prefix, so the most robust way to
-        //    delete them is via the versioned-vault helper.
-        let prefix = v.key_prefix().to_string();
+        //    delete them is via the versioned-vault helper (which
+        //    recomputes the prefix itself) rather than by hand.
         // 4. Critical proof that the sidecar version_id is being used:
         //    rotate the *current* value (i.e. write v4) via Vault::set.
         //    The vault's plain `set` does NOT touch the sidecar nor the
