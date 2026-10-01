@@ -265,10 +265,7 @@ async fn list_repos(State(state): State<AppState>) -> Response {
     Json(out).into_response()
 }
 
-async fn get_repo(
-    State(state): State<AppState>,
-    Path(name): Path<String>,
-) -> Response {
+async fn get_repo(State(state): State<AppState>, Path(name): Path<String>) -> Response {
     let name = match normalize_repo_name(&name) {
         Ok(n) => n,
         Err(resp) => return resp,
@@ -299,10 +296,7 @@ async fn get_repo(
     Json(body).into_response()
 }
 
-async fn get_repo_refs(
-    State(state): State<AppState>,
-    Path(name): Path<String>,
-) -> Response {
+async fn get_repo_refs(State(state): State<AppState>, Path(name): Path<String>) -> Response {
     let name = match normalize_repo_name(&name) {
         Ok(n) => n,
         Err(resp) => return resp,
@@ -317,10 +311,7 @@ async fn get_repo_refs(
     }
 }
 
-async fn get_repo_log(
-    State(state): State<AppState>,
-    Path(name): Path<String>,
-) -> Response {
+async fn get_repo_log(State(state): State<AppState>, Path(name): Path<String>) -> Response {
     let name = match normalize_repo_name(&name) {
         Ok(n) => n,
         Err(resp) => return resp,
@@ -362,10 +353,7 @@ async fn list_vault_keys(State(state): State<AppState>) -> Response {
     Json(out).into_response()
 }
 
-async fn get_vault_key(
-    State(state): State<AppState>,
-    Path(key): Path<String>,
-) -> Response {
+async fn get_vault_key(State(state): State<AppState>, Path(key): Path<String>) -> Response {
     let value = match state.vault.get(&key).await {
         Ok(v) => v,
         Err(e) => return api_error(GitGitError::Vault(format!("get failed: {e}"))),
@@ -384,20 +372,14 @@ async fn get_vault_key(
     Json(body).into_response()
 }
 
-async fn delete_vault_key(
-    State(state): State<AppState>,
-    Path(key): Path<String>,
-) -> Response {
+async fn delete_vault_key(State(state): State<AppState>, Path(key): Path<String>) -> Response {
     match state.vault.delete(&key).await {
         Ok(_) => StatusCode::NO_CONTENT.into_response(),
         Err(e) => api_error(GitGitError::Vault(format!("delete failed: {e}"))),
     }
 }
 
-async fn get_vault_versions(
-    State(state): State<AppState>,
-    Path(key): Path<String>,
-) -> Response {
+async fn get_vault_versions(State(state): State<AppState>, Path(key): Path<String>) -> Response {
     match state.vault.list_versions(&key).await {
         Ok(versions) => {
             let body = VersionsDto { key, versions };
@@ -413,9 +395,7 @@ async fn post_vault_version(
     Json(body): Json<SetVersionBody>,
 ) -> Response {
     if body.value.is_empty() {
-        return api_error(GitGitError::Http(
-            "value must not be empty".to_string(),
-        ));
+        return api_error(GitGitError::Http("value must not be empty".to_string()));
     }
     // Use the version-aware write surface so the timeline reflects the
     // bump. The `change_note` travels into the sidecar entry.
@@ -423,10 +403,7 @@ async fn post_vault_version(
     let mut tl_value = body.value.clone();
     let mut tl_note = body.change_note.clone();
     let result: CoreResult<i32> = async {
-        let v = state
-            .vault
-            .set_with_version(&key, &body.value)
-            .await?;
+        let v = state.vault.set_with_version(&key, &body.value).await?;
         // `set_with_version` ignores the note today (the trait signature
         // has no note parameter). If the timeline write later accepts
         // a note, this is where we would thread it through. For V0 we
@@ -470,11 +447,13 @@ async fn post_vault_restore(
     Json(body): Json<RestoreBody>,
 ) -> Response {
     if body.target_version < 1 {
-        return api_error(GitGitError::Http(
-            "target_version must be >= 1".to_string(),
-        ));
+        return api_error(GitGitError::Http("target_version must be >= 1".to_string()));
     }
-    match state.vault.restore_to_version(&key, body.target_version).await {
+    match state
+        .vault
+        .restore_to_version(&key, body.target_version)
+        .await
+    {
         Ok(new_version) => {
             let body = RestoreResponse {
                 key,
@@ -716,7 +695,9 @@ mod tests {
 
     async fn app_with_repo(label: &str, name: &str) -> (AppState, std::path::PathBuf) {
         let (state, repos) = app_state_with(label);
-        crate::repo::create_bare_repo(&state.config, name).await.unwrap();
+        crate::repo::create_bare_repo(&state.config, name)
+            .await
+            .unwrap();
         (state, repos)
     }
 

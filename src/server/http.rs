@@ -26,7 +26,7 @@ use crate::config::Config;
 use crate::error::GitGitError;
 use crate::server::auth::require_basic;
 use crate::server::smart::announce_frame;
-use crate::server::subprocess::{git_stateless_rpc, await_success};
+use crate::server::subprocess::{await_success, git_stateless_rpc};
 use crate::server::vault_versioned::VersionedVault;
 
 /// Shared application state.
@@ -141,7 +141,14 @@ async fn handle_repo_any(
             serve_info_refs(&state, name, &service).await
         }
         ("POST", "git-upload-pack") => {
-            serve_rpc(&state, name, "upload-pack", request, "application/x-git-upload-pack-result").await
+            serve_rpc(
+                &state,
+                name,
+                "upload-pack",
+                request,
+                "application/x-git-upload-pack-result",
+            )
+            .await
         }
         ("POST", "git-receive-pack") => {
             if let Err(e) = require_basic(request.headers()) {
@@ -150,7 +157,14 @@ async fn handle_repo_any(
                     other => internal_error(other),
                 };
             }
-            serve_rpc(&state, name, "receive-pack", request, "application/x-git-receive-pack-result").await
+            serve_rpc(
+                &state,
+                name,
+                "receive-pack",
+                request,
+                "application/x-git-receive-pack-result",
+            )
+            .await
         }
         _ => bad_request(format!("unsupported /repos/{key} via {}", request.method())),
     }
@@ -211,14 +225,10 @@ async fn serve_info_refs(state: &AppState, name: &str, service: &str) -> Respons
         Ok(r) => r,
         Err(e) => return internal_error(GitGitError::Http(format!("response build: {e}"))),
     };
-    resp.headers_mut().insert(
-        header::CONTENT_TYPE,
-        HeaderValue::from_static(content_type),
-    );
-    resp.headers_mut().insert(
-        header::CACHE_CONTROL,
-        HeaderValue::from_static("no-cache"),
-    );
+    resp.headers_mut()
+        .insert(header::CONTENT_TYPE, HeaderValue::from_static(content_type));
+    resp.headers_mut()
+        .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-cache"));
     resp
 }
 
@@ -295,14 +305,10 @@ async fn serve_rpc(
         Ok(r) => r,
         Err(e) => return internal_error(GitGitError::Http(format!("response build: {e}"))),
     };
-    resp.headers_mut().insert(
-        header::CONTENT_TYPE,
-        HeaderValue::from_static(content_type),
-    );
-    resp.headers_mut().insert(
-        header::CACHE_CONTROL,
-        HeaderValue::from_static("no-cache"),
-    );
+    resp.headers_mut()
+        .insert(header::CONTENT_TYPE, HeaderValue::from_static(content_type));
+    resp.headers_mut()
+        .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-cache"));
     resp
 }
 

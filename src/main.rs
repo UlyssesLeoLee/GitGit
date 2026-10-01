@@ -11,9 +11,9 @@ mod server;
 
 use crate::cli::{Cli, Command, KeyCommand};
 use crate::config::Config;
-use crate::server::AppState;
 use crate::server::vault::{FileVault, VaultError};
 use crate::server::vault_versioned::VersionedVault;
+use crate::server::AppState;
 
 /// Initialize logging once. Honors `RUST_LOG`, defaults to `info`.
 fn init_tracing() {
@@ -91,8 +91,8 @@ fn run_key(config: &Config, sub: KeyCommand) -> anyhow::Result<()> {
     // `tokio::main`), so block on each call directly.
     let result: anyhow::Result<()> = match sub {
         KeyCommand::Set { key, value } => {
-            let new_v = tokio::runtime::Handle::current()
-                .block_on(vault.set_with_version(&key, &value))?;
+            let new_v =
+                tokio::runtime::Handle::current().block_on(vault.set_with_version(&key, &value))?;
             println!("set {key} -> v{new_v}");
             Ok(())
         }
@@ -114,14 +114,13 @@ fn run_key(config: &Config, sub: KeyCommand) -> anyhow::Result<()> {
             // CLI sub-command's intent is "bump with a new payload", so
             // we exercise the versioned write path explicitly and emit
             // the resulting version number.
-            let new_v = tokio::runtime::Handle::current()
-                .block_on(vault.set_with_version(&key, &value))?;
+            let new_v =
+                tokio::runtime::Handle::current().block_on(vault.set_with_version(&key, &value))?;
             println!("rotated {key} -> v{new_v}");
             Ok(())
         }
         KeyCommand::Versions { key } => {
-            let entries = tokio::runtime::Handle::current()
-                .block_on(vault.list_versions(&key))?;
+            let entries = tokio::runtime::Handle::current().block_on(vault.list_versions(&key))?;
             if entries.is_empty() {
                 println!("(no versions)");
             } else {
@@ -144,7 +143,10 @@ fn run_key(config: &Config, sub: KeyCommand) -> anyhow::Result<()> {
             );
             Ok(())
         }
-        KeyCommand::Restore { key, target_version } => {
+        KeyCommand::Restore {
+            key,
+            target_version,
+        } => {
             let new_v = tokio::runtime::Handle::current()
                 .block_on(vault.restore_to_version(&key, target_version))?;
             println!("restored {key} to v{target_version} -> v{new_v}");

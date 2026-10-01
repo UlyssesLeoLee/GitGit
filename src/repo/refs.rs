@@ -100,7 +100,11 @@ mod tests {
     #[test]
     fn read_head_rejects_detached() {
         let dir = unique_temp("refs-detached");
-        std::fs::write(dir.join("HEAD"), b"0123456789abcdef0123456789abcdef01234567\n").unwrap();
+        std::fs::write(
+            dir.join("HEAD"),
+            b"0123456789abcdef0123456789abcdef01234567\n",
+        )
+        .unwrap();
         let err = read_head(&dir).unwrap_err();
         let msg = format!("{err}");
         assert!(msg.contains("HEAD is detached"), "got: {msg}");
