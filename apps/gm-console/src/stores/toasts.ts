@@ -57,7 +57,11 @@ export function useToasts() {
   const push = useToastsStore((s) => s.push);
   return {
     push: (input: { kind: ToastKind; message: string; duration?: number }) =>
-      push(input.kind, input.message, input.duration != null ? { duration: input.duration } : undefined),
+      push(
+        input.kind,
+        input.message,
+        input.duration != null ? { duration: input.duration } : undefined,
+      ),
     dismiss: useToastsStore((s) => s.dismiss),
     clear: useToastsStore((s) => s.clear),
   };

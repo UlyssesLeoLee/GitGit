@@ -45,17 +45,13 @@ export function Settings() {
         <h1 id="settings-title" className="text-2xl font-semibold tracking-tight">
           {t('settings.title')}
         </h1>
-        <p className="text-sm text-slate-500 dark:text-slate-400">
-          {t('settings.description')}
-        </p>
+        <p className="text-sm text-slate-500 dark:text-slate-400">{t('settings.description')}</p>
       </header>
 
       <article className="card space-y-3 p-4" aria-label={t('settings.backendStatus')}>
         <h2 className="text-sm font-semibold">{t('settings.backendStatus')}</h2>
         {health.isLoading && <Loading label={t('app.states.loading')} />}
-        {health.isError && (
-          <ErrorState error={health.error} onRetry={() => health.refetch()} />
-        )}
+        {health.isError && <ErrorState error={health.error} onRetry={() => health.refetch()} />}
         {health.data && (
           <dl className="grid grid-cols-2 gap-2 text-xs">
             <dt className="font-semibold">{t('settings.backendStatus')}</dt>

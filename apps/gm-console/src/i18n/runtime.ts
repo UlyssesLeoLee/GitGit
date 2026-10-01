@@ -1,5 +1,11 @@
 import { useLocaleStore } from '@/stores/locale';
-import { DEFAULT_LOCALE, SUPPORTED_LOCALES, type Locale, type Messages, type MessagesByLocale } from './index';
+import {
+  DEFAULT_LOCALE,
+  SUPPORTED_LOCALES,
+  type Locale,
+  type Messages,
+  type MessagesByLocale,
+} from './index';
 import { en } from './en';
 import { zhCN } from './zh-CN';
 
