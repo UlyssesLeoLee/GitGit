@@ -17,12 +17,11 @@ async function bootstrapMocks(): Promise<void> {
       serviceWorker: { url: '/mockServiceWorker.js' },
     });
   } catch (err) {
-    // eslint-disable-next-line no-console
     console.warn('[mocks] failed to start MSW — falling back to real network', err);
   }
 }
 
-function Root(): JSX.Element {
+export function Root(): JSX.Element {
   const client = createQueryClient();
   return (
     <StrictMode>

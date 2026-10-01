@@ -73,7 +73,7 @@ export const mockRepoLog: Record<string, RepoLogEntry[]> = {
   'beta.git': [],
 };
 
-export const mockVaultVersions = (key: string): VaultVersionSummary[] => [
+export const mockVaultVersions = (_key: string): VaultVersionSummary[] => [
   {
     version: 1,
     bytes_sha256: '1'.repeat(64),

@@ -43,7 +43,8 @@ export function VaultKeyDetail() {
 
   if (detail.isLoading || versions.isLoading) return <Loading label={t('app.states.loading')} />;
   if (detail.isError) return <ErrorState error={detail.error} onRetry={() => detail.refetch()} />;
-  if (versions.isError) return <ErrorState error={versions.error} onRetry={() => versions.refetch()} />;
+  if (versions.isError)
+    return <ErrorState error={versions.error} onRetry={() => versions.refetch()} />;
 
   const d = detail.data!;
   const v = versions.data!;
@@ -59,18 +60,12 @@ export function VaultKeyDetail() {
         </h1>
         <div className="ml-auto flex flex-wrap gap-2">
           {v.versions.length >= 2 && (
-            <Link
-              to={`/vault/${encodeURIComponent(decoded)}/diff`}
-              className="btn-secondary"
-            >
+            <Link to={`/vault/${encodeURIComponent(decoded)}/diff`} className="btn-secondary">
               {t('vault.diff.title')}
             </Link>
           )}
           {v.versions.length >= 1 && (
-            <Link
-              to={`/vault/${encodeURIComponent(decoded)}/restore`}
-              className="btn-secondary"
-            >
+            <Link to={`/vault/${encodeURIComponent(decoded)}/restore`} className="btn-secondary">
               {t('app.actions.restore')}
             </Link>
           )}
@@ -104,7 +99,7 @@ export function VaultKeyDetail() {
             </button>
             {d.value != null && (
               <CopyButton
-                value={d.value}
+                text={d.value}
                 label={t('app.actions.copy')}
                 copiedLabel={t('app.actions.copied')}
               />
@@ -112,11 +107,7 @@ export function VaultKeyDetail() {
           </div>
         </header>
         {d.value == null ? (
-          <EmptyState
-            title={t('vault.notFound')}
-            description=""
-            icon="?"
-          />
+          <EmptyState title={t('vault.notFound')} description="" icon="?" />
         ) : (
           <pre className="overflow-x-auto rounded bg-slate-100 p-3 font-mono text-xs dark:bg-slate-800">
             {showValue ? d.value : '•'.repeat(Math.min(d.value.length, 32))}
@@ -141,10 +132,7 @@ export function VaultKeyDetail() {
             </thead>
             <tbody>
               {v.versions.map((ver) => (
-                <tr
-                  key={ver.version}
-                  className="border-b border-slate-100 dark:border-slate-800"
-                >
+                <tr key={ver.version} className="border-b border-slate-100 dark:border-slate-800">
                   <td className="py-2 pr-4 font-mono">v{ver.version}</td>
                   <td className="py-2 pr-4 font-mono">{ver.bytes_sha256.slice(0, 12)}…</td>
                   <td className="py-2 pr-4">{ver.byte_len}</td>

@@ -41,7 +41,8 @@ export function VaultDiff() {
   });
 
   if (versions.isLoading) return <Loading label={t('app.states.loading')} />;
-  if (versions.isError) return <ErrorState error={versions.error} onRetry={() => versions.refetch()} />;
+  if (versions.isError)
+    return <ErrorState error={versions.error} onRetry={() => versions.refetch()} />;
 
   const list = versions.data?.versions ?? [];
 
@@ -61,11 +62,7 @@ export function VaultDiff() {
       </header>
 
       {list.length < 2 ? (
-        <EmptyState
-          title={t('vault.title')}
-          description={t('vault.noVersions')}
-          icon="?"
-        />
+        <EmptyState title={t('vault.title')} description={t('vault.noVersions')} icon="?" />
       ) : (
         <>
           <form
@@ -125,16 +122,12 @@ export function VaultDiff() {
           )}
 
           {diff.isLoading && <Loading label={t('app.states.loading')} />}
-          {diff.isError && (
-            <ErrorState error={diff.error} onRetry={() => diff.refetch()} />
-          )}
+          {diff.isError && <ErrorState error={diff.error} onRetry={() => diff.refetch()} />}
           {diff.data && (
             <article className="card space-y-2 p-4">
+              <p className="text-sm">{t('vault.diff.objectChanged', [diff.data.object_changed])}</p>
               <p className="text-sm">
-                {t('vault.diff.objectChanged')(diff.data.object_changed)}
-              </p>
-              <p className="text-sm">
-                {t('vault.diff.fileSizeDelta')(diff.data.file_size_delta)}
+                {t('vault.diff.fileSizeDelta', [diff.data.file_size_delta])}
               </p>
               <dl className="grid grid-cols-2 gap-2 text-xs">
                 <div>

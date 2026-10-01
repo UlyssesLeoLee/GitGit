@@ -25,7 +25,7 @@ export function VaultRestore() {
     enabled: decoded.length > 0,
   });
 
-  const list = versions.data?.versions ?? [];
+  const list = useMemo(() => versions.data?.versions ?? [], [versions.data]);
   const defaultTarget = useMemo(() => {
     if (list.length === 0) return 1;
     return list[0].version;
@@ -35,30 +35,26 @@ export function VaultRestore() {
     const raw = new URLSearchParams(window.location.search).get('target');
     const parsed = raw ? parseInt(raw, 10) : NaN;
     return Number.isFinite(parsed) && parsed >= 1 ? parsed : defaultTarget;
-  }, [list, defaultTarget]);
+  }, [defaultTarget]);
 
   const restore = useMutation({
     mutationFn: () => vault.restoreVersion(decoded, { target_version: target }),
     onSuccess: (resp) => {
-      toasts.push({ kind: 'success', message: t('vault.restore.success')(resp.new_version) });
+      toasts.push({ kind: 'success', message: t('vault.restore.success', [resp.new_version]) });
       queryClient.invalidateQueries({ queryKey: ['vault', 'key', decoded] });
       queryClient.invalidateQueries({ queryKey: ['vault'] });
       navigate(`/vault/${encodeURIComponent(decoded)}`);
     },
-    onError: (err: Error) => toasts.push({ kind: 'error', message: `${t('vault.restore.error')}: ${err.message}` }),
+    onError: (err: Error) =>
+      toasts.push({ kind: 'error', message: `${t('vault.restore.error')}: ${err.message}` }),
   });
 
   if (versions.isLoading) return <Loading label={t('app.states.loading')} />;
-  if (versions.isError) return <ErrorState error={versions.error} onRetry={() => versions.refetch()} />;
+  if (versions.isError)
+    return <ErrorState error={versions.error} onRetry={() => versions.refetch()} />;
 
   if (list.length === 0) {
-    return (
-      <EmptyState
-        title={t('vault.title')}
-        description={t('vault.noVersions')}
-        icon="?"
-      />
-    );
+    return <EmptyState title={t('vault.title')} description={t('vault.noVersions')} icon="?" />;
   }
 
   return (
@@ -88,9 +84,7 @@ export function VaultRestore() {
           <select
             value={target}
             onChange={(e) =>
-              navigate(
-                `/vault/${encodeURIComponent(decoded)}/restore?target=${e.target.value}`,
-              )
+              navigate(`/vault/${encodeURIComponent(decoded)}/restore?target=${e.target.value}`)
             }
             className="select"
           >
@@ -106,11 +100,7 @@ export function VaultRestore() {
           {t('vault.restore.confirmHint')}
         </p>
 
-        <button
-          type="submit"
-          className="btn-primary"
-          disabled={restore.isPending || target < 1}
-        >
+        <button type="submit" className="btn-primary" disabled={restore.isPending || target < 1}>
           {restore.isPending ? t('app.states.loading') : t('app.actions.restore')}
         </button>
       </form>
