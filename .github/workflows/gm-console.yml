@@ -44,10 +44,15 @@ jobs:
         with:
           version: 9
 
+      # Node 20 ("Iron") reached EOL on 2026-04-30. Node 22 ("Jod") is
+      # supported until 2027-04-30, satisfies @testing-library/jest-dom's
+      # `engines.node: >=22`, and matches the runtime these steps were
+      # verified against locally. Every other direct dependency accepts
+      # both 20 and 22.
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
           cache: 'pnpm'
           cache-dependency-path: apps/gm-console/pnpm-lock.yaml
 
