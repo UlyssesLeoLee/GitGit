@@ -1,4 +1,4 @@
-import { describe, expect, it, vi, beforeAll } from 'vitest';
+import { describe, expect, it, beforeAll } from 'vitest';
 import { get } from 'svelte/store';
 import { vaultSecrets, refreshVault, vaultSet, vaultVersions } from '../../src/lib/stores/vault';
 import { repoDetail, refreshRepos } from '../../src/lib/stores/repos';

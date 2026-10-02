@@ -104,7 +104,9 @@
         </ErrorBoundary>
       {:else}
         <div class="flex h-full items-center justify-center" data-testid="boot-spinner">
-          <div class="h-10 w-10 animate-spin rounded-full border-2 border-slate-300 border-t-accent-500" />
+          <div
+            class="h-10 w-10 animate-spin rounded-full border-2 border-slate-300 border-t-accent-500"
+          ></div>
         </div>
       {/if}
     </div>
