@@ -42,7 +42,13 @@
  * Star tools/mock-switch-validate.py v0.1 跨项目调用 (Python).
  */
 import { http, HttpResponse } from 'msw';
-import { mockHealth, mockStore, mockVaultDiff, mockVaultKeyDetail, mockVaultVersionsResponse } from './data';
+import {
+  mockHealth,
+  mockStore,
+  mockVaultDiff,
+  mockVaultKeyDetail,
+  mockVaultVersionsResponse,
+} from './data';
 
 export const handlers = [
   http.get('/api/health', () => HttpResponse.json(mockHealth)),
@@ -53,7 +59,10 @@ export const handlers = [
     const name = String(params.name);
     const detail = mockStore.repoDetails[name];
     if (!detail) {
-      return HttpResponse.json({ error: `repo not found: ${name}`, code: 'not_found' }, { status: 404 });
+      return HttpResponse.json(
+        { error: `repo not found: ${name}`, code: 'not_found' },
+        { status: 404 },
+      );
     }
     return HttpResponse.json(detail);
   }),
@@ -80,7 +89,10 @@ export const handlers = [
     const key = String(params.key);
     const body = (await request.json()) as { value: string; change_note?: string | null };
     if (!body.value) {
-      return HttpResponse.json({ error: 'value must not be empty', code: 'bad_request' }, { status: 400 });
+      return HttpResponse.json(
+        { error: 'value must not be empty', code: 'bad_request' },
+        { status: 400 },
+      );
     }
     const versions = mockStore.vaultVersions[key] ?? [];
     const nextVersion = (versions[versions.length - 1]?.version ?? 0) + 1;
@@ -129,7 +141,10 @@ export const handlers = [
     const base = parseInt(url.searchParams.get('base') ?? '0', 10);
     const head = parseInt(url.searchParams.get('head') ?? '0', 10);
     if (base < 1 || head < 1 || base >= head) {
-      return HttpResponse.json({ error: 'base must be < head and both >= 1', code: 'bad_request' }, { status: 400 });
+      return HttpResponse.json(
+        { error: 'base must be < head and both >= 1', code: 'bad_request' },
+        { status: 400 },
+      );
     }
     return HttpResponse.json(mockVaultDiff(key, base, head));
   }),
@@ -138,17 +153,28 @@ export const handlers = [
     const key = String(params.key);
     const body = (await request.json()) as { target_version: number };
     if (!body.target_version || body.target_version < 1) {
-      return HttpResponse.json({ error: 'target_version must be >= 1', code: 'bad_request' }, { status: 400 });
+      return HttpResponse.json(
+        { error: 'target_version must be >= 1', code: 'bad_request' },
+        { status: 400 },
+      );
     }
     const versions = mockStore.vaultVersions[key] ?? [];
     const target = versions.find((v) => v.version === body.target_version);
     if (!target) {
-      return HttpResponse.json({ error: `version ${body.target_version} not found`, code: 'not_found' }, { status: 404 });
+      return HttpResponse.json(
+        { error: `version ${body.target_version} not found`, code: 'not_found' },
+        { status: 404 },
+      );
     }
     const newVersion = (versions[versions.length - 1]?.version ?? 0) + 1;
     mockStore.vaultVersions[key] = [
       ...versions,
-      { ...target, version: newVersion, created_at_unix_ms: Date.now(), change_note: `restored from v${body.target_version}` },
+      {
+        ...target,
+        version: newVersion,
+        created_at_unix_ms: Date.now(),
+        change_note: `restored from v${body.target_version}`,
+      },
     ];
     return HttpResponse.json({ key, target_version: body.target_version, new_version: newVersion });
   }),

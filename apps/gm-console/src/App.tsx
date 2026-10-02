@@ -3,7 +3,9 @@ import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { AppShell, ErrorBoundary, Loading, Toasts } from '@/components';
 
 const Home = lazy(() => import('./routes/Home').then((m) => ({ default: m.Home })));
-const RepoDetail = lazy(() => import('./routes/RepoDetail').then((m) => ({ default: m.RepoDetail })));
+const RepoDetail = lazy(() =>
+  import('./routes/RepoDetail').then((m) => ({ default: m.RepoDetail })),
+);
 const Vault = lazy(() => import('./routes/Vault').then((m) => ({ default: m.Vault })));
 const VaultKeyDetail = lazy(() =>
   import('./routes/VaultKeyDetail').then((m) => ({ default: m.VaultKeyDetail })),

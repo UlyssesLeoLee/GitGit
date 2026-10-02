@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest';
+import { renderHook } from '@testing-library/react';
 import { useToastsStore, useToasts } from '@/stores/toasts';
 
 const reset = () => useToastsStore.getState().clear();
@@ -25,8 +26,8 @@ describe('useToasts hook shape', () => {
   beforeEach(reset);
 
   it('exposes a push helper that accepts the shorthand shape', () => {
-    const t = useToasts.getState();
-    t.push({ kind: 'warning', message: 'careful' });
+    const { result } = renderHook(() => useToasts());
+    result.current.push({ kind: 'warning', message: 'careful' });
     expect(useToastsStore.getState().toasts[0]?.message).toBe('careful');
     expect(useToastsStore.getState().toasts[0]?.kind).toBe('warning');
   });

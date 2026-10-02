@@ -33,17 +33,28 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: 'pnpm'
-          cache-dependency-path: apps/gm-console/pnpm-lock.yaml
-
+      # pnpm MUST be installed before setup-node: with `cache: 'pnpm'`,
+      # setup-node shells out to `pnpm store path` to resolve the cache
+      # directory. Previously this step ran second, so setup-node failed
+      # with "Unable to locate executable file: pnpm" and every later step
+      # was skipped. pnpm/action-setup installs pnpm itself, so this does
+      # not depend on the runner image shipping pnpm.
       - name: Install pnpm
         uses: pnpm/action-setup@v4
         with:
           version: 9
+
+      # Node 20 ("Iron") reached EOL on 2026-04-30. Node 22 ("Jod") is
+      # supported until 2027-04-30, satisfies @testing-library/jest-dom's
+      # `engines.node: >=22`, and matches the runtime these steps were
+      # verified against locally. Every other direct dependency accepts
+      # both 20 and 22.
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'pnpm'
+          cache-dependency-path: apps/gm-console/pnpm-lock.yaml
 
       - name: Install dependencies
         working-directory: apps/gm-console

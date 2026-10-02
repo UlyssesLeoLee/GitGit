@@ -44,7 +44,11 @@ export function formatUnixMs(ms: number | null | undefined, locale: string = 'zh
  * an ellipsis, then the last `tail` chars. Inputs shorter than
  * `head + tail + 1` are returned verbatim.
  */
-export function shortenSha(sha: string | null | undefined, head: number = 7, tail: number = 0): string {
+export function shortenSha(
+  sha: string | null | undefined,
+  head: number = 7,
+  tail: number = 0,
+): string {
   if (!sha) return '—';
   if (sha.length <= head + tail + 1) return sha;
   if (tail === 0) return sha.slice(0, head);

@@ -25,13 +25,7 @@ export function Home() {
   if (query.isError) return <ErrorState error={query.error} onRetry={() => query.refetch()} />;
   const items = query.data ?? [];
   if (items.length === 0) {
-    return (
-      <EmptyState
-        title={t('home.title')}
-        description={t('home.description')}
-        icon="📦"
-      />
-    );
+    return <EmptyState title={t('home.title')} description={t('home.description')} icon="📦" />;
   }
 
   return (
@@ -41,7 +35,7 @@ export function Home() {
           {t('home.title')}
         </h1>
         <p className="text-sm text-slate-500 dark:text-slate-400">{t('home.description')}</p>
-        <p className="text-xs text-slate-400">{t('home.repoCount')(items.length)}</p>
+        <p className="text-xs text-slate-400">{t('home.repoCount', [items.length])}</p>
       </header>
       <ul
         className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3"

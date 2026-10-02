@@ -18,13 +18,7 @@ export function Vault() {
 
   const items = query.data ?? [];
   if (items.length === 0) {
-    return (
-      <EmptyState
-        title={t('vault.title')}
-        description={t('vault.description')}
-        icon="🔐"
-      />
-    );
+    return <EmptyState title={t('vault.title')} description={t('vault.description')} icon="🔐" />;
   }
 
   return (
@@ -33,10 +27,8 @@ export function Vault() {
         <h1 id="vault-title" className="text-2xl font-semibold tracking-tight">
           {t('vault.title')}
         </h1>
-        <p className="text-sm text-slate-500 dark:text-slate-400">
-          {t('vault.description')}
-        </p>
-        <p className="text-xs text-slate-400">{t('vault.keyCount')(items.length)}</p>
+        <p className="text-sm text-slate-500 dark:text-slate-400">{t('vault.description')}</p>
+        <p className="text-xs text-slate-400">{t('vault.keyCount', [items.length])}</p>
       </header>
       <ul role="list" aria-label={t('vault.title')} className="space-y-2">
         {items.map((k) => (
@@ -49,12 +41,8 @@ export function Vault() {
                 <p className="truncate font-mono text-sm font-semibold">{k.key}</p>
                 <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
                   {k.version_count} {t('app.common.versions')}
-                  {k.byte_len != null && (
-                    <> · {formatBytes(k.byte_len)}</>
-                  )}
-                  {k.current_version != null && (
-                    <> · v{k.current_version}</>
-                  )}
+                  {k.byte_len != null && <> · {formatBytes(k.byte_len)}</>}
+                  {k.current_version != null && <> · v{k.current_version}</>}
                 </p>
               </div>
               <span className="badge-neutral">→</span>
