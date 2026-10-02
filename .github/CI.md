@@ -81,13 +81,27 @@
   从 **6.22% / functions 29.16% / branches 54.87%** 提升到
   **73.11% / 85.04% / 89.12%**，测试数 24 → 173，阈值原样通过。
 
-### 第三条 workflow：`gm-desktop` 尚未纳入 CI
+### 第三条 workflow：`gm-desktop` 已纳入 CI（2026-10-02）
 
-> `[FACT]` `apps/gm-desktop/`（Tauri 2 + Svelte 5 桌面端）**至今不在任何 workflow 的
-> `paths` 触发范围内** —— 桌面端改坏了 CI 不会响。本轮已把它纳入范围评估，结论见
-> 「已知限制」中的对应条目：其 `pnpm build` 存在**既有缺陷**（`svelte-spa-router@4.0.2`
-> 使用 `afterUpdate`，与 Svelte 5 runes 模式不兼容，生产构建无法通过），
-> 该缺陷正因缺少 CI 覆盖而被长期掩盖。
+> `[FACT]` `apps/gm-desktop/`（Tauri 2 + Svelte 5 桌面端）此前**不在任何 workflow 的
+> `paths` 触发范围内** —— 桌面端改坏了 CI 不会响。该缺口正是上一节那个生产构建
+> 缺陷被长期掩盖的原因。
+
+**`.github/workflows/gm-desktop.yml` 首次运行即全绿**：run `36975561146` → `success`
+（基于 `dev` @ `f784ffd`），13 个 step 全部 `success`：
+
+| step | 结果 | 覆盖内容 |
+| --- | --- | --- |
+| 3–5 | success | pnpm 先于 `setup-node`（Node 22）、`--frozen-lockfile` |
+| 6 Lint | success | ESLint，此前因 devDependencies 缺 eslint 从未执行过 |
+| 7 Svelte check | success | `svelte-check` 0 errors |
+| 8 Unit tests | success | vitest 63 passed |
+| 9 Build | success | Vite 生产构建，产出 dist（此前**无法构建**） |
+| 10–11 | success | Rust 1.98.1 toolchain + Tauri 2 的 Linux 前置依赖（WebKitGTK/GTK） |
+| 12 Cargo check | success | `src-tauri` 的 Rust 侧编译，此前完全无任何 workflow 覆盖 |
+
+`[FACT]` 门禁范围刻意保持**轻量**：不做完整 `tauri build` / `.msi` / `tauri-action`，
+那需要完整打包工具链与多 OS matrix。见下方「已知限制」第 2 条。
 
 ## 触发器定义
 
@@ -164,34 +178,33 @@ GitHub repo → Settings → Branches → Add rule for `dev`:
 
 1. **minIO e2e 不在 CI gate** — `#[ignore]` 测试需要 minIO server,
    V0.1 用自托管 runner 二期接入
-2. **Tauri 跨平台 build 不在 CI** — 更正（2026-10-02）：`apps/gm-desktop/src-tauri/`
-   **已经在 `dev` 上**（`[FACT]` commit `2f8b9fc`；ADR-0023 §3.3 中 `03bdd7b`
-   `git rm -r apps/desktop` 删掉的是**另一个**目录）。它不进 CI 的真实原因**不是**
-   "还没 merge 进 dev"，而是**两个 workflow 的 `paths` 过滤都没有覆盖
-   `apps/gm-desktop/**`** —— `[FACT]` `git grep gm-desktop .github/workflows/`
-   只命中 `rust-backend.yml` 的 `branches:` 列表，paths 里没有该目录，
-   即该目录的改动**根本不会触发**任何 workflow。
-   二期用 `tauri-action` + matrix (macos-latest / windows-latest / ubuntu-latest)
-   接入时，需同时把 `apps/gm-desktop/**` 加进 paths。
+2. **完整 Tauri 打包（`.msi` / `tauri-action` / 多 OS matrix）仍不在 CI** — 部分解除
+   （2026-10-02）：`apps/gm-desktop/**` **已加入 paths**（新增 `gm-desktop.yml`），
+   桌面端改动现在会触发 CI；`pnpm lint` / `pnpm check` / `pnpm test` / `pnpm build` /
+   `src-tauri` 的 `cargo check` 已在 run `36975561146` 全绿。
+   **仍未覆盖**的只有真正的跨平台打包：`cargo tauri build` 产 `.msi`/`.dmg`/`.deb`
+   及其签名与 updater，需要 `tauri-action` + (macos-latest / windows-latest /
+   ubuntu-latest) matrix。二期接入时在现有 `gm-desktop.yml` 上追加一个
+   `needs: build` 的独立 job 即可。
 3. **不跑 component / e2e** — vitest unit + playwright e2e 推到 V0.2
 4. **~~实质 gate 零验证~~ —— 已解除（2026-10-02）** — `[FACT]` 该状态到此结束。
    `rust-backend` 的 fmt / clippy `-D warnings` / unit test / doc test / release build，
    与 `gm-console` 的 typecheck / lint / unit test / coverage gate / format check / build，
    **已在 run `36958860879` / `36958860895` 上全部真实执行并通过**。
    详见「修复后状态」。
-5. **`gm-desktop` 的 `pnpm build` 当前无法通过（既有缺陷）** — `[FACT]`
-   `apps/gm-desktop/src/App.svelte` 依赖 `svelte-spa-router@4.0.2`，该库
-   `Router.svelte:255` 导入并使用了 `afterUpdate`；Svelte 5 的 runes 模式禁止
-   `afterUpdate`，因此 `vite build` 直接失败：
+5. **~~`gm-desktop` 的 `pnpm build` 无法通过~~ —— 已修复（2026-10-02）** — `[FACT]`
+   该构建失败由 `svelte-spa-router@4.0.2` 引起：其 `Router.svelte:255` 导入并使用
+   `afterUpdate`，Svelte 5 runes 模式禁止该 API，`vite build` 报
    `afterUpdate cannot be used in runes mode`。
-   `[INFERENCE]` 该应用**从未有过可用的生产构建**，只是因为 `apps/gm-desktop/**`
-   不在任何 workflow 的 `paths` 内（第 2 条），CI 看不到。
-   附带发现：`[FACT]` `svelte-spa-router@4.0.2` 是 **hash 路由**（读 `#/` 前缀、
-   监听 `hashchange`），而 `src/routes/Repos.svelte`、`src/routes/NotFound.svelte`、
-   `src/lib/components/Sidebar.svelte` 使用的是 `<a href="/repos">` 这类
-   **非 hash 路径**，与该库的路由契约不一致。
-   本轮已把 `pnpm lint`（补齐 eslint 依赖后首次可跑并转绿）、`pnpm check`
-   （0 errors）、`pnpm test`（40 passed）修好，**`build` 留待路由方案确定后处理**。
+   `[INFERENCE]` 该应用**从未有过可用的生产构建**，只是因为
+   `apps/gm-desktop/**` 不在任何 workflow 的 `paths` 内，CI 看不到。
+   修复方式：以 `$lib/router.ts`（约 90 行 hash 路由核心）+ `Router.svelte`
+   替换该依赖，并移除 `svelte-spa-router`。同时修正了第二处契约不一致 ——
+   原库是 hash 路由，而 `NotFound`/`RepoDetail`/`Repos`/`Sidebar` 用的是
+   非 hash 锚点；现统一由 `href()` 产出 `#/...`。
+   替换一个不可用的库却没有测试不可接受，故新增
+   `tests/unit/router.test.ts`（23 个用例），测试数 40 → 63。
+   `[FACT]` 完整 `tauri build` / `.msi` 仍**不在 CI 内**（见第 2 条）。
 
 ## Mavis 自动续做项 (per守门 #1 + 9/8 15:29 自驱)
 
