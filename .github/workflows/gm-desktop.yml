@@ -1,0 +1,111 @@
+# gm-desktop CI — the Tauri 2 + Svelte 5 desktop shell.
+#
+# This app had NO workflow until now: neither `rust-backend.yml` nor
+# `gm-console.yml` lists `apps/gm-desktop/**` in its `paths`, so desktop
+# changes were invisible to CI. That gap is what hid a long-standing
+# production build failure (see the note on the cargo step below).
+#
+# Scope is deliberately the *lightweight* gate: lint, svelte-check, unit
+# tests, the Vite production build, and a `cargo check` of the Tauri
+# backend. A full `tauri build` / `.msi` / `tauri-action` is NOT run here —
+# it needs a full bundling toolchain and multi-OS matrix. See
+# `.github/CI.md` "已知限制".
+name: gm-desktop
+
+on:
+  push:
+    branches: [dev, main]
+    paths:
+      - 'apps/gm-desktop/**'
+      - '.github/workflows/gm-desktop.yml'
+  pull_request:
+    branches: [dev, main]
+    paths:
+      - 'apps/gm-desktop/**'
+      - '.github/workflows/gm-desktop.yml'
+
+concurrency:
+  group: gm-desktop-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: lint + check + test + build + cargo check
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    defaults:
+      run:
+        working-directory: apps/gm-desktop
+    steps:
+      - uses: actions/checkout@v4
+
+      # pnpm MUST be installed before setup-node. With `cache: 'pnpm'`,
+      # setup-node shells out to `pnpm store path` to resolve the cache
+      # directory; installing pnpm afterwards makes that step fail. This
+      # is the same ordering bug that used to keep gm-console red — see the
+      # comment in gm-console.yml.
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      # Node 22, not 20: Node 20 ("Iron") reached EOL on 2026-04-30, and
+      # `@testing-library/jest-dom@6.x` declares `engines.node: ">=22"`.
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'pnpm'
+          cache-dependency-path: apps/gm-desktop/pnpm-lock.yaml
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Svelte check
+        run: pnpm check
+
+      - name: Unit tests
+        run: pnpm test
+
+      - name: Build
+        run: pnpm build
+
+      - name: Install Rust toolchain
+        working-directory: .
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      # Tauri 2 on Linux needs the WebKitGTK / GTK stack for its build
+      # script to resolve pkg-config. This is Tauri's documented Linux
+      # prerequisite set, not an arbitrary extra. `patchelf` is required
+      # by the bundler; we keep it here so the step stays valid if a full
+      # `tauri build` is added later.
+      - name: Install Tauri Linux prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            patchelf
+
+      # `cargo check`, not `cargo build`: this validates the Rust side
+      # compiles without paying for a full Tauri link. A prior
+      # `svelte-spa-router` import of `afterUpdate` broke the *Svelte*
+      # build; this step is the matching guard for the Rust side, which
+      # was previously covered by no workflow at all.
+      - name: Cargo check (src-tauri)
+        working-directory: apps/gm-desktop/src-tauri
+        run: cargo check --locked
+
+      - name: Upload web bundle
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gm-desktop-dist
+          path: apps/gm-desktop/dist/
+          retention-days: 14
