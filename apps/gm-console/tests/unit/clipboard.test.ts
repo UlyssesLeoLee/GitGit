@@ -80,19 +80,12 @@ describe('copyToClipboard — legacy execCommand path', () => {
 
   it('puts the text into the temporary textarea', async () => {
     setSecureContext(false);
-    let captured = '';
     document.execCommand = vi.fn().mockReturnValue(true);
-    const originalCreate = document.createElement.bind(document);
-    vi.spyOn(document, 'createElement').mockImplementation((tag: string) => {
-      const el = originalCreate(tag);
-      if (tag === 'textarea') {
-        const origSelect = el.select.bind(el);
-        el.select = () => {
-          captured = (el as HTMLTextAreaElement).value;
-          origSelect();
-        };
-      }
-      return el;
+    let captured: unknown;
+    const originalAppend = document.body.appendChild.bind(document.body);
+    vi.spyOn(document.body, 'appendChild').mockImplementation((node: Node) => {
+      if (node instanceof HTMLTextAreaElement) captured = node.value;
+      return originalAppend(node);
     });
 
     await copyToClipboard('captured-value');

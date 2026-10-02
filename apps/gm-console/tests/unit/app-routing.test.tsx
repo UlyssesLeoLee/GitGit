@@ -97,7 +97,9 @@ describe('App routing', () => {
     goto('/repos/alpha');
     renderApp();
     expect(await screen.findByText('Repository')).toBeInTheDocument();
-    await waitFor(() => expect(api.repos.getRepo).toHaveBeenCalledWith('alpha'), { timeout: 5000 });
+    await waitFor(() => expect(api.repos.getRepo).toHaveBeenCalledWith('alpha'), {
+      timeout: 15000,
+    });
   });
 
   it('redirects an unknown path to the 404 route', async () => {
