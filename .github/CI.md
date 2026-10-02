@@ -49,15 +49,45 @@
   `apps/gm-desktop/pnpm-lock.yaml`，`apps/gm-console/` 下**没有任何** lock 文件。
 - 连带后果：step 4–11 全部 `skipped`。
 
-### 修复后状态：`[PENDING Lane A / Lane B]`
+### 修复后状态：`[FACT]` 已转绿（2026-10-02 实测）
 
-> `[TBD]` **本文档不声称 CI 已修复、已变绿或已通过。**
-> 上述两个 workflow 由 **Lane A（`rust-backend.yml`）** 与 **Lane B（`gm-console.yml`）**
-> 在各自 worktree 中并行修复中，修复结果**尚未合入 `dev`**，其结果本 Lane 无法预知。
->
-> **待两条 lane 合入 `dev` 后，由 parent 依据 `dev` 上真实的 run 记录回填本节**：
-> 用修复后实测的 run 数、红绿结论、首个失败 step 替换上表，并把本节的 `[PENDING]`
-> 与「8 次全红」一并更新。在那之前，实质 gate 一律按**未验证**对待。
+> `[FACT]` 上方两个根因均已修复并合入 `dev`，**两个 workflow 在 `dev` 上首次全绿**。
+
+| workflow | run ID | 结论 | 实质 gate 执行情况 |
+| --- | --- | --- | --- |
+| `rust-backend` | `36958860879` | **success** | 5 fmt / 6 clippy `-D warnings` / 7 unit tests / 8 doc tests / 9 release build —— **全部 success** |
+| `gm-console` | `36958860895` | **success** | 6 typecheck / 7 lint / 8 unit tests / 9 **coverage gate** / 10 format check / 11 build —— **全部 success** |
+
+两次 run 均基于 `dev` @ `a34d812`。
+
+**这是本仓 CI 历史上的第一次全绿**（此前 8/8 全红）。上表列出的每一个「该 step 之后
+被 skip 的实质 gate」，**现在都已经在 CI 上真实执行并通过**。历史遗留的未验证状态到此结束。
+
+修复内容摘要（详见各 commit）：
+
+- `[FACT]` `rust-backend`：全仓 `cargo fmt`；修复 8 个 clippy error（6× `result_large_err`、
+  1× `map_identity`、1× `unused_variables`）；新增 `rust-toolchain.toml` 钉到 1.98.1，
+  消除 `stable` 漂移导致绿门禁再次变红的隐患。
+- `[FACT]` 修复一个真实缺陷：`src/server/http.rs` 用 `.merge(api)` 把 REST 路由挂在
+  **根路径**，与 Git 协议的 `/repos/*key` 兜底路由冲突，axum 0.7 在构造期直接 panic，
+  导致 23 个测试失败。改为 `.nest("/api", api)` —— 这与 `scripts/regression-it.ps1`
+  （47 条断言打 `/api/*`）、`scripts/smoke.ps1`（Git 协议走根路径）以及
+  `apps/gm-console/src/api/client.ts`（`baseURL: '/api'`）三方既有契约一致。
+- `[FACT]` `gm-console`：补齐并提交 `apps/gm-console/pnpm-lock.yaml`（此前不存在，
+  `--frozen-lockfile` 无法满足）；把 `pnpm/action-setup` 移到 `setup-node` **之前**；
+  CI Node 版本 20 → 22（Node 20 "Iron" 已于 2026-04-30 EOL，
+  且 `@testing-library/jest-dom@6.x` 声明 `engines.node: ">=22"`）。
+- `[FACT]` 覆盖率门禁：`vite.config.ts` 的 70% 阈值**未被下调**。补测试把实测覆盖率
+  从 **6.22% / functions 29.16% / branches 54.87%** 提升到
+  **73.11% / 85.04% / 89.12%**，测试数 24 → 173，阈值原样通过。
+
+### 第三条 workflow：`gm-desktop` 尚未纳入 CI
+
+> `[FACT]` `apps/gm-desktop/`（Tauri 2 + Svelte 5 桌面端）**至今不在任何 workflow 的
+> `paths` 触发范围内** —— 桌面端改坏了 CI 不会响。本轮已把它纳入范围评估，结论见
+> 「已知限制」中的对应条目：其 `pnpm build` 存在**既有缺陷**（`svelte-spa-router@4.0.2`
+> 使用 `afterUpdate`，与 Svelte 5 runes 模式不兼容，生产构建无法通过），
+> 该缺陷正因缺少 CI 覆盖而被长期掩盖。
 
 ## 触发器定义
 
@@ -144,10 +174,24 @@ GitHub repo → Settings → Branches → Add rule for `dev`:
    二期用 `tauri-action` + matrix (macos-latest / windows-latest / ubuntu-latest)
    接入时，需同时把 `apps/gm-desktop/**` 加进 paths。
 3. **不跑 component / e2e** — vitest unit + playwright e2e 推到 V0.2
-4. **实质 gate 零验证** — 见「当前状态」：`rust-backend` 的 clippy / unit test /
-   doc test / release build，与 `gm-console` 的 typecheck / lint / unit test /
-   coverage / format check / build，**从未在 CI 上执行过一次**。
-   本节其余限制是叠加在这一条之上的，**不能**理解为"除这些外其余 gate 都在正常把关"。
+4. **~~实质 gate 零验证~~ —— 已解除（2026-10-02）** — `[FACT]` 该状态到此结束。
+   `rust-backend` 的 fmt / clippy `-D warnings` / unit test / doc test / release build，
+   与 `gm-console` 的 typecheck / lint / unit test / coverage gate / format check / build，
+   **已在 run `36958860879` / `36958860895` 上全部真实执行并通过**。
+   详见「修复后状态」。
+5. **`gm-desktop` 的 `pnpm build` 当前无法通过（既有缺陷）** — `[FACT]`
+   `apps/gm-desktop/src/App.svelte` 依赖 `svelte-spa-router@4.0.2`，该库
+   `Router.svelte:255` 导入并使用了 `afterUpdate`；Svelte 5 的 runes 模式禁止
+   `afterUpdate`，因此 `vite build` 直接失败：
+   `afterUpdate cannot be used in runes mode`。
+   `[INFERENCE]` 该应用**从未有过可用的生产构建**，只是因为 `apps/gm-desktop/**`
+   不在任何 workflow 的 `paths` 内（第 2 条），CI 看不到。
+   附带发现：`[FACT]` `svelte-spa-router@4.0.2` 是 **hash 路由**（读 `#/` 前缀、
+   监听 `hashchange`），而 `src/routes/Repos.svelte`、`src/routes/NotFound.svelte`、
+   `src/lib/components/Sidebar.svelte` 使用的是 `<a href="/repos">` 这类
+   **非 hash 路径**，与该库的路由契约不一致。
+   本轮已把 `pnpm lint`（补齐 eslint 依赖后首次可跑并转绿）、`pnpm check`
+   （0 errors）、`pnpm test`（40 passed）修好，**`build` 留待路由方案确定后处理**。
 
 ## Mavis 自动续做项 (per守门 #1 + 9/8 15:29 自驱)
 
