@@ -73,8 +73,9 @@ jobs:
       - name: Build
         run: pnpm build
 
+      # NOTE: no `working-directory` here — that key is only valid on `run:`
+      # steps, and the job-level default already points at apps/gm-desktop.
       - name: Install Rust toolchain
-        working-directory: .
         uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
