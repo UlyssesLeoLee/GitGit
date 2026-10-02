@@ -339,11 +339,7 @@ pub fn find_version(
 /// Append `bytes` (with optional `change_note`) into `timeline` and
 /// return either the new entry or the skipped last entry — used by
 /// `VersionedVault` impls after their backend-specific `set`.
-fn bump_timeline(
-    timeline: &mut VersionedTimeline,
-    bytes: &[u8],
-    change_note: Option<&str>,
-) {
+fn bump_timeline(timeline: &mut VersionedTimeline, bytes: &[u8], change_note: Option<&str>) {
     append_version(timeline, bytes, change_note);
 }
 
@@ -370,7 +366,8 @@ fn filevault_sidecar_path(root: &Path, key: &str) -> PathBuf {
     // `/` and `\` in key are translated to `__` so multi-segment keys
     // (per `Vault::set` convention) flatten into a single sidecar file.
     let encoded = key.replace(['/', '\\'], "__");
-    root.join("_versions").join(format!("{encoded}.versions.json"))
+    root.join("_versions")
+        .join(format!("{encoded}.versions.json"))
 }
 
 fn filevault_timeline_path(vault: &FileVault, key: &str) -> PathBuf {
@@ -412,11 +409,7 @@ async fn filevault_write_attachment(
     Ok(())
 }
 
-async fn filevault_read_attachment(
-    vault: &FileVault,
-    key: &str,
-    version: i32,
-) -> Result<Vec<u8>> {
+async fn filevault_read_attachment(vault: &FileVault, key: &str, version: i32) -> Result<Vec<u8>> {
     let path = filevault_attachment_path(vault.root(), key, version);
     let bytes = tokio::fs::read(&path)
         .await
@@ -424,10 +417,7 @@ async fn filevault_read_attachment(
     Ok(bytes)
 }
 
-async fn filevault_load_timeline(
-    vault: &FileVault,
-    key: &str,
-) -> Result<VersionedTimeline> {
+async fn filevault_load_timeline(vault: &FileVault, key: &str) -> Result<VersionedTimeline> {
     let path = filevault_timeline_path(vault, key);
     match tokio::fs::read(&path).await {
         Ok(bytes) => {
@@ -626,27 +616,19 @@ async fn minio_write_attachment(
     bytes: &[u8],
 ) -> Result<()> {
     let object_key = minio_attachment_object_key(vault.key_prefix(), key, version);
-    vault
-        .put_object_for_sidecar(&object_key, bytes)
-        .await?;
+    vault.put_object_for_sidecar(&object_key, bytes).await?;
     Ok(())
 }
 
-async fn minio_read_attachment(
-    vault: &MinioVault,
-    key: &str,
-    version: i32,
-) -> Result<Vec<u8>> {
+async fn minio_read_attachment(vault: &MinioVault, key: &str, version: i32) -> Result<Vec<u8>> {
     let object_key = minio_attachment_object_key(vault.key_prefix(), key, version);
     vault
         .get_object_for_sidecar(&object_key)
         .await?
         .map(|b| b.to_vec())
         .ok_or_else(|| {
-            VersionedVaultError::Serde(format!(
-                "minio attachment for {key:?} v{version} not found"
-            ))
-            .into()
+            VersionedVaultError::Serde(format!("minio attachment for {key:?} v{version} not found"))
+                .into()
         })
 }
 
@@ -676,9 +658,7 @@ async fn minio_load_timeline(vault: &MinioVault, key: &str) -> Result<VersionedT
 async fn minio_store_timeline(vault: &MinioVault, tl: &VersionedTimeline) -> Result<()> {
     let object_key = minio_sidecar_object_key(vault.key_prefix(), &tl.key);
     let bytes = serde_json::to_vec_pretty(tl).map_err(VersionedVaultError::from)?;
-    vault
-        .put_object_for_sidecar(&object_key, &bytes)
-        .await?;
+    vault.put_object_for_sidecar(&object_key, &bytes).await?;
     Ok(())
 }
 
@@ -922,7 +902,7 @@ mod tests {
         };
         append_version(&mut tl, b"abc", None);
         append_version(&mut tl, b"abc", None); // skipped (idempotent)
-        // Forged entry with the same hash but a distinct note.
+                                               // Forged entry with the same hash but a distinct note.
         tl.versions.push(VaultVersionSummary {
             version: 2,
             bytes_sha256: sha256_hex(b"abc"),
@@ -945,8 +925,8 @@ mod tests {
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_nanos())
             .unwrap_or(0);
-        let dir = std::env::temp_dir()
-            .join(format!("gitgit-vault-versioned-{label}-{pid}-{nanos}"));
+        let dir =
+            std::env::temp_dir().join(format!("gitgit-vault-versioned-{label}-{pid}-{nanos}"));
         std::fs::create_dir_all(&dir).unwrap();
         (FileVault::new(&dir), dir)
     }
@@ -999,9 +979,9 @@ mod tests {
         let (v, _dir) = fresh_vault("compare-sig");
         v.set_with_version("k", "stable").await.unwrap();
         v.set_with_version("k", "stable").await.unwrap(); // idempotent: no new entry
-        // Both writes collapsed into one timeline entry because of the
-        // append_version idempotence rule. Verify the timeline has only
-        // one entry and that signatures-equality at the same entry is true.
+                                                          // Both writes collapsed into one timeline entry because of the
+                                                          // append_version idempotence rule. Verify the timeline has only
+                                                          // one entry and that signatures-equality at the same entry is true.
         let versions = v.list_versions("k").await.unwrap();
         assert_eq!(versions.len(), 1);
         let equal = v.compare_signatures("k", 1, 1).await.unwrap();
@@ -1075,7 +1055,6 @@ mod tests {
         );
     }
 
-
     // -- V0.2 version_id sidecar field ----------------------------------
 
     /// Sidecar JSONs written by V0 (commit on 2026-09-16) carry no
@@ -1135,10 +1114,7 @@ mod tests {
             Some("minio-vid-001".to_string())
         ));
         assert_eq!(tl.versions.len(), 1);
-        assert_eq!(
-            tl.versions[0].version_id.as_deref(),
-            Some("minio-vid-001")
-        );
+        assert_eq!(tl.versions[0].version_id.as_deref(), Some("minio-vid-001"));
         assert!(!append_version_with_id(
             &mut tl,
             b"v1",
@@ -1146,10 +1122,7 @@ mod tests {
             Some("minio-vid-002".to_string())
         ));
         assert_eq!(tl.versions.len(), 1);
-        assert_eq!(
-            tl.versions[0].version_id.as_deref(),
-            Some("minio-vid-001")
-        );
+        assert_eq!(tl.versions[0].version_id.as_deref(), Some("minio-vid-001"));
         assert!(append_version_with_id(
             &mut tl,
             b"v2",
@@ -1157,10 +1130,7 @@ mod tests {
             Some("minio-vid-003".to_string())
         ));
         assert_eq!(tl.versions.len(), 2);
-        assert_eq!(
-            tl.versions[1].version_id.as_deref(),
-            Some("minio-vid-003")
-        );
+        assert_eq!(tl.versions[1].version_id.as_deref(), Some("minio-vid-003"));
     }
 
     /// `version_id: None` round-trip must keep the timeline fully
@@ -1188,13 +1158,12 @@ mod tests {
     fn bytes_to_string_or_marker_handles_utf8_and_binary() {
         let s = bytes_to_string_or_marker(bytes::Bytes::from_static(b"hello"), 1).unwrap();
         assert_eq!(s.as_deref(), Some("hello"));
-        let bin = bytes_to_string_or_marker(bytes::Bytes::from_static(&[0xff, 0xfe, 0xfd]), 2)
-            .unwrap();
+        let bin =
+            bytes_to_string_or_marker(bytes::Bytes::from_static(&[0xff, 0xfe, 0xfd]), 2).unwrap();
         let marker = bin.expect("binary returned Ok(None)");
         assert!(marker.starts_with("[non-utf8"), "got {marker:?}");
         assert!(marker.contains("v2"));
     }
-
 
     // -- V0.2 minIO e2e: real bucket-versioning roundtrip --------------------
     //
@@ -1245,31 +1214,61 @@ mod tests {
     #[tokio::test]
     #[ignore = "requires a real minIO server with bucket versioning enabled (see comment)"]
     async fn minio_vault_versioned_e2e_roundtrip() {
-        let v = crate::server::vault::MinioVault::connect(&e2e_minio_config())
-            .expect("minio connect");
+        let v =
+            crate::server::vault::MinioVault::connect(&e2e_minio_config()).expect("minio connect");
 
         // 1. PUT v1 / v2 / v3 and confirm version IDs are captured.
-        let v1_id = v.set_with_version("openai", "sk-ut-v1").await.expect("set v1");
-        let v2_id = v.set_with_version("openai", "sk-ut-v2").await.expect("set v2");
-        let v3_id = v.set_with_version("openai", "sk-ut-v3").await.expect("set v3");
+        let v1_id = v
+            .set_with_version("openai", "sk-ut-v1")
+            .await
+            .expect("set v1");
+        let v2_id = v
+            .set_with_version("openai", "sk-ut-v2")
+            .await
+            .expect("set v2");
+        let v3_id = v
+            .set_with_version("openai", "sk-ut-v3")
+            .await
+            .expect("set v3");
         assert_eq!(v1_id, 1);
         assert_eq!(v2_id, 2);
         assert_eq!(v3_id, 3);
 
         let versions = v.list_versions("openai").await.expect("list_versions");
         assert_eq!(versions.len(), 3);
-        let v1_vid = versions[0].version_id.clone().expect("v1 version_id captured");
-        let v2_vid = versions[1].version_id.clone().expect("v2 version_id captured");
-        let v3_vid = versions[2].version_id.clone().expect("v3 version_id captured");
+        let v1_vid = versions[0]
+            .version_id
+            .clone()
+            .expect("v1 version_id captured");
+        let v2_vid = versions[1]
+            .version_id
+            .clone()
+            .expect("v2 version_id captured");
+        let v3_vid = versions[2]
+            .version_id
+            .clone()
+            .expect("v3 version_id captured");
         // All three version IDs must be distinct (bucket versioning on).
         assert_ne!(v1_vid, v2_vid);
         assert_ne!(v2_vid, v3_vid);
         assert_ne!(v1_vid, v3_vid);
 
         // 2. get_at_version must return the exact bytes for v1, v2, v3.
-        let r1 = v.get_at_version("openai", 1).await.expect("get v1").expect("present");
-        let r2 = v.get_at_version("openai", 2).await.expect("get v2").expect("present");
-        let r3 = v.get_at_version("openai", 3).await.expect("get v3").expect("present");
+        let r1 = v
+            .get_at_version("openai", 1)
+            .await
+            .expect("get v1")
+            .expect("present");
+        let r2 = v
+            .get_at_version("openai", 2)
+            .await
+            .expect("get v2")
+            .expect("present");
+        let r3 = v
+            .get_at_version("openai", 3)
+            .await
+            .expect("get v3")
+            .expect("present");
         assert_eq!(r1, "sk-ut-v1");
         assert_eq!(r2, "sk-ut-v2");
         assert_eq!(r3, "sk-ut-v3");
@@ -1282,8 +1281,8 @@ mod tests {
         //
         //    The attachment-slot file format is `<key>.v<version>.bin`
         //    under the same key prefix, so the most robust way to
-        //    delete them is via the versioned-vault helper.
-        let prefix = v.key_prefix().to_string();
+        //    delete them is via the versioned-vault helper (which
+        //    recomputes the prefix itself) rather than by hand.
         // 4. Critical proof that the sidecar version_id is being used:
         //    rotate the *current* value (i.e. write v4) via Vault::set.
         //    The vault's plain `set` does NOT touch the sidecar nor the
@@ -1314,16 +1313,31 @@ mod tests {
 
         // 5. Round-trip v1..v3 again (no e2e mutation of attachments
         //    required — the versionId in the sidecar is enough).
-        let r1b = v.get_at_version("openai", 1).await.expect("get v1 again").expect("present");
-        let r2b = v.get_at_version("openai", 2).await.expect("get v2 again").expect("present");
-        let r3b = v.get_at_version("openai", 3).await.expect("get v3 again").expect("present");
+        let r1b = v
+            .get_at_version("openai", 1)
+            .await
+            .expect("get v1 again")
+            .expect("present");
+        let r2b = v
+            .get_at_version("openai", 2)
+            .await
+            .expect("get v2 again")
+            .expect("present");
+        let r3b = v
+            .get_at_version("openai", 3)
+            .await
+            .expect("get v3 again")
+            .expect("present");
         assert_eq!(r1b, "sk-ut-v1");
         assert_eq!(r2b, "sk-ut-v2");
         assert_eq!(r3b, "sk-ut-v3");
 
         // 5. A version the sidecar never saw must still return Ok(None)
         //    (no entry, no versionId lookup attempted).
-        let absent = v.get_at_version("nonexistent", 1).await.expect("get missing");
+        let absent = v
+            .get_at_version("nonexistent", 1)
+            .await
+            .expect("get missing");
         assert!(absent.is_none());
     }
 }

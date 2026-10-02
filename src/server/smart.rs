@@ -54,11 +54,7 @@ mod tests {
     fn announce_frame_format() {
         let f = announce_frame("git-upload-pack");
         // First 4 bytes are the hex length of the line that follows (including the 4-byte prefix itself).
-        let len: usize = usize::from_str_radix(
-            std::str::from_utf8(&f[0..4]).unwrap(),
-            16,
-        )
-        .unwrap();
+        let len: usize = usize::from_str_radix(std::str::from_utf8(&f[0..4]).unwrap(), 16).unwrap();
         assert_eq!(len, 4 + "# service=git-upload-pack\n".len());
         // The body of the line begins with "# service=git-upload-pack\n".
         let line = std::str::from_utf8(&f[4..len]).unwrap();

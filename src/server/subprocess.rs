@@ -105,10 +105,13 @@ pub fn git_stateless_rpc(
 ///
 /// Used by capture-style helpers (currently only `git init --bare`).
 pub async fn await_success(mut child: Child, cmd: &str) -> Result<()> {
-    let status = child.wait().await.map_err(|source| GitGitError::GitSubprocess {
-        cmd: cmd.to_string(),
-        source,
-    })?;
+    let status = child
+        .wait()
+        .await
+        .map_err(|source| GitGitError::GitSubprocess {
+            cmd: cmd.to_string(),
+            source,
+        })?;
     if !status.success() {
         let mut stderr = String::new();
         if let Some(mut s) = child.stderr.take() {

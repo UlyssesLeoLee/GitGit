@@ -339,7 +339,10 @@ impl Vault for MinioVault {
 
     async fn set(&self, key: &str, value: &str) -> Result<()> {
         let object_key = self.object_key(key);
-        let _resp = self.bucket.put_object(&object_key, value.as_bytes()).await?;
+        let _resp = self
+            .bucket
+            .put_object(&object_key, value.as_bytes())
+            .await?;
         Ok(())
     }
 
@@ -406,14 +409,16 @@ pub(crate) struct HttpResponse {
 /// Issue an HTTP GET against `url` and return (status, body). No auth
 /// header is added; the caller is responsible for embedding the
 /// signature in the query string (see `MinioVault::presign_get`).
-pub(crate) async fn reqwest_get_bytes(url: &str) -> std::result::Result<HttpResponse, s3::error::S3Error> {
+pub(crate) async fn reqwest_get_bytes(
+    url: &str,
+) -> std::result::Result<HttpResponse, s3::error::S3Error> {
     // `S3Error` is a permissive umbrella type for transport errors;
     // reqwest's own error type doesn't implement Into<S3Error>, so we
     // route any reqwest failure through `S3Error::HttpFail` with a
     // synthetic 0 status code and the reqwest error message as body.
-    let resp = reqwest::get(url).await.map_err(|e| {
-        s3::error::S3Error::HttpFailWithBody(0, format!("reqwest GET failed: {e}"))
-    })?;
+    let resp = reqwest::get(url)
+        .await
+        .map_err(|e| s3::error::S3Error::HttpFailWithBody(0, format!("reqwest GET failed: {e}")))?;
     let status = resp.status().as_u16();
     let body = resp.bytes().await.map_err(|e| {
         s3::error::S3Error::HttpFailWithBody(status, format!("reqwest body read failed: {e}"))
@@ -544,10 +549,7 @@ impl Vault for FileVault {
         // effort fallback on Windows (rename fails if the target
         // exists, so we use the explicit-replace variant).
         let mut tmp = p.clone();
-        let tmp_name = format!(
-            ".tmp.{}",
-            uuid::Uuid::new_v4().simple()
-        );
+        let tmp_name = format!(".tmp.{}", uuid::Uuid::new_v4().simple());
         tmp.set_file_name(tmp_name);
         let mut f = tokio::fs::File::create(&tmp).await?;
         f.write_all(value.as_bytes()).await?;
@@ -703,13 +705,17 @@ mod tests {
         // `set` must refuse to write a key that would escape the root.
         // We assert both the error and the absence of any new file
         // under the root.
-        let bad_keys = ["../escape", "..", "subdir/../../escape", "/abs", "C:win", "C:\\win"];
+        let bad_keys = [
+            "../escape",
+            "..",
+            "subdir/../../escape",
+            "/abs",
+            "C:win",
+            "C:\\win",
+        ];
         for bad in bad_keys {
             let res = v.set(bad, "evil").await;
-            assert!(
-                res.is_err(),
-                "set({bad:?}) should fail but got {res:?}"
-            );
+            assert!(res.is_err(), "set({bad:?}) should fail but got {res:?}");
         }
         // A get of the same bad keys must be Ok(None) — they were
         // never stored.
@@ -720,15 +726,20 @@ mod tests {
         // The list must not contain any `..` segments.
         let keys = v.list().await.unwrap();
         for k in &keys {
-            assert!(!k.split(['/', '\\']).any(|seg| seg == ".."),
-                "list leaked traversal key: {k}");
+            assert!(
+                !k.split(['/', '\\']).any(|seg| seg == ".."),
+                "list leaked traversal key: {k}"
+            );
         }
         // And nothing was written under the root.
         let entries: Vec<_> = std::fs::read_dir(&dir)
             .unwrap()
             .filter_map(|e| e.ok())
             .collect();
-        assert!(entries.is_empty(), "traversal set left residue: {entries:?}");
+        assert!(
+            entries.is_empty(),
+            "traversal set left residue: {entries:?}"
+        );
     }
 
     // ---- MinioVault tests (no network) ----------------------------------
@@ -836,12 +847,18 @@ mod tests {
         );
 
         // 2. missing key returns Ok(None), not Err
-        assert_eq!(v.get("definitely-not-there").await.expect("get-missing"), None);
+        assert_eq!(
+            v.get("definitely-not-there").await.expect("get-missing"),
+            None
+        );
 
         // 3. list contains the key
         let mut keys = v.list().await.expect("list");
         keys.sort();
-        assert!(keys.iter().any(|k| k == "openai"), "list missing openai: {keys:?}");
+        assert!(
+            keys.iter().any(|k| k == "openai"),
+            "list missing openai: {keys:?}"
+        );
 
         // 4. rotate changes the value but keeps the key
         v.rotate("openai").await.expect("rotate");

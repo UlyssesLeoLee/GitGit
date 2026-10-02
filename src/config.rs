@@ -75,9 +75,7 @@ impl Config {
             return Ok(());
         }
         if !self.vault_file_root.is_dir() {
-            return Err(GitGitError::InvalidReposDir(
-                self.vault_file_root.clone(),
-            ));
+            return Err(GitGitError::InvalidReposDir(self.vault_file_root.clone()));
         }
         Ok(())
     }

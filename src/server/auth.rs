@@ -21,13 +21,11 @@ pub fn check_basic(headers: &HeaderMap) -> Result<bool> {
     let Some(rest) = value.strip_prefix("Basic ") else {
         return Ok(false);
     };
-    let bytes = match base64::Engine::decode(
-        &base64::engine::general_purpose::STANDARD,
-        rest.trim(),
-    ) {
-        Ok(b) => b,
-        Err(_) => return Ok(false),
-    };
+    let bytes =
+        match base64::Engine::decode(&base64::engine::general_purpose::STANDARD, rest.trim()) {
+            Ok(b) => b,
+            Err(_) => return Ok(false),
+        };
     let s = match std::str::from_utf8(&bytes) {
         Ok(s) => s,
         Err(_) => return Ok(false),

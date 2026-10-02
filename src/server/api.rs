@@ -194,6 +194,7 @@ fn api_error(err: GitGitError) -> Response {
     (status, Json(body)).into_response()
 }
 
+#[allow(clippy::result_large_err)]
 fn map_core<T>(r: CoreResult<T>) -> std::result::Result<T, Response> {
     r.map_err(api_error)
 }
@@ -248,7 +249,7 @@ async fn health(State(state): State<AppState>) -> Response {
 }
 
 async fn list_repos(State(state): State<AppState>) -> Response {
-    let names = match map_core(repo::list_repos(&state.config.repos_dir).map_err(|e| e)) {
+    let names = match map_core(repo::list_repos(&state.config.repos_dir)) {
         Ok(n) => n,
         Err(resp) => return resp,
     };
@@ -265,10 +266,7 @@ async fn list_repos(State(state): State<AppState>) -> Response {
     Json(out).into_response()
 }
 
-async fn get_repo(
-    State(state): State<AppState>,
-    Path(name): Path<String>,
-) -> Response {
+async fn get_repo(State(state): State<AppState>, Path(name): Path<String>) -> Response {
     let name = match normalize_repo_name(&name) {
         Ok(n) => n,
         Err(resp) => return resp,
@@ -299,10 +297,7 @@ async fn get_repo(
     Json(body).into_response()
 }
 
-async fn get_repo_refs(
-    State(state): State<AppState>,
-    Path(name): Path<String>,
-) -> Response {
+async fn get_repo_refs(State(state): State<AppState>, Path(name): Path<String>) -> Response {
     let name = match normalize_repo_name(&name) {
         Ok(n) => n,
         Err(resp) => return resp,
@@ -317,10 +312,7 @@ async fn get_repo_refs(
     }
 }
 
-async fn get_repo_log(
-    State(state): State<AppState>,
-    Path(name): Path<String>,
-) -> Response {
+async fn get_repo_log(State(state): State<AppState>, Path(name): Path<String>) -> Response {
     let name = match normalize_repo_name(&name) {
         Ok(n) => n,
         Err(resp) => return resp,
@@ -362,10 +354,7 @@ async fn list_vault_keys(State(state): State<AppState>) -> Response {
     Json(out).into_response()
 }
 
-async fn get_vault_key(
-    State(state): State<AppState>,
-    Path(key): Path<String>,
-) -> Response {
+async fn get_vault_key(State(state): State<AppState>, Path(key): Path<String>) -> Response {
     let value = match state.vault.get(&key).await {
         Ok(v) => v,
         Err(e) => return api_error(GitGitError::Vault(format!("get failed: {e}"))),
@@ -384,20 +373,14 @@ async fn get_vault_key(
     Json(body).into_response()
 }
 
-async fn delete_vault_key(
-    State(state): State<AppState>,
-    Path(key): Path<String>,
-) -> Response {
+async fn delete_vault_key(State(state): State<AppState>, Path(key): Path<String>) -> Response {
     match state.vault.delete(&key).await {
         Ok(_) => StatusCode::NO_CONTENT.into_response(),
         Err(e) => api_error(GitGitError::Vault(format!("delete failed: {e}"))),
     }
 }
 
-async fn get_vault_versions(
-    State(state): State<AppState>,
-    Path(key): Path<String>,
-) -> Response {
+async fn get_vault_versions(State(state): State<AppState>, Path(key): Path<String>) -> Response {
     match state.vault.list_versions(&key).await {
         Ok(versions) => {
             let body = VersionsDto { key, versions };
@@ -413,9 +396,7 @@ async fn post_vault_version(
     Json(body): Json<SetVersionBody>,
 ) -> Response {
     if body.value.is_empty() {
-        return api_error(GitGitError::Http(
-            "value must not be empty".to_string(),
-        ));
+        return api_error(GitGitError::Http("value must not be empty".to_string()));
     }
     // Use the version-aware write surface so the timeline reflects the
     // bump. The `change_note` travels into the sidecar entry.
@@ -423,10 +404,7 @@ async fn post_vault_version(
     let mut tl_value = body.value.clone();
     let mut tl_note = body.change_note.clone();
     let result: CoreResult<i32> = async {
-        let v = state
-            .vault
-            .set_with_version(&key, &body.value)
-            .await?;
+        let v = state.vault.set_with_version(&key, &body.value).await?;
         // `set_with_version` ignores the note today (the trait signature
         // has no note parameter). If the timeline write later accepts
         // a note, this is where we would thread it through. For V0 we
@@ -470,11 +448,13 @@ async fn post_vault_restore(
     Json(body): Json<RestoreBody>,
 ) -> Response {
     if body.target_version < 1 {
-        return api_error(GitGitError::Http(
-            "target_version must be >= 1".to_string(),
-        ));
+        return api_error(GitGitError::Http("target_version must be >= 1".to_string()));
     }
-    match state.vault.restore_to_version(&key, body.target_version).await {
+    match state
+        .vault
+        .restore_to_version(&key, body.target_version)
+        .await
+    {
         Ok(new_version) => {
             let body = RestoreResponse {
                 key,
@@ -505,6 +485,7 @@ async fn summarize_repo(config: &Config, name: &str) -> CoreResult<RepoSummaryDt
 
 /// Resolve a `<name>` from the URL to its canonical `<name>.git/`
 /// path on disk, with a 404 envelope on miss.
+#[allow(clippy::result_large_err)]
 fn resolve_repo(config: &Config, name: &str) -> std::result::Result<PathBuf, Response> {
     let path = match config.repo_path(name) {
         Ok(p) => p,
@@ -519,6 +500,7 @@ fn resolve_repo(config: &Config, name: &str) -> std::result::Result<PathBuf, Res
 
 /// Strip an optional `.git` suffix and validate. Bad names become
 /// 400 with `invalid_repo_name`.
+#[allow(clippy::result_large_err)]
 fn normalize_repo_name(raw: &str) -> std::result::Result<String, Response> {
     let stem = raw.strip_suffix(".git").unwrap_or(raw).to_string();
     if let Err(e) = validate_repo_name(&stem) {
@@ -528,6 +510,7 @@ fn normalize_repo_name(raw: &str) -> std::result::Result<String, Response> {
 }
 
 /// `git show-ref` → list of `RefDto`. Captures stdout, splits lines.
+#[allow(clippy::result_large_err)]
 async fn run_show_ref(repo: &PathBuf) -> std::result::Result<Vec<RefDto>, Response> {
     let output = run_git(repo, &["show-ref"], "git show-ref", Some(1)).await?;
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -545,6 +528,7 @@ async fn run_show_ref(repo: &PathBuf) -> std::result::Result<Vec<RefDto>, Respon
 }
 
 /// `git log --oneline -n <limit>` → list of `LogDto`.
+#[allow(clippy::result_large_err)]
 async fn run_log(repo: &PathBuf, limit: u32) -> std::result::Result<Vec<LogDto>, Response> {
     let limit_str = limit.to_string();
     let output = run_git(
@@ -628,6 +612,7 @@ async fn read_head_sha(repo: &PathBuf) -> Option<String> {
 /// `git show-ref` (exit 1 on unborn HEAD / no refs) and
 /// `git log` (exit 128 on unborn HEAD) behave on a freshly initialized
 /// bare repository.
+#[allow(clippy::result_large_err)]
 async fn run_git(
     repo: &PathBuf,
     args: &[&str],
@@ -716,7 +701,9 @@ mod tests {
 
     async fn app_with_repo(label: &str, name: &str) -> (AppState, std::path::PathBuf) {
         let (state, repos) = app_state_with(label);
-        crate::repo::create_bare_repo(&state.config, name).await.unwrap();
+        crate::repo::create_bare_repo(&state.config, name)
+            .await
+            .unwrap();
         (state, repos)
     }
 
