@@ -24,7 +24,7 @@ V0 = Tauri 2 GUI 骨架 + 两套 API Key（AI provider + Git remote），
 | 7 | **AI provider 注册表** — 5 个 provider + `gitai` 子命令（commit/explain/review） | 2 d | 6, 5 | `gitai commit --from-diff` 真打通 OpenAI，输出 commit message | `[FACT]` **未落地** — `src/cli.rs` 的 `enum Command` 只有 `Serve` / `InitRepo` / `List` / `Key(KeyCommand)`；无 `gitai` 子命令，无 AI provider 注册表模块 |
 | 8 | **remote provider 注册表** — 5 个 provider + `gitremote` 子命令（add/ls/sync） | 1.5 d | 6, 5 | `gitremote add gitee <url>` 存 PG + fast-forward sync 工作 | `[FACT]` **未落地** — `src/cli.rs` 无 `gitremote` 子命令；且 T5 未落地，验收里的「存 PG」当前无存储落点 |
 | 9 | **AI 评审 UI** — push 前弹窗 + streaming token 显示 | 1 d | 4, 7 | GUI 上能看到 token 逐字流 | `[FACT]` **未落地** — `apps/gm-desktop/src/routes/` 与 `apps/gm-console/src/` 均无 AI 评审 / streaming token 组件 |
-| 10 | **MSI 打包 + 烟测 + ADR 收尾** | 0.5 d | 全部 | `cargo tauri build` 出 .msi，scripts/smoke.ps1 仍过 | `[UNVERIFIED-FACT]` **部分落地**：`scripts/smoke.ps1` 在盘；`tauri.conf.json` 已配 `bundle.targets = ["msi","dmg","appimage","deb"]`。仓内**无 `.msi` 产物**，`cargo tauri build` 是否成功 → `[TBD]` |
+| 10 | **MSI 打包 + 烟测 + ADR 收尾** | 0.5 d | 全部 | `cargo tauri build` 出 .msi，scripts/smoke.ps1 仍过 | ``[FACT]` **web 生产构建已验证**:`pnpm build` 在 CI run `36975561146` 通过(产出 dist);`src-tauri` 的 `cargo check` 通过。`[UNVERIFIED-FACT]` 完整 `cargo tauri build` 能否产出 `.msi` 仍无仓内证据 = `[TBD]`
 | 11 | **minIO 部署前置** — docker-compose 起 minIO 容器 + `gitgit-vault` bucket provisioning + 网络可达性验证 + TLS 关闭（dev 阶段） | 0.5 d | — | `mc alias set local http://localhost:9000 minio minio123` + `mc mb local/gitgit-vault` 成功，curl `http://localhost:9000/gitgit-vault?list` 返回 bucket 列表 | `[UNVERIFIED-FACT]` **仓内无任何 docker-compose / compose.yml**（`git ls-files` 核验）。`mc alias set` / `mc mb` 仅出现在 ADR-0020/0021/0022 与 `docs/reports/2026-08-30-minio-migration/` 中 → 仓内无可复现的部署文件，`[TBD]` |
 
 **总**：约 10.5 天（1.5 周强）
@@ -48,7 +48,7 @@ V0 = Tauri 2 GUI 骨架 + 两套 API Key（AI provider + Git remote），
 | T7 | `[FACT]` 未落地 | `src/cli.rs` 的 `enum Command` 仅 `Serve` / `InitRepo` / `List` / `Key(KeyCommand)`；无 `gitai` 子命令，无 AI provider 注册表模块 |
 | T8 | `[FACT]` 未落地 | `src/cli.rs` 无 `gitremote` 子命令；T5 未落地，验收中的「存 PG」无存储落点 |
 | T9 | `[FACT]` 未落地 | `apps/gm-desktop/src/routes/` 与 `apps/gm-console/src/` 均无 AI 评审 / streaming token 组件 |
-| T10 | `[UNVERIFIED-FACT]` 部分落地 | `scripts/smoke.ps1` 在盘；`tauri.conf.json` 已配 `bundle.targets = ["msi","dmg","appimage","deb"]`。仓内无 `.msi` 产物，`cargo tauri build` 结果 → `[TBD]` |
+| T10 | `[UNVERIFIED-FACT]` 部分落地 | `[FACT]` **web 生产构建已验证**:`pnpm build`(svelte-check + vite build)在 CI run `36975561146` 通过并产出 `dist/`(100.24 kB);`src-tauri` 的 `cargo check` 同样通过。`[UNVERIFIED-FACT]` `tauri.conf.json` 配了 `bundle.targets = ["msi","dmg","appimage","deb"]`,但**无 `.msi` 等实际产物**,完整 `cargo tauri build` 是否成功仍为 `[TBD]`(该步不在 CI 内,见 `.github/CI.md` 已知限制第 2 条) |
 | T11 | `[UNVERIFIED-FACT]` 仓内无可复现证据 | `git ls-files` 中无任何 `docker-compose*` / `compose.yml`。`mc alias set` / `mc mb` 仅见于 ADR-0020 / 0021 / 0022 与 `docs/reports/2026-08-30-minio-migration/` → `[TBD]` |
 
 ### 矛盾更正 A —— T5「PG 18.6 + sqlx」与现行代码冲突
