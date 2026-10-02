@@ -61,7 +61,7 @@ pub fn build_router(state: AppState) -> Router {
     let api = crate::server::api::build_api_router();
     Router::new()
         .route("/repos/*key", get(handle_repo_any).post(handle_repo_any))
-        .merge(api)
+        .nest("/api", api)
         .with_state(state)
 }
 
