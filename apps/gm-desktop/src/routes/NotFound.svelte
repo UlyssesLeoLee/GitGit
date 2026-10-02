@@ -1,5 +1,5 @@
 <!--
-  Catch-all not-found route. `svelte-spa-router` lands here for
+  Catch-all not-found route. The router lands here for
   every path that isn't a registered route.
 -->
 <script lang="ts">
@@ -12,5 +12,5 @@
   <p class="mt-2 text-sm text-slate-600 dark:text-slate-300">
     {$catalog['common.empty']}
   </p>
-  <a class="btn-primary mt-4" href="/">{$catalog['nav.dashboard']}</a>
+  <a class="btn-primary mt-4" href="#/">{$catalog['nav.dashboard']}</a>
 </section>

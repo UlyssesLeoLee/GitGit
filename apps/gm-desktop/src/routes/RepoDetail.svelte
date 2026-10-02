@@ -56,7 +56,7 @@
 <section class="space-y-4" aria-labelledby="detail-h">
   <header class="flex flex-wrap items-end justify-between gap-3">
     <div>
-      <a class="text-xs text-slate-500 hover:underline" href="/repos">← {$catalog['repos.back']}</a>
+      <a class="text-xs text-slate-500 hover:underline" href="#/repos">← {$catalog['repos.back']}</a>
       <h1 id="detail-h" class="text-2xl font-semibold">
         {#if detail}{detail.name}{:else}{$catalog['common.loading']}{/if}
       </h1>

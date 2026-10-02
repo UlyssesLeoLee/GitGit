@@ -1,13 +1,13 @@
 <!--
   Root component. Owns the global layout: sidebar + main panel.
-  All page-level navigation is delegated to `svelte-spa-router`,
-  which keeps the bundle small (versus `sveltekit`).
+  Page-level navigation is delegated to the local hash router in
+  `$lib/router` (see the note there for why `svelte-spa-router` was
+  dropped: it is incompatible with Svelte 5 runes mode).
 -->
 <script lang="ts">
   import { onMount } from 'svelte';
-  import Router from 'svelte-spa-router';
-  import { wrap } from 'svelte-spa-router/wrap';
   import { fade } from 'svelte/transition';
+  import Router from '$lib/components/Router.svelte';
   import Sidebar from '$lib/components/Sidebar.svelte';
   import ServerStatusBar from '$lib/components/ServerStatusBar.svelte';
   import ToastHost from '$lib/components/ToastHost.svelte';
@@ -27,25 +27,19 @@
   import NotFound from './routes/NotFound.svelte';
   import { catalog } from '$lib/i18n';
 
-  // `wrap()` adds a guard component that re-renders its slot if a
-  // route renders an exception; in our case the inner ErrorBoundary
-  // already owns that responsibility, but we keep the wrap so future
-  // route-level guards (e.g. /settings/:tab can require feature
-  // flags) compose cleanly.
-  // svelte-spa-router 4.x ships ComponentType types built for the
-  // Svelte 4 SvelteComponent class shape; Svelte 5's function-style
-  // Component types don't satisfy it structurally. The `as never`
-  // cast is the documented workaround until svelte-spa-router ships
-  // proper Svelte 5 typings.
+  // The matched route component receives its captured `:params` as a prop.
+  // A `*` entry acts as the catch-all. The whole router sits inside the
+  // ErrorBoundary below, so per-route guards are not needed here — if
+  // one is wanted later it can wrap a single entry in this map.
   const routes = {
-    '/': wrap({ component: Home as never }),
-    '/repos': wrap({ component: Repos as never }),
-    '/repos/:name': wrap({ component: RepoDetail as never }),
-    '/vault': wrap({ component: Vault as never }),
-    '/graph': wrap({ component: Graph as never }),
-    '/settings': wrap({ component: Settings as never }),
-    '*': wrap({ component: NotFound as never }),
-  } as const;
+    '/': { component: Home },
+    '/repos': { component: Repos },
+    '/repos/:name': { component: RepoDetail },
+    '/vault': { component: Vault },
+    '/graph': { component: Graph },
+    '/settings': { component: Settings },
+    '*': { component: NotFound },
+  };
 
   let booted = $state(false);
   let bootError = $state<string | null>(null);
@@ -72,7 +66,7 @@
 </script>
 
 <svelte:head>
-  <html lang={$locale} data-theme={$theme} />
+  <html lang={$locale} data-theme={$theme}></html>
 </svelte:head>
 
 <div class="flex h-screen w-screen overflow-hidden" data-testid="app-shell">

@@ -69,7 +69,7 @@
       {#each filtered as repo (repo.name)}
         <li class="card space-y-2" data-testid={`repo-${repo.name}`}>
           <div class="flex items-baseline justify-between gap-2">
-            <a class="text-lg font-semibold hover:underline" href={`/repos/${repo.name}`}>
+            <a class="text-lg font-semibold hover:underline" href={`#/repos/${repo.name}`}>
               {repo.name}
             </a>
             <span class="pill">{repo.default_branch}</span>
@@ -78,7 +78,7 @@
           <p class="text-xs text-slate-500">{formatBytes(repo.size_bytes)}</p>
 
           <div class="flex flex-wrap gap-2 pt-1">
-            <a class="btn-secondary" href={`/repos/${repo.name}`}>{$catalog['repos.detail']}</a>
+            <a class="btn-secondary" href={`#/repos/${repo.name}`}>{$catalog['repos.detail']}</a>
             <button class="btn-secondary" type="button" onclick={() => onCopy(repo.name)}>
               {$catalog['repos.copyCloneUrl']}
             </button>

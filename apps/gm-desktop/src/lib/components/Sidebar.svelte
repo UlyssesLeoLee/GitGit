@@ -1,11 +1,11 @@
 <!--
-  Sidebar nav. svelte-spa-router drives routing via `href` (the
-  hash form is `/path`). The active link is computed by
-  `location` + a per-link prefix check (so `/repos/foo` keeps
-  "Repositories" highlighted).
+  Sidebar nav. Routing is hash-based: the router listens to
+  `hashchange`, so anchors must carry the `#` prefix (see `href()` in
+  `$lib/router`). The active link is computed from `location` plus a
+  per-link prefix check, so `/repos/foo` keeps "Repositories" lit.
 -->
 <script lang="ts">
-  import { location } from 'svelte-spa-router';
+  import { location, href } from '$lib/router';
   import { t } from '$lib/i18n';
   import { derived } from 'svelte/store';
   import ThemeToggle from './ThemeToggle.svelte';
@@ -43,7 +43,7 @@
     {#each items as item (item.href)}
       {@const active = isActive(item, $activePath)}
       <a
-        href={item.href}
+        href={href(item.href)}
         class="block rounded-md px-3 py-2 text-sm font-medium transition-colors hover:bg-slate-100 dark:hover:bg-slate-700"
         class:bg-accent-50={active}
         class:text-accent-700={active}
