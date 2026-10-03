@@ -86,22 +86,26 @@ fn run_list(config: &Config) -> anyhow::Result<()> {
 
 /// Dispatcher for every `vault *` subcommand. Per ADR-0022 the canonical
 /// write surface is `set_with_version` (super-trait `Vault::set` bypasses
-/// the timeline). Every action here is intentionally synchronous from
-/// the CLI's perspective — the V0 binaries don't need streaming output.
-fn run_key(config: &Config, sub: KeyCommand) -> anyhow::Result<()> {
+/// the timeline).
+///
+/// `async` rather than synchronous: `main` is `#[tokio::main]`, so the
+/// process is already inside a Tokio runtime by the time a command is
+/// dispatched. Calling `Handle::current().block_on(..)` from that context
+/// panics with "Cannot start a runtime from within a runtime", which is
+/// what every `key *` subcommand used to do. Awaiting in place is the only
+/// correct option here; building a second runtime would also work but
+/// would spin up a second thread pool per process.
+async fn run_key(config: &Config, sub: KeyCommand) -> anyhow::Result<()> {
     config.ensure_vault_root()?;
     let vault = build_vault(config);
-    // The local runtime isn't async at the binary entrypoint (cmd is
-    // `tokio::main`), so block on each call directly.
     let result: anyhow::Result<()> = match sub {
         KeyCommand::Set { key, value } => {
-            let new_v =
-                tokio::runtime::Handle::current().block_on(vault.set_with_version(&key, &value))?;
+            let new_v = vault.set_with_version(&key, &value).await?;
             println!("set {key} -> v{new_v}");
             Ok(())
         }
         KeyCommand::Get { key } => {
-            let value = tokio::runtime::Handle::current().block_on(vault.get(&key))?;
+            let value = vault.get(&key).await?;
             match value {
                 Some(v) => println!("{v}"),
                 None => println!("(not set)"),
@@ -109,7 +113,7 @@ fn run_key(config: &Config, sub: KeyCommand) -> anyhow::Result<()> {
             Ok(())
         }
         KeyCommand::Delete { key } => {
-            tokio::runtime::Handle::current().block_on(vault.delete(&key))?;
+            vault.delete(&key).await?;
             println!("deleted {key}");
             Ok(())
         }
@@ -118,13 +122,12 @@ fn run_key(config: &Config, sub: KeyCommand) -> anyhow::Result<()> {
             // CLI sub-command's intent is "bump with a new payload", so
             // we exercise the versioned write path explicitly and emit
             // the resulting version number.
-            let new_v =
-                tokio::runtime::Handle::current().block_on(vault.set_with_version(&key, &value))?;
+            let new_v = vault.set_with_version(&key, &value).await?;
             println!("rotated {key} -> v{new_v}");
             Ok(())
         }
         KeyCommand::Versions { key } => {
-            let entries = tokio::runtime::Handle::current().block_on(vault.list_versions(&key))?;
+            let entries = vault.list_versions(&key).await?;
             if entries.is_empty() {
                 println!("(no versions)");
             } else {
@@ -139,8 +142,7 @@ fn run_key(config: &Config, sub: KeyCommand) -> anyhow::Result<()> {
             Ok(())
         }
         KeyCommand::Diff { key, base, head } => {
-            let diff = tokio::runtime::Handle::current()
-                .block_on(vault.diff_versions(&key, base, head))?;
+            let diff = vault.diff_versions(&key, base, head).await?;
             println!(
                 "{} v{} -> v{}: object_changed={}  byte_size_delta={}",
                 key, base, head, diff.object_changed, diff.file_size_delta
@@ -151,13 +153,12 @@ fn run_key(config: &Config, sub: KeyCommand) -> anyhow::Result<()> {
             key,
             target_version,
         } => {
-            let new_v = tokio::runtime::Handle::current()
-                .block_on(vault.restore_to_version(&key, target_version))?;
+            let new_v = vault.restore_to_version(&key, target_version).await?;
             println!("restored {key} to v{target_version} -> v{new_v}");
             Ok(())
         }
         KeyCommand::ListKeys => {
-            let keys = tokio::runtime::Handle::current().block_on(vault.list())?;
+            let keys = vault.list().await?;
             if keys.is_empty() {
                 println!("(no keys)");
             } else {
@@ -180,7 +181,7 @@ fn run_key(config: &Config, sub: KeyCommand) -> anyhow::Result<()> {
 /// resolution logic (preset lookup, base-URL and model overrides) runs
 /// without an API key or a network call. That makes the flag usable to
 /// debug a misconfigured provider, which is when it is most needed.
-fn run_gitai(sub: GitaiCommand) -> anyhow::Result<()> {
+async fn run_gitai(sub: GitaiCommand) -> anyhow::Result<()> {
     match sub {
         GitaiCommand::Providers => {
             let reg = ai::registry::ProviderRegistry::builtin();
@@ -193,15 +194,15 @@ fn run_gitai(sub: GitaiCommand) -> anyhow::Result<()> {
             }
             Ok(())
         }
-        GitaiCommand::Commit(args) => run_gitai_task(Task::Commit, args),
-        GitaiCommand::Explain(args) => run_gitai_task(Task::Explain, args),
-        GitaiCommand::Review(args) => run_gitai_task(Task::Review, args),
+        GitaiCommand::Commit(args) => run_gitai_task(Task::Commit, args).await,
+        GitaiCommand::Explain(args) => run_gitai_task(Task::Explain, args).await,
+        GitaiCommand::Review(args) => run_gitai_task(Task::Review, args).await,
     }
 }
 
-fn run_gitai_task(task: Task, args: GitaiTaskArgs) -> anyhow::Result<()> {
-    let handle = tokio::runtime::Handle::current();
-
+/// `async` for the same reason as [`run_key`]: the process is already
+/// inside the `#[tokio::main]` runtime, so `block_on` here would panic.
+async fn run_gitai_task(task: Task, args: GitaiTaskArgs) -> anyhow::Result<()> {
     if args.dry_run {
         let reg = ai::registry::ProviderRegistry::builtin();
         let spec = reg.get(&args.provider)?;
@@ -247,7 +248,7 @@ fn run_gitai_task(task: Task, args: GitaiTaskArgs) -> anyhow::Result<()> {
         include_worktree: args.from_diff,
         paths: args.paths.clone(),
     };
-    let diff = handle.block_on(ai::diff::collect_diff(&args.repo, &req))?;
+    let diff = ai::diff::collect_diff(&args.repo, &req).await?;
 
     let inv = Invocation {
         task,
@@ -256,7 +257,7 @@ fn run_gitai_task(task: Task, args: GitaiTaskArgs) -> anyhow::Result<()> {
         model_override: args.ai_model.clone(),
         diff,
     };
-    let out = handle.block_on(inv.run(&api_key))?;
+    let out = inv.run(&api_key).await?;
     // stdout is the product: this is what a caller pipes into a commit
     // message file.
     println!("{out}");
@@ -273,7 +274,7 @@ async fn main() -> anyhow::Result<()> {
         Command::Serve => run_serve(config).await,
         Command::InitRepo { name } => run_init_repo(&config, &name).await,
         Command::List => run_list(&config),
-        Command::Key(sub) => run_key(&config, sub),
-        Command::Gitai(sub) => run_gitai(sub),
+        Command::Key(sub) => run_key(&config, sub).await,
+        Command::Gitai(sub) => run_gitai(sub).await,
     }
 }
