@@ -18,13 +18,19 @@ $ErrorActionPreference = 'Stop'
 
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 
+# Share the tier helpers rather than re-deriving them. Get-ScratchTempRoot in
+# particular exists because $env:TEMP is a Windows-ism: on Linux PowerShell
+# leaves it unset and `Join-Path $env:TEMP ...` fails with "Cannot bind
+# argument to parameter 'Path' because it is null".
+. (Join-Path $PSScriptRoot 'lib/regression-common.ps1')
+
 # The binary lands wherever cargo put it, and the tier scripts deliberately
 # build somewhere other than ./target: regression-st.ps1 and regression-ut.ps1
 # both set CARGO_TARGET_DIR to <repo>/target-regression so they do not fight
 # the main ./target directory for the cargo package-cache lock. That env var
 # is process-local, so it does not reach this step -- the path has to be
 # listed explicitly. Note the dash in `target-regression`.
-$exeName = if ($IsWindows) { 'gitgit.exe' } else { 'gitgit' }
+$exeName = if (Test-IsWindows) { 'gitgit.exe' } else { 'gitgit' }
 $candidates = @(
     $(if ($env:CARGO_TARGET_DIR) { Join-Path $env:CARGO_TARGET_DIR "debug/$exeName" })
     (Join-Path $repoRoot "target-regression/debug/$exeName")
@@ -39,7 +45,7 @@ $failures = @()
 function Add-Failure($m) { $script:failures += $m }
 
 # ── A throwaway repo with uncommitted changes and planted secrets ─────────
-$work = Join-Path $env:TEMP ('gitgit-gitai-e2e-' + [guid]::NewGuid().ToString('N'))
+$work = Join-Path (Get-ScratchTempRoot) ('gitgit-gitai-e2e-' + [guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $work -Force | Out-Null
 
 # Isolate git from the developer's global config so the fixture is the same
@@ -78,10 +84,18 @@ $stdoutFile = Join-Path $work 'stdout.txt'
 $stderrFile = Join-Path $work 'stderr.txt'
 $env:GITGIT_AI_API_KEY = 'sk-test-key-not-a-real-credential'
 
-$proc = Start-Process -FilePath $bin -PassThru -NoNewWindow `
-    -ArgumentList @('gitai', 'commit', '--repo', $work, '--from-diff',
-                    '--ai-base-url', "http://127.0.0.1:$port/v1") `
-    -RedirectStandardOutput $stdoutFile -RedirectStandardError $stderrFile
+# -NoNewWindow is a Windows-only switch; on Linux Start-Process rejects it.
+# Build the parameter set conditionally rather than assuming a host.
+$startParams = @{
+    FilePath               = $bin
+    PassThru               = $true
+    ArgumentList           = @('gitai', 'commit', '--repo', $work, '--from-diff',
+                              '--ai-base-url', "http://127.0.0.1:$port/v1")
+    RedirectStandardOutput = $stdoutFile
+    RedirectStandardError  = $stderrFile
+}
+if (Test-IsWindows) { $startParams['NoNewWindow'] = $true }
+$proc = Start-Process @startParams
 
 # Serve exactly one request, then return.
 $ctx = $listener.GetContext()
