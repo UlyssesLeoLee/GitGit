@@ -74,7 +74,14 @@ $logText = if (Test-Path $logFile) { Get-Content -Raw $logFile } else { '' }
 # ── Milestone assertions ──────────────────────────────────────────────────
 # Each milestone is a phrase smoke.ps1 prints on success of that step.
 $milestones = @(
-    @{ Name='build';                         Pattern='cargo build --quiet' },
+    # smoke.ps1 prints `cargo build --locked --quiet (debug)`. The pattern
+    # must match the command as actually emitted: `--locked` was added
+    # (correctly, for CI reproducibility) without this pattern being
+    # updated, and the milestone went red for a message that had not
+    # changed meaning. Match the full literal so the check stays specific
+    # -- loosening it to just `cargo build` would pass on a log that never
+    # completed the step.
+    @{ Name='build';                         Pattern='cargo build --locked --quiet' },
     @{ Name='init_repo';                     Pattern='init-repo' },
     @{ Name='server_ready';                  Pattern='server ready' },
     @{ Name='first_clone';                   Pattern='git clone \(first\)' },
