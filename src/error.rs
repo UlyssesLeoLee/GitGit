@@ -60,6 +60,18 @@ pub enum GitGitError {
     /// [`crate::server::vault`].
     #[error("vault error: {0}")]
     Vault(String),
+
+    /// AI provider or `gitai` pipeline failure (V0 T7).
+    ///
+    /// A string payload rather than a structured variant: the failures
+    /// that reach here are provider-specific (HTTP status plus the
+    /// provider's own error text), and a fixed set of variants would
+    /// either lose that detail or need a catch-all anyway.
+    ///
+    /// Callers must never place an API key into this message. It is
+    /// printed to the terminal and captured by CI logs.
+    #[error("ai error: {0}")]
+    Ai(String),
 }
 
 /// Convenience alias used throughout the codebase.

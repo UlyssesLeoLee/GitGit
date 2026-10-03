@@ -13,6 +13,7 @@
 //! `vault / auth / http`; this file does neither — it simply compiles the
 //! existing source files into a library target.
 
+pub mod ai;
 pub mod cli;
 pub mod config;
 pub mod error;
