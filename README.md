@@ -4,14 +4,34 @@
 
 本仓库目前的主要内容不是代码，而是一份完整走完 **13 个主阶段 + 2 个补充阶段** 的产品需求调研与定义程序，产出对象是一个暂命名为 **AI-Native Engineering Platform** 的、Local-First / Cloud-Ready / Git-Native / AI-Native / Agent-Native / Graph-Native 的可自托管软件工程平台的正式需求定义书。
 
-所有产出物位于 [`docs/requirements/`](docs/requirements/)。
+> ## ⚠️ 文档状态说明（2026-10-02 核验）
+>
+> 下面列出的需求定义书与设计书，描述的是**早期 14-crate 架构设计**。项目已收敛为
+> **单一 crate**（`Cargo.toml` 中显式注明「intentionally a single crate, NOT a workspace」），
+> 14-crate 设计连同 187 个文件一起归档在 [`docs_archive_rust_impl_2026_08_26/`](docs_archive_rust_impl_2026_08_26/)。
+>
+> 因此下文所有 `docs_archive_rust_impl_2026_08_26/...` 链接**指向历史设计，不是当前实现**。
+> 其中若干技术细节与现有代码**已经不一致** —— 最显著的是被归档的技术选型文档仍列出
+> `sqlx` 与 `gix`，而 `Cargo.toml` 中两者都不存在（实际用的是 shell `git` 子进程 + `rust-s3`）。
+> 阅读时请以代码为准。
+>
+> **当前有效的文档**：
+>
+> | 目录 | 内容 |
+> | --- | --- |
+> | [`docs/adr/`](docs/adr/) | 现行架构决策记录（ADR-0001 / 0020–0023） |
+> | [`docs/plan/v0-tasks.md`](docs/plan/v0-tasks.md) | V0 任务分解，**带证据标注的实测状态** |
+> | [`docs/reports/`](docs/reports/) | 各批次实现报告与回归测试记录 |
+> | [`.github/CI.md`](.github/CI.md) | 三个 CI workflow 的实测状态与已知限制 |
 
-设计阶段产出物位于 [`docs/design/`](docs/design/)。**严格按照日本 IPA 共通框架 2013（独立行政法人情报处理推进机构 / Information-technology Promotion Agency）编写，全部使用中文书写**。包含：
+所有产出物位于 [`docs_archive_rust_impl_2026_08_26/requirements/`](docs_archive_rust_impl_2026_08_26/requirements/)。
 
-- **基本设计书**（外部设计）：[`docs/design/basic-design/`](docs/design/basic-design/) — 16 章正文 + 4 附录（共 20 个文件），依据 IPA 共通框架 2013 的 `系统方式设计过程` (P3)。含 [API 设计](docs/design/basic-design/11-api-design.md)、[App 群组信息互通设计](docs/design/basic-design/12-app-group-intercommunication.md)、[App 集群与可热插拔架构](docs/design/basic-design/13-app-cluster-and-plugins.md) 与 [管理员运维界面](docs/design/basic-design/14-admin-ops-ui.md) 四个独立专章，以及 [Appendix C — IPA 过程·交付物 对照表](docs/design/basic-design/appendix-c-ipa-mapping.md) 和 [Appendix D — 用语集](docs/design/basic-design/appendix-d-glossary.md) 两个 IPA 对齐附录。
-- **详细设计书**（内部设计）：[`docs/design/detailed-design/`](docs/design/detailed-design/) — 14 个分章节文件，把基本设计细化为可实现的模块、类、函数、SQL DDL、状态机、错误处理等规格，依据 IPA 共通框架 2013 的 `软件方式设计过程` (P4) + `软件详细设计过程` (P5)。含 [App Registry & Plugin Loader](docs/design/detailed-design/12-app-registry-and-plugin-loader.md) 与 [Admin API & Ops UI](docs/design/detailed-design/13-admin-api-and-ops-ui.md) 两个新增专章，覆盖 App 集群 + 中心事件总线 + Admin 运维界面的可实现规格。
-- **架构决策 / 技术选型**：[`docs/architecture/`](docs/architecture/) — ADR 类文档，记录关键技术选型决策与 Phase 16 启动前 QA。当前 [技术选型文档](docs/architecture/tech-selection.md) 已拍板主语言为 **Rust（edition 2021，MSRV 1.75）** + Tokio + Axum + sqlx + gix（读路径）+ shell `git`（写路径），对应需求定义书 §53 ADR 列表项 11。[实施前 QA 检查表](docs/architecture/qa-checklist.md) 列出 26 项顾虑与疑问（🔴 6 / 🟠 8 / 🟡 9 / 🟢 3）。
-- **工程过程模型**：[`docs/process/workflow.md`](docs/process/workflow.md) — 150 个任务 × 13 阶段的瀑布-迭代混合工程过程模型（基于日本 IPA 上流工程共通框架的 13 主阶段），明确每阶段产出物、与本书各章节的对应关系、阶段责任矩阵与判定规则。
+设计阶段产出物位于 [`docs_archive_rust_impl_2026_08_26/design/`](docs_archive_rust_impl_2026_08_26/design/)。**严格按照日本 IPA 共通框架 2013（独立行政法人情报处理推进机构 / Information-technology Promotion Agency）编写，全部使用中文书写**。包含：
+
+- **基本设计书**（外部设计）：[`docs_archive_rust_impl_2026_08_26/design/basic-design/`](docs_archive_rust_impl_2026_08_26/design/basic-design/) — 16 章正文 + 4 附录（共 20 个文件），依据 IPA 共通框架 2013 的 `系统方式设计过程` (P3)。含 [API 设计](docs_archive_rust_impl_2026_08_26/design/basic-design/11-api-design.md)、[App 群组信息互通设计](docs_archive_rust_impl_2026_08_26/design/basic-design/12-app-group-intercommunication.md)、[App 集群与可热插拔架构](docs_archive_rust_impl_2026_08_26/design/basic-design/13-app-cluster-and-plugins.md) 与 [管理员运维界面](docs_archive_rust_impl_2026_08_26/design/basic-design/14-admin-ops-ui.md) 四个独立专章，以及 [Appendix C — IPA 过程·交付物 对照表](docs_archive_rust_impl_2026_08_26/design/basic-design/appendix-c-ipa-mapping.md) 和 [Appendix D — 用语集](docs_archive_rust_impl_2026_08_26/design/basic-design/appendix-d-glossary.md) 两个 IPA 对齐附录。
+- **详细设计书**（内部设计）：[`docs_archive_rust_impl_2026_08_26/design/detailed-design/`](docs_archive_rust_impl_2026_08_26/design/detailed-design/) — 14 个分章节文件，把基本设计细化为可实现的模块、类、函数、SQL DDL、状态机、错误处理等规格，依据 IPA 共通框架 2013 的 `软件方式设计过程` (P4) + `软件详细设计过程` (P5)。含 [App Registry & Plugin Loader](docs_archive_rust_impl_2026_08_26/design/detailed-design/12-app-registry-and-plugin-loader.md) 与 [Admin API & Ops UI](docs_archive_rust_impl_2026_08_26/design/detailed-design/13-admin-api-and-ops-ui.md) 两个新增专章，覆盖 App 集群 + 中心事件总线 + Admin 运维界面的可实现规格。
+- **架构决策 / 技术选型**：[`docs_archive_rust_impl_2026_08_26/architecture/`](docs_archive_rust_impl_2026_08_26/architecture/) — ⚠️ **已归档**，[技术选型文档](docs_archive_rust_impl_2026_08_26/architecture/tech-selection.md) 描述的是 14-crate 设计时代的技术选型，与当前代码**不一致**：该文档列出 `sqlx` + `gix`（读路径），而 `Cargo.toml` 中**两者都不存在**。[实施前 QA 检查表](docs_archive_rust_impl_2026_08_26/architecture/qa-checklist.md) 列出 26 项顾虑与疑问（🔴 6 / 🟠 8 / 🟡 9 / 🟢 3）。
+- **工程过程模型**：[`docs_archive_rust_impl_2026_08_26/process/workflow.md`](docs_archive_rust_impl_2026_08_26/process/workflow.md) — 150 个任务 × 13 阶段的瀑布-迭代混合工程过程模型（基于日本 IPA 上流工程共通框架的 13 主阶段），明确每阶段产出物、与本书各章节的对应关系、阶段责任矩阵与判定规则。
 
 
 ---
@@ -57,21 +77,21 @@ Phase 15    终审验收（一致性核查）   ──▶ phase15-final-audit.md
 
 ---
 
-## 文档索引（`docs/requirements/`）
+## 文档索引（`docs_archive_rust_impl_2026_08_26/requirements/`）
 
 | 文件 | 内容概要 |
 |---|---|
-| [`phase1-5-research.md`](docs/requirements/phase1-5-research.md) | 对 GitHub、GitLab、Gitea/Forgejo、Bitbucket、Sourcegraph、OpenAI Codex、Claude Code、Cursor、Linear 等的深度竞品调研；能力矩阵；Commodity/Differentiator/Emerging/Experimental 四象限 Gap 分析 |
-| [`phase6-primitives.md`](docs/requirements/phase6-primitives.md) | 从 Observation→Pattern→Constraint→Primitive→Interaction→Workflow→Capability 的涌现式推导；最终 MVP 原语集合为 **Node / Edge / Event / Policy / View**（Agent 作为 Node 子类型，Action/Evidence 延后，Intent/Context 被砍） |
-| [`phase7-elicitation.md`](docs/requirements/phase7-elicitation.md) | 按 GIT / GRF / AGT / AI / CTX / SEC / CI / UX / OPS / CLOUD 十个前缀分类、带唯一 ID、含验收标准的原子需求草稿 |
-| [`00-requirements-definition.md`](docs/requirements/00-requirements-definition.md) | **主文档**：55 节正式需求定义书 + ADR 待定清单附录（Baseline v1.0） |
-| [`phase9-mvp-reduction.md`](docs/requirements/phase9-mvp-reduction.md) | 用"最小完整闭环"（Repository→Issue→AI Context→Agent Branch→Code Change→CI→AI Review→Human Approval→Merge→Graph Update）作为唯一标准，严格砍需求而非堆功能数量 |
-| [`phase10-architecture.md`](docs/requirements/phase10-architecture.md) | Principal Architect 视角的架构评审：技术栈逐项评估、图存储方案决策、Git 存储实现方式决策、服务边界、Local→Cloud 迁移路径、"哪些组件被砍掉"清单 |
-| [`phase11-red-team.md`](docs/requirements/phase11-red-team.md) | 从 17 个角度对整个方案发起真实攻击（是否只是 GitHub Clone、是否 AI 包装、是否过度工程、Agent 执行安全面、本地部署是否过重等），17 条发现 |
-| [`phase12-ux-review.md`](docs/requirements/phase12-ux-review.md) | UX 红队评审："稳定骨架 + 涌现式上下文"是否真的可执行，Ambient AI 预算（80/15/5 目标）是否会退化成 Chat，9 条发现 |
-| [`phase13-final-baseline.md`](docs/requirements/phase13-final-baseline.md) | **收官文档**：对全部 26 条红队/UX 发现逐一处置并实际修订主文档；三大护城河（Moats）分析；正面回答"如果 GitHub/GitLab 明天 AI 提升十倍，我们为何还存在"；宣告 Baseline v1.0 |
-| [`phase14-ipa-compliance-review.md`](docs/requirements/phase14-ipa-compliance-review.md) | 按日本 IPA 标准（非功能要求等级 / 上流工程共通框架 / 信息安全指南）对 Baseline v1.0 做合规差距分析，9 条发现，新增 NFR-REQ×3 + SEC-REQ×3 |
-| [`phase15-final-audit.md`](docs/requirements/phase15-final-audit.md) | 终审验收：需求 ID 连续性/唯一性、跨文档引用完整性、链接有效性、各处声明数字与实际内容的一致性核查，3 条缺陷及修复记录 |
+| [`phase1-5-research.md`](docs_archive_rust_impl_2026_08_26/requirements/phase1-5-research.md) | 对 GitHub、GitLab、Gitea/Forgejo、Bitbucket、Sourcegraph、OpenAI Codex、Claude Code、Cursor、Linear 等的深度竞品调研；能力矩阵；Commodity/Differentiator/Emerging/Experimental 四象限 Gap 分析 |
+| [`phase6-primitives.md`](docs_archive_rust_impl_2026_08_26/requirements/phase6-primitives.md) | 从 Observation→Pattern→Constraint→Primitive→Interaction→Workflow→Capability 的涌现式推导；最终 MVP 原语集合为 **Node / Edge / Event / Policy / View**（Agent 作为 Node 子类型，Action/Evidence 延后，Intent/Context 被砍） |
+| [`phase7-elicitation.md`](docs_archive_rust_impl_2026_08_26/requirements/phase7-elicitation.md) | 按 GIT / GRF / AGT / AI / CTX / SEC / CI / UX / OPS / CLOUD 十个前缀分类、带唯一 ID、含验收标准的原子需求草稿 |
+| [`00-requirements-definition.md`](docs_archive_rust_impl_2026_08_26/requirements/00-requirements-definition.md) | **主文档**：55 节正式需求定义书 + ADR 待定清单附录（Baseline v1.0） |
+| [`phase9-mvp-reduction.md`](docs_archive_rust_impl_2026_08_26/requirements/phase9-mvp-reduction.md) | 用"最小完整闭环"（Repository→Issue→AI Context→Agent Branch→Code Change→CI→AI Review→Human Approval→Merge→Graph Update）作为唯一标准，严格砍需求而非堆功能数量 |
+| [`phase10-architecture.md`](docs_archive_rust_impl_2026_08_26/requirements/phase10-architecture.md) | Principal Architect 视角的架构评审：技术栈逐项评估、图存储方案决策、Git 存储实现方式决策、服务边界、Local→Cloud 迁移路径、"哪些组件被砍掉"清单 |
+| [`phase11-red-team.md`](docs_archive_rust_impl_2026_08_26/requirements/phase11-red-team.md) | 从 17 个角度对整个方案发起真实攻击（是否只是 GitHub Clone、是否 AI 包装、是否过度工程、Agent 执行安全面、本地部署是否过重等），17 条发现 |
+| [`phase12-ux-review.md`](docs_archive_rust_impl_2026_08_26/requirements/phase12-ux-review.md) | UX 红队评审："稳定骨架 + 涌现式上下文"是否真的可执行，Ambient AI 预算（80/15/5 目标）是否会退化成 Chat，9 条发现 |
+| [`phase13-final-baseline.md`](docs_archive_rust_impl_2026_08_26/requirements/phase13-final-baseline.md) | **收官文档**：对全部 26 条红队/UX 发现逐一处置并实际修订主文档；三大护城河（Moats）分析；正面回答"如果 GitHub/GitLab 明天 AI 提升十倍，我们为何还存在"；宣告 Baseline v1.0 |
+| [`phase14-ipa-compliance-review.md`](docs_archive_rust_impl_2026_08_26/requirements/phase14-ipa-compliance-review.md) | 按日本 IPA 标准（非功能要求等级 / 上流工程共通框架 / 信息安全指南）对 Baseline v1.0 做合规差距分析，9 条发现，新增 NFR-REQ×3 + SEC-REQ×3 |
+| [`phase15-final-audit.md`](docs_archive_rust_impl_2026_08_26/requirements/phase15-final-audit.md) | 终审验收：需求 ID 连续性/唯一性、跨文档引用完整性、链接有效性、各处声明数字与实际内容的一致性核查，3 条缺陷及修复记录 |
 
 ---
 
@@ -116,8 +136,8 @@ MVP 需求数演进：45（Phase 9 初始）→ **37**（Phase 9 按最小完整
 
 ## 阅读建议
 
-- 只想看结论：直接看 [`phase13-final-baseline.md`](docs/requirements/phase13-final-baseline.md) 的 §4（三大护城河）、§5（终极问题）、§6（Baseline 声明）。
-- 想看完整正式需求：看 [`00-requirements-definition.md`](docs/requirements/00-requirements-definition.md)，目录附有全部 55 节链接。
+- 只想看结论：直接看 [`phase13-final-baseline.md`](docs_archive_rust_impl_2026_08_26/requirements/phase13-final-baseline.md) 的 §4（三大护城河）、§5（终极问题）、§6（Baseline 声明）。
+- 想看完整正式需求：看 [`00-requirements-definition.md`](docs_archive_rust_impl_2026_08_26/requirements/00-requirements-definition.md)，目录附有全部 55 节链接。
 - 想看某个具体判断是怎么来的：按上面的阶段顺序从 Phase 1 往后读，每个阶段都写明了方法、证据来源和推理过程。
 - 想看这个项目"骗不骗人"：重点看 Phase 11（红队评审）、Phase 12（UX 红队评审）和 Phase 15（终审验收）——前两个阶段的存在是为了防止前面的阶段自说自话，Phase 15 则是逐条核对各处声明的数字与实际内容是否一致（结果确实查出了 3 处记账错误并已修正）。
 
