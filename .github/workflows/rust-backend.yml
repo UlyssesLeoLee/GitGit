@@ -1,10 +1,15 @@
 # Rust backend CI — covers gitgit-server itself.
 #
-# Triggers: every push or PR that touches `src/**` or `Cargo.toml`. Runs
-# `cargo fmt`, `cargo clippy`, and `cargo test --bins` on stable. The
-# minIO e2e test is marked `#[ignore]` so the unit suite is the only
-# required gate here; minIO coverage lives in a separate self-hosted
-# runner workflow (out of scope for V0.1).
+# Two required jobs:
+#   * `test`        — cargo fmt / clippy / test --bins / test --doc / release build.
+#   * `integration` — scripts/regression-it.ps1 + scripts/regression-st.ps1:
+#                     a real `git` client pushing over real HTTP to a live
+#                     `gitgit serve`, plus HTTP-level /api/* assertions.
+#
+# The minIO e2e test is marked `#[ignore]`, so minIO coverage lives in a
+# separate self-hosted runner workflow (out of scope for V0.1). The
+# integration job is a hard gate: it has no continue-on-error and no
+# step-level `|| true`, so a real end-to-end failure fails this workflow.
 name: rust-backend
 
 on:
@@ -14,6 +19,7 @@ on:
       - 'src/**'
       - 'Cargo.toml'
       - 'Cargo.lock'
+      - 'scripts/**'
       - '.github/workflows/rust-backend.yml'
   pull_request:
     branches: [dev, main]
@@ -21,6 +27,7 @@ on:
       - 'src/**'
       - 'Cargo.toml'
       - 'Cargo.lock'
+      - 'scripts/**'
       - '.github/workflows/rust-backend.yml'
 
 concurrency:
@@ -53,10 +60,91 @@ jobs:
         run: cargo clippy --all-targets --locked -- -D warnings
 
       - name: Run unit tests
-        run: cargo test --bins
+        # `--all-targets`, not `--bins`.
+        #
+        # `src/main.rs` is a thin CLI shell over the `gitgit` library
+        # target, so the unit tests live in the lib. `--bins` compiles only
+        # the binary target's test harness and reports "0 tests" — a green
+        # run that asserts nothing. `--all-targets` covers lib + bin + any
+        # integration/example/bench targets.
+        run: |
+          set -o pipefail
+          cargo test --all-targets 2>&1 | tee /tmp/cargo-test.txt
+          # Guard the guard: `cargo test` exits 0 even when every target
+          # ran zero tests, so a future refactor that moves the tests out
+          # of the compiled target set would turn this gate green while
+          # checking nothing. Require a non-zero passed count.
+          if ! grep -qE 'test result: ok\. [1-9][0-9]* passed' /tmp/cargo-test.txt; then
+            echo "::error::no unit tests actually ran (expected a non-zero 'passed' count)"
+            grep -E 'test result|running [0-9]+ tests' /tmp/cargo-test.txt || true
+            exit 1
+          fi
 
       - name: Run doc tests
+        # `--all-targets` deliberately excludes doc tests, so this stays a
+        # separate step.
         run: cargo test --doc
 
       - name: Build release
         run: cargo build --release
+
+  integration:
+    # Real end-to-end gate: real git client over real HTTP, plus HTTP-level
+    # assertions against a live `gitgit serve`. This is a hard gate — no
+    # continue-on-error, no `|| true`. A failure here fails the workflow and
+    # blocks merge to dev/main.
+    name: ST + IT regression (real git over HTTP)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@1.98.1
+
+      - name: Install jq
+        # The IT tier treats jq as optional and silently degrades to
+        # substring matching without it, which would weaken exactly the
+        # JSON-shape and array-length assertions this job exists to
+        # enforce. Install it so the gate is the same on CI as on a
+        # developer box that has jq.
+        run: sudo apt-get update && sudo apt-get install -y jq
+
+      - name: Cache cargo registry & target
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: '.'
+          cache-on-failure: true
+
+      - name: Configure git identity for the suite
+        # smoke.ps1 clones and commits; without a committer identity the
+        # commits fail and the test would report a misleading error.
+        run: |
+          git config --global user.email "ci@gitgit.local"
+          git config --global user.name  "gitgit ci"
+          git config --global init.defaultBranch main
+
+      - name: IT — HTTP integration tier
+        run: pwsh -NoProfile -File scripts/regression-it.ps1
+
+      - name: ST — system tier (real git over HTTP)
+        run: pwsh -NoProfile -File scripts/regression-st.ps1
+
+      - name: gitai end-to-end against a mock provider
+        # Drives the real binary through `gitai commit --from-diff` and
+        # asserts against a local mock provider: the diff is collected, the
+        # planted secrets are redacted before the request leaves the
+        # machine, the untrusted content is tagged, and the response is
+        # parsed. This is the only gate that exercises the CLI binary
+        # itself rather than the library, which is how the
+        # `Handle::current().block_on` panic in every `gitgit key *`
+        # subcommand went unnoticed.
+        run: pwsh -NoProfile -File scripts/verify-gitai-e2e.ps1
+
+      - name: Upload regression logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: regression-logs
+          path: target/regression-logs/
+          if-no-files-found: warn
