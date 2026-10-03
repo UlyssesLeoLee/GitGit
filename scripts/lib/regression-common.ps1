@@ -67,14 +67,23 @@ function Get-ToolPath {
       Windows `.exe` suffix and the PowerShell `curl` alias (WinPS maps
       `curl` to Invoke-WebRequest, which is not an HTTP client we can
       spawn). Returns $null when the tool is absent.
+
+      Always returns a single scalar string. `Get-Command` can return
+      SEVERAL applications for one name (a GitHub ubuntu runner has more
+      than one `curl` on PATH), and returning `$cmd.Source` in that case
+      yields an array. An array is truthy, so every `if (-not $tool)`
+      guard downstream passes, and the failure only surfaces much later
+      as an opaque parameter-binding error on whichever parameter
+      happened to receive it.
     #>
     param([Parameter(Mandatory)][string]$Name)
 
     $candidates = @($Name)
     if ($Name -notmatch '\.(exe|cmd|bat)$') { $candidates += "$Name.exe" }
     foreach ($c in $candidates) {
-        $cmd = Get-Command $c -CommandType Application -ErrorAction SilentlyContinue
-        if ($cmd) { return $cmd.Source }
+        $cmd = Get-Command $c -CommandType Application -ErrorAction SilentlyContinue |
+               Select-Object -First 1
+        if ($cmd) { return [string]$cmd.Source }
     }
     return $null
 }
@@ -98,6 +107,19 @@ function Invoke-External {
         [string]$WorkingDirectory,
         [int]$TimeoutSec = 0
     )
+
+    # Fail loudly and specifically if we were handed something that is not
+    # one usable path. A parameter-binding error on [string]$FilePath says
+    # only "cannot convert to System.String", which does not tell you
+    # whether the value was null, an array, or a CommandInfo -- and this
+    # function is called from a dozen places.
+    if ([string]::IsNullOrWhiteSpace($FilePath)) {
+        throw "Invoke-External: FilePath resolved to an empty value (tool missing on PATH?)"
+    }
+    if (-not (Test-Path -LiteralPath $FilePath)) {
+        $type = $FilePath.GetType().FullName
+        throw "Invoke-External: FilePath '$FilePath' (type $type) does not exist on disk"
+    }
 
     $psi = [System.Diagnostics.ProcessStartInfo]::new()
     $psi.FileName               = $FilePath
