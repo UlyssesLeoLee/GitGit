@@ -88,6 +88,45 @@ function Get-ToolPath {
     return $null
 }
 
+function Get-BashPath {
+    <#
+      Resolve a real POSIX bash, skipping the Windows WSL shim.
+
+      `C:\Windows\System32\bash.exe` is not bash -- it is the WSL launcher.
+      It appears early on PATH on any machine with WSL installed, so a
+      plain PATH lookup finds it before git-bash and then hands a
+      Windows-style path to a Linux shell, which fails in a way that reads
+      like a missing file:
+
+        /bin/bash: CUsersleo19AppDataLocalTempgitgit-regression-ut-....sh:
+        No such file or directory
+
+      Note what that message shows: the backslashes were eaten, so the
+      path is not merely wrong, it is corrupt -- and nothing in the error
+      points at WSL.
+
+      Prefers, in order: a bash already on PATH that is not the WSL shim,
+      then the git-bash that ships with Git for Windows, then the system
+      bash on Linux/macOS. Returns $null when there is genuinely none.
+    #>
+    $onPath = Get-ToolPath -Name 'bash'
+    $isWslShim = $onPath -and
+                 ($onPath -match '(?i)\\system32\\bash\.exe$' -or
+                  $onPath -match '(?i)\\sysnative\\bash\.exe$')
+    if ($onPath -and -not $isWslShim) { return $onPath }
+
+    # The WSL shim is what PATH offered; look past it for a real bash.
+    $gitBash = @(
+        (Join-Path ${env:ProgramFiles} 'Git\bin\bash.exe'),
+        (Join-Path ${env:ProgramFiles} 'Git\usr\bin\bash.exe'),
+        '/usr/bin/bash',
+        '/bin/bash'
+    ) | Where-Object { $_ -and (Test-Path -LiteralPath $_) } | Select-Object -First 1
+
+    if ($gitBash) { return [string]$gitBash }
+    return $null
+}
+
 function Invoke-External {
     <#
       Run a program with an exact argv vector and capture its output.

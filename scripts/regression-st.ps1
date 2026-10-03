@@ -61,7 +61,13 @@ if (-not (Test-Path $smokePath)) {
 Write-Step "running pwsh $smokePath -Bind $Bind -RepoName $RepoName"
 $logFile = Join-Path (Get-LogRoot) ('smoke-{0}.log' -f (Get-Date).ToString('yyyyMMdd-HHmmss'))
 $sw = [System.Diagnostics.Stopwatch]::StartNew()
-$proc = Start-Process -FilePath pwsh.exe `
+# Re-enter the interpreter that is running this script rather than naming
+# it. `pwsh.exe` is the Windows spelling; on Linux the binary is `pwsh`,
+# and Start-Process then fails with "No such file or directory" while
+# blaming the working directory, which sends you looking in the wrong
+# place. $PID's own image is guaranteed present and version-exact.
+$selfExe = (Get-Process -Id $PID).Path
+$proc = Start-Process -FilePath $selfExe `
     -ArgumentList @('-NoProfile','-File',$smokePath,'-Bind',$Bind,'-RepoName',$RepoName) `
     -NoNewWindow -PassThru -Wait `
     -RedirectStandardOutput $logFile `

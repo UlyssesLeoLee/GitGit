@@ -79,7 +79,10 @@ foreach ($tier in $Tiers) {
         $v = [Environment]::GetEnvironmentVariable($k)
         if ($v) { $pwshArgs += @("-Env:$k", $v) }
     }
-    & pwsh.exe @pwshArgs
+    # Re-enter the interpreter running this script. `pwsh.exe` is the
+    # Windows spelling only; on Linux the binary is `pwsh`.
+    $selfExe = (Get-Process -Id $PID).Path
+    & $selfExe @pwshArgs
     $exit = $LASTEXITCODE
     $sw.Stop()
 

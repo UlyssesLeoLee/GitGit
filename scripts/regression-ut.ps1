@@ -43,7 +43,10 @@ $perModule        = $baseline.ut.perModule
 $run = New-RegressionRun -Tier 'ut'
 
 # ── Cargo availability ──────────────────────────────────────────────────────
-$cargo = (Get-Command cargo.exe -ErrorAction SilentlyContinue)
+# Get-ToolPath tries `cargo` and then `cargo.exe`, so this resolves on
+# Windows and on Linux. `Get-Command cargo.exe` alone finds nothing off
+# Windows.
+$cargo = Get-ToolPath -Name 'cargo'
 if (-not $cargo) {
     Write-Fail 'cargo not found on PATH'
     $run.SetupError = $true
@@ -92,17 +95,21 @@ try {
     # E:\DevCache\cargo\target and CARGO_HOME) drops output at ~80
     # bytes; bash redirection is reliable and lets cargo finish even
     # while other cargo procs are queued on the package-cache lock.
-    $bash = (Get-Command bash.exe -ErrorAction SilentlyContinue)
+    # A POSIX shell for the redirection trick below. Get-BashPath skips the
+    # WSL launcher at C:\Windows\System32\bash.exe, which otherwise wins
+    # the PATH lookup on any machine with WSL installed and then mangles
+    # the Windows-style script path into something unreadable.
+    $bash = Get-BashPath
     if (-not $bash) {
-        Write-Fail 'bash.exe not found on PATH (expected from git-bash)'
+        Write-Fail 'no usable bash found (looked past the WSL launcher; expected git-bash on Windows, or the system shell elsewhere)'
         $run.SetupError = $true
         $report = Write-RegressionReport -Run $run -OutFile (Join-Path (Get-LogRoot) 'ut-setup-error.json')
         Pop-Location
         exit 2
     }
-    $bashPath = $bash.Source
+    $bashPath = $bash
     $repoRootPosix  = (Get-RepoRoot) -replace '\\','/'
-    $cargoBinPosix  = ((Get-Command cargo.exe).Source) -replace '\\','/'
+    $cargoBinPosix  = ($cargo) -replace '\\','/'
     $stdoutPosix    = $stdoutFile -replace '\\','/'
     $stderrPosix    = $stderrFile -replace '\\','/'
     # Write a tiny bash script — much easier to reason about than
@@ -165,11 +172,17 @@ $moduleTotal  = @{}
 
 foreach ($line in ($stdout -split "`n")) {
     # Aggregate total line, e.g.: "test result: ok. 76 passed; 0 failed; 0 ignored; ..."
+    #
+    # ACCUMULATE, do not assign. `cargo test` prints one `test result:` line
+    # per compiled target, and this crate has two (the lib and the thin
+    # binary shell). Assigning made the last line win, so once the binary
+    # target started running zero tests it overwrote the library's real
+    # count with 0 and the total assertion failed against its own baseline.
     $m = [regex]::Match($line, 'test result:\s*(ok|FAILED)\.\s*(\d+)\s+passed;\s*(\d+)\s+failed;\s*(\d+)\s+ignored')
     if ($m.Success) {
-        $totals.passed  = [int]$m.Groups[2].Value
-        $totals.failed  = [int]$m.Groups[3].Value
-        $totals.ignored = [int]$m.Groups[4].Value
+        $totals.passed  += [int]$m.Groups[2].Value
+        $totals.failed  += [int]$m.Groups[3].Value
+        $totals.ignored += [int]$m.Groups[4].Value
         continue
     }
     # Per-test lines, e.g.: "test server::api::tests::foo ... ok" / "FAILED"
