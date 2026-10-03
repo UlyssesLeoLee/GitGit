@@ -18,15 +18,17 @@ $ErrorActionPreference = 'Stop'
 
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 
-# The binary lands wherever cargo put it. CI sets no CARGO_TARGET_DIR, the
-# regression tiers build into ./target, and a developer may point
-# CARGO_TARGET_DIR anywhere, so check the plausible spots in order rather
-# than assuming one.
+# The binary lands wherever cargo put it, and the tier scripts deliberately
+# build somewhere other than ./target: regression-st.ps1 and regression-ut.ps1
+# both set CARGO_TARGET_DIR to <repo>/target-regression so they do not fight
+# the main ./target directory for the cargo package-cache lock. That env var
+# is process-local, so it does not reach this step -- the path has to be
+# listed explicitly. Note the dash in `target-regression`.
 $exeName = if ($IsWindows) { 'gitgit.exe' } else { 'gitgit' }
 $candidates = @(
     $(if ($env:CARGO_TARGET_DIR) { Join-Path $env:CARGO_TARGET_DIR "debug/$exeName" })
+    (Join-Path $repoRoot "target-regression/debug/$exeName")
     (Join-Path $repoRoot "target/debug/$exeName")
-    (Join-Path $repoRoot "target/regression/debug/$exeName")
 ) | Where-Object { $_ }
 $bin = $candidates | Where-Object { Test-Path $_ } | Select-Object -First 1
 if (-not $bin) {
