@@ -1,4 +1,4 @@
-#requires -Version 5
+#requires -Version 7
 <#
 .SYNOPSIS
     ST (System Test) regression tier — wraps scripts/smoke.ps1.
@@ -27,7 +27,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-. (Join-Path $PSScriptRoot 'lib\regression-common.ps1')
+. (Join-Path $PSScriptRoot 'lib/regression-common.ps1')
 
 # Per-worktree target dir so smoke.ps1's `git clone http://...` works
 # against a binary built against the current source (not the stale
@@ -39,7 +39,7 @@ if (-not (Test-Path $script:RegressionTargetDir)) {
     New-Item -ItemType Directory -Path $script:RegressionTargetDir -Force | Out-Null
 }
 
-$baselinePath = Join-Path (Get-RepoRoot) 'scripts\regression-baseline.json'
+$baselinePath = Join-Path (Get-RepoRoot) 'scripts/regression-baseline.json'
 if (-not (Test-Path $baselinePath)) {
     Write-Fail "baseline not found at $baselinePath"
     exit 2
@@ -50,7 +50,7 @@ $minAssertions = [int]$baseline.st.minAssertions
 $run = New-RegressionRun -Tier 'st'
 
 # ── Locator for smoke.ps1 ──────────────────────────────────────────────────
-$smokePath = Join-Path (Get-RepoRoot) 'scripts\smoke.ps1'
+$smokePath = Join-Path (Get-RepoRoot) 'scripts/smoke.ps1'
 if (-not (Test-Path $smokePath)) {
     Write-Fail "smoke.ps1 not found at $smokePath"
     $run.SetupError = $true

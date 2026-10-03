@@ -1,4 +1,4 @@
-#requires -Version 5
+#requires -Version 7
 <#
 .SYNOPSIS
     IT (Integration Test) regression tier for the gitgit MVP.
@@ -20,6 +20,11 @@
     more expectJsonContains / expectJsonShape / expectArrayLenEq /
     minArrayLen / expectBodyContains assertions.
 
+    jq is required for the shape / array-length assertions. Without it
+    those three assertion kinds are silently dropped, so the IT tier
+    exits 2 (setup error) rather than reporting a weaker pass. The CI
+    job installs jq for exactly this reason.
+
     Exit codes: 0 pass / 1 any assertion failed / 2 setup error.
 
 .PARAMETER SkipBuild
@@ -37,7 +42,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-. (Join-Path $PSScriptRoot 'lib\regression-common.ps1')
+. (Join-Path $PSScriptRoot 'lib/regression-common.ps1')
 
 # Per-worktree target dir to avoid shared-cache lock contention with
 # other Multica workspaces (see ULYS-100 memory note). The user-env
@@ -49,21 +54,29 @@ if (-not (Test-Path $script:RegressionTargetDir)) {
     New-Item -ItemType Directory -Path $script:RegressionTargetDir -Force | Out-Null
 }
 
-$baselinePath = Join-Path (Get-RepoRoot) 'scripts\regression-baseline.json'
+$baselinePath = Join-Path (Get-RepoRoot) 'scripts/regression-baseline.json'
 if (-not (Test-Path $baselinePath)) {
     Write-Fail "baseline not found at $baselinePath"
     exit 2
 }
 $baseline = Get-Content -Raw $baselinePath | ConvertFrom-Json
 
-$jq = (Get-Command jq.exe -ErrorAction SilentlyContinue)
-$curl = (Get-Command curl.exe -ErrorAction SilentlyContinue)
+# Resolve external tools by name so the same code works on Windows
+# (cargo.exe/git.exe/curl.exe) and Linux (cargo/git/curl).
+$jq   = Get-ToolPath -Name 'jq'
+$curl = Get-ToolPath -Name 'curl'
 if (-not $curl) {
     Write-Fail 'curl not found on PATH'
     exit 2
 }
-# jq is recommended but optional; the script falls back to grep when missing.
-$hasJq = [bool]$jq
+# jq gates three assertion kinds (expectJsonShape, expectArrayLenEq,
+# minArrayLen). Degrading to substring matching when it is missing would
+# quietly shrink the gate — the tier would report a pass it never actually
+# earned — so its absence is a setup error, not a warning.
+if (-not $jq) {
+    Write-Fail 'jq not found on PATH (required for the JSON shape / array-length assertions)'
+    exit 2
+}
 
 $run = New-RegressionRun -Tier 'it'
 
@@ -77,50 +90,30 @@ if (-not $bin) {
         exit 2
     }
     Write-Step "cargo build (debug, into $script:RegressionTargetDir)"
-    $bash = (Get-Command bash.exe -ErrorAction SilentlyContinue)
-    if (-not $bash) {
-        Write-Fail 'bash.exe not found on PATH (expected from git-bash)'
+    $cargo = Get-ToolPath -Name 'cargo'
+    if (-not $cargo) {
+        Write-Fail 'cargo not found on PATH'
         $run.SetupError = $true
+        $report = Write-RegressionReport -Run $run -OutFile (Join-Path (Get-LogRoot) 'it-build-missing-cargo.json')
         exit 2
     }
-    $repoRootPosix = (Get-RepoRoot) -replace '\\','/'
-    $cargoBinPosix = ((Get-Command cargo.exe).Source) -replace '\\','/'
-    $buildLog = Join-Path (Get-LogRoot) 'it-build-stdout.log'
-    $buildErr = Join-Path (Get-LogRoot) 'it-build-stderr.log'
-    $exitCodePath = Join-Path (Get-LogRoot) 'it-build-exitcode.txt'
-    if (Test-Path $buildLog) { Remove-Item $buildLog -Force }
-    if (Test-Path $buildErr) { Remove-Item $buildErr -Force }
-    if (Test-Path $exitCodePath) { Remove-Item $exitCodePath -Force }
-    $shPath = Join-Path $env:TEMP ("gitgit-regression-it-build-{0}.sh" -f ([guid]::NewGuid().ToString('N')))
-    $shBody = "#!/usr/bin/env bash`n" +
-              "set -u`n" +
-              "cd '$repoRootPosix'`n" +
-              "'$cargoBinPosix' build --color=never --offline > '$($buildLog -replace '\\','/')' 2> '$($buildErr -replace '\\','/')'`n" +
-              "echo `$? > '$($exitCodePath -replace '\\','/')'`n"
-    Set-Content -Path $shPath -Value $shBody -Encoding ascii -Force
-    try {
-        $proc = Start-Process -FilePath $bash.Source `
-            -ArgumentList @($shPath) `
-            -NoNewWindow `
-            -PassThru
-        if (-not $proc.WaitForExit(600000)) {
-            try { Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue } catch {}
-            Write-Fail 'cargo build timed out (600s)'
-            $run.SetupError = $true
-            $report = Write-RegressionReport -Run $run -OutFile (Join-Path (Get-LogRoot) 'it-build-timeout.json')
-            exit 2
-        }
-    } finally {
-        Remove-Item $shPath -Force -ErrorAction SilentlyContinue
+    # `--locked` keeps CI honest: it fails the build if the lockfile would
+    # need to change, so a dependency bump cannot slip in unnoticed. No
+    # `--offline`: a fresh CI runner has an empty registry cache and would
+    # fail before downloading anything.
+    $build = Invoke-External -FilePath $cargo -TimeoutSec 600 `
+        -WorkingDirectory (Get-RepoRoot) `
+        -ArgumentList @('build', '--locked', '--color=never')
+    Set-Content -Path (Join-Path (Get-LogRoot) 'it-build.log') -Value ($build.StdOut + $build.StdErr) -Encoding utf8
+    if ($build.TimedOut) {
+        Write-Fail 'cargo build timed out (600s)'
+        $run.SetupError = $true
+        $report = Write-RegressionReport -Run $run -OutFile (Join-Path (Get-LogRoot) 'it-build-timeout.json')
+        exit 2
     }
-    $buildExit = -1
-    if (Test-Path $exitCodePath) {
-        $exitStr = (Get-Content $exitCodePath -Raw -ErrorAction SilentlyContinue).Trim()
-        if ($exitStr -match '^\-?\d+$') { $buildExit = [int]$exitStr }
-    }
-    if ($buildExit -ne 0) {
-        Write-Fail "cargo build exit=$buildExit"
-        Get-Content $buildErr -Tail 20 -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "  $_" }
+    if ($build.ExitCode -ne 0) {
+        Write-Fail "cargo build exit=$($build.ExitCode)"
+        ($build.StdErr -split "`n" | Select-Object -Last 20) | ForEach-Object { Write-Host "  $_" }
         $run.SetupError = $true
         $report = Write-RegressionReport -Run $run -OutFile (Join-Path (Get-LogRoot) 'it-build-failed.json')
         exit 2
@@ -163,10 +156,7 @@ $logFile = Join-Path $scratch 'server.log'
 $serverProc = $null
 try {
     Write-Step "starting server on $Bind (log: $logFile)"
-    $serverArgs = @('serve','--bind',$Bind,'--repos-dir',$reposDir)
-    if ($bin -like '*\target-regression\debug\gitgit.exe') {
-        $serverArgs += @('--vault-file-root',$vaultDir)
-    }
+    $serverArgs = @('serve','--bind',$Bind,'--repos-dir',$reposDir,'--vault-file-root',$vaultDir)
     $serverProc = Start-Process -FilePath $bin `
         -ArgumentList $serverArgs `
         -NoNewWindow -PassThru `
@@ -189,43 +179,35 @@ try {
         }
         $uri = $baseUrl + $ep.path
 
-        # Build a cmd.exe command-line that invokes curl. We do this
-        # instead of `Start-Process curl.exe -ArgumentList @args`
-        # because PowerShell's call-operator argument expansion under
-        # WinPS 5.1 silently strips `"` characters from each argv
-        # element before passing them to the child process, which
-        # mangles every JSON body like `{"value":"x"}` into
-        # `{value:x}` and makes the server return 400. Using cmd.exe
-        # /c with a properly-quoted command line avoids that
-        # expansion entirely; cmd.exe handles the quoting natively.
-        $cmdLine = '/c "C:\Windows\System32\curl.exe --noproxy * --silent -o "' +
-                            (Join-Path $scratch 'body.json') +
-                            '" -w %{http_code} --max-time 15'
+        # Invoke curl through Invoke-External, which hands each argv
+        # element to the OS verbatim via ProcessStartInfo.ArgumentList.
+        # The previous implementation built a `cmd.exe /c "...curl..."`
+        # string, which was Windows-only and required hand-rolled
+        # escaping for the JSON request bodies; this path has no shell
+        # in it, so a body like {"value":"x"} and a header containing a
+        # space survive intact on both Windows and Linux.
+        $bodyPath = Join-Path $scratch 'body.json'
+        if (Test-Path $bodyPath) { Remove-Item $bodyPath -Force }
+
+        $curlArgs = @(
+            '--noproxy', '*', '--silent', '--show-error',
+            '-o', $bodyPath,
+            '-w', '%{http_code}',
+            '--max-time', '15'
+        )
         if ($ep.method -in @('POST','PUT','DELETE')) {
-            $cmdLine += ' -X ' + $ep.method
+            $curlArgs += @('-X', $ep.method)
         }
         if ($ep.PSObject.Properties.Name -contains 'body' -and $ep.body) {
             $bodyFile = Join-Path $scratch ('req-body-' + ($name -replace '[\\\[\]:\?\*\/]', '_') + '.json')
             Set-Content -Path $bodyFile -Value $ep.body -Encoding ascii -Force
-            $cmdLine += ' -H "content-type: application/json" --data-binary "@' + $bodyFile + '"'
+            $curlArgs += @('-H', 'content-type: application/json', '--data-binary', "@$bodyFile")
         }
-        $cmdLine += ' "' + $uri + '" 1>"'
+        $curlArgs += $uri
 
-        $stdoutFile = Join-Path $scratch ('curl-stdout-' + ($name -replace '[\\\[\]:\?\*\/]', '_') + '.txt')
-        $stderrFile = Join-Path $scratch ('curl-stderr-' + ($name -replace '[\\\[\]:\?\*\/]', '_') + '.txt')
-        if (Test-Path $stdoutFile) { Remove-Item $stdoutFile -Force }
-        if (Test-Path $stderrFile) { Remove-Item $stderrFile -Force }
-
-        $cmdLine += $stdoutFile + '" 2>"' + $stderrFile + '""'
-
-        $proc = Start-Process -FilePath 'cmd.exe' `
-            -ArgumentList $cmdLine `
-            -NoNewWindow -PassThru -Wait `
-            -WorkingDirectory (Get-RepoRoot)
-        $exit = $proc.ExitCode
-
-        $stdoutText = if (Test-Path $stdoutFile) { Get-Content $stdoutFile -Raw -ErrorAction SilentlyContinue } else { '' }
-        $bodyPath = Join-Path $scratch 'body.json'
+        $curlRun = Invoke-External -FilePath $curl -ArgumentList $curlArgs
+        $exit = $curlRun.ExitCode
+        $stdoutText = $curlRun.StdOut
         $body = if (Test-Path $bodyPath) { Get-Content -Raw $bodyPath } else { '' }
 
         # curl exits 0 on 4xx/5xx (those are valid HTTP responses).
@@ -252,31 +234,27 @@ try {
         if ($ep.PSObject.Properties.Name -contains 'expectJsonContains') {
             foreach ($needle in $ep.expectJsonContains) {
                 $found = $false
-                if ($hasJq) {
-                    $m = [regex]::Match($needle, '^"([^"]+)":\s*(.+?)\s*$')
-                    if ($m.Success) {
-                        $k = $m.Groups[1].Value
-                        $v = $m.Groups[2].Value
-                        $jqFilter = if ($v -match '^".*"$') { ".${k} == ${v}" }
-                                    elseif ($v -match '^-?\d+(\.\d+)?$') { ".${k} == ${v}" }
-                                    elseif ($v -in @('true','false','null')) { ".${k} == ${v}" }
-                                    else { $null }
-                        if ($jqFilter) {
-                            # jq can't read a file passed as an argv
-                            # element via PowerShell's Start-Process
-                            # either (same quote-stripping issue).
-                            # Write the filter to a temp file and
-                            # invoke via `-f`.
-                            $jqPath = Join-Path $env:TEMP ("gitgit-regression-it-filter-{0}.jq" -f ([guid]::NewGuid().ToString('N')))
-                            Set-Content -Path $jqPath -Value $jqFilter -Encoding ascii -Force
-                            try {
-                                $jqOut = & jq.exe -e -f $jqPath $bodyPath 2>$null
-                                $found = ($LASTEXITCODE -eq 0)
-                            } finally {
-                                Remove-Item $jqPath -Force -ErrorAction SilentlyContinue
-                            }
-                        } else {
-                            $found = $body.Contains($needle)
+                $m = [regex]::Match($needle, '^"([^"]+)":\s*(.+?)\s*$')
+                if ($m.Success) {
+                    $k = $m.Groups[1].Value
+                    $v = $m.Groups[2].Value
+                    $jqFilter = if ($v -match '^".*"$') { ".${k} == ${v}" }
+                                elseif ($v -match '^-?\d+(\.\d+)?$') { ".${k} == ${v}" }
+                                elseif ($v -in @('true','false','null')) { ".${k} == ${v}" }
+                                else { $null }
+                    if ($jqFilter) {
+                        # jq can't read a file passed as an argv
+                        # element via PowerShell's Start-Process
+                        # either (same quote-stripping issue).
+                        # Write the filter to a temp file and
+                        # invoke via `-f`.
+                        $jqPath = Join-Path (Get-ScratchTempRoot) ("gitgit-regression-it-filter-{0}.jq" -f ([guid]::NewGuid().ToString('N')))
+                        Set-Content -Path $jqPath -Value $jqFilter -Encoding ascii -Force
+                        try {
+                            $jqOut = & $jq -e -f $jqPath $bodyPath 2>$null
+                            $found = ($LASTEXITCODE -eq 0)
+                        } finally {
+                            Remove-Item $jqPath -Force -ErrorAction SilentlyContinue
                         }
                     } else {
                         $found = $body.Contains($needle)
@@ -292,36 +270,30 @@ try {
         if ($ep.PSObject.Properties.Name -contains 'expectJsonShape') {
             $shape = $ep.expectJsonShape
             $matched = $false
-            if ($hasJq) {
-                $jqType = if ($shape -eq 'array') { 'array' } elseif ($shape -eq 'object') { 'object' } else { $shape }
-                $shapeFilter = 'type == "' + $jqType + '"'
-                $shapePath = Join-Path $env:TEMP ("gitgit-regression-it-shape-{0}.jq" -f ([guid]::NewGuid().ToString('N')))
-                Set-Content -Path $shapePath -Value $shapeFilter -Encoding ascii -Force
-                try {
-                    $jqOut = & jq.exe -e -f $shapePath $bodyPath 2>$null
-                    $matched = ($LASTEXITCODE -eq 0)
-                } finally {
-                    Remove-Item $shapePath -Force -ErrorAction SilentlyContinue
-                }
-            } else {
-                $trim = $body.Trim()
-                if ($shape -eq 'array') { $matched = $trim.StartsWith('[') }
-                elseif ($shape -eq 'object') { $matched = $trim.StartsWith('{') }
+            $jqType = if ($shape -eq 'array') { 'array' } elseif ($shape -eq 'object') { 'object' } else { $shape }
+            $shapeFilter = 'type == "' + $jqType + '"'
+            $shapePath = Join-Path (Get-ScratchTempRoot) ("gitgit-regression-it-shape-{0}.jq" -f ([guid]::NewGuid().ToString('N')))
+            Set-Content -Path $shapePath -Value $shapeFilter -Encoding ascii -Force
+            try {
+                $jqOut = & $jq -e -f $shapePath $bodyPath 2>$null
+                $matched = ($LASTEXITCODE -eq 0)
+            } finally {
+                Remove-Item $shapePath -Force -ErrorAction SilentlyContinue
             }
             Assert-True -Run $run -Name "$name.shape=$shape" -Condition $matched `
                 -Detail "expected JSON $shape"
         }
 
-        if ($ep.PSObject.Properties.Name -contains 'expectArrayLenEq' -and $hasJq) {
+        if ($ep.PSObject.Properties.Name -contains 'expectArrayLenEq') {
             $expectedLen = [int]$ep.expectArrayLenEq
-            $actualLen = & jq.exe length $bodyPath 2>$null
+            $actualLen = & $jq length $bodyPath 2>$null
             Assert-Equal -Run $run -Name "$name.arrayLen" `
                 -Expected $expectedLen -Actual ([int]$actualLen)
         }
 
-        if ($ep.PSObject.Properties.Name -contains 'minArrayLen' -and $hasJq) {
+        if ($ep.PSObject.Properties.Name -contains 'minArrayLen') {
             $minLen = [int]$ep.minArrayLen
-            $actualLen = [int](& jq.exe length $bodyPath 2>$null)
+            $actualLen = [int](& $jq length $bodyPath 2>$null)
             Assert-True -Run $run -Name "$name.arrayLen>=$minLen" `
                 -Condition ($actualLen -ge $minLen) `
                 -Detail "actual=$actualLen"
@@ -358,9 +330,6 @@ Write-Host '── IT summary ──'
 Write-Host ('  regression cases    : pass={0} fail={1} skip={2}' -f $run.Pass, $run.Fail, $run.Skip)
 Write-Host ('  baseline endpoints  : {0}' -f $baseline.it.endpoints.Count)
 Write-Host ('  json report         : {0}' -f $outJson)
-if (-not $hasJq) {
-    Write-Host ('  note: jq not found; JSON-shape & array-length assertions were skipped') -ForegroundColor Yellow
-}
 if ($run.SetupError) { exit 2 }
 if ($run.Fail -gt 0) { exit 1 }
 exit 0

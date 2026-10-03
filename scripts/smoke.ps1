@@ -1,4 +1,4 @@
-#requires -Version 5
+#requires -Version 7
 <#
 .SYNOPSIS
     End-to-end smoke test for the `gitgit` MVP.
@@ -18,13 +18,16 @@
     7. Verify a push without credentials is rejected.
     8. Kill the server, print PASS / FAIL.
 
-    Designed for Windows PowerShell. Uses `git` from PATH.
+    Portable: runs on Windows pwsh 7 and on ubuntu-latest CI runners.
+    External tools (git, cargo, curl) are resolved by name through
+    scripts/lib/regression-common.ps1, so no path here is specific to
+    one operating system.
 
-    PowerShell 5 quirks handled here:
-      * `Invoke-WebRequest` negotiates NTLM/Auth before sending Basic
-        auth — we use the absolute path to System32 curl.exe via
-        `cmd /c` for the readiness probe, with `?` quoted to avoid
-        PowerShell wildcard expansion.
+    Two details worth keeping:
+      * The readiness probe must not go through `Invoke-WebRequest`,
+        which negotiates auth before sending a request and can mangle
+        the `?` in the git query string. `Wait-HttpReady` in the common
+        lib drives curl with an exact argv vector instead.
       * `git` writes benign messages ("Cloning into ...", "warning: ...")
         to stderr; under $ErrorActionPreference=Stop these become
         terminating exceptions. We suppress that wrapping with a
@@ -48,7 +51,11 @@ $env:GIT_ASKPASS = 'true'
 # 127.0.0.1:8088) that auto-fulfills an otherwise-missing password,
 # which would silently make step 8 (negative-auth) pass when it should
 # fail. Pointing HOME at an empty scratch dir disables every helper.
-$env:HOME = Join-Path $env:TEMP "gitgit-smoke-home-$([guid]::NewGuid().ToString('N'))"
+. (Join-Path $PSScriptRoot 'lib/regression-common.ps1')
+
+$ScratchTemp = Get-ScratchTempRoot
+
+$env:HOME = Join-Path $ScratchTemp "gitgit-smoke-home-$([guid]::NewGuid().ToString('N'))"
 New-Item -ItemType Directory -Path $env:HOME -Force | Out-Null
 # Empty gitconfig so git has no helper at all.
 $env:XDG_CONFIG_HOME = $env:HOME
@@ -56,9 +63,15 @@ $env:XDG_CONFIG_HOME = $env:HOME
 $env:GIT_CONFIG_COUNT = '0'
 
 $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
-$LogFile  = Join-Path $env:TEMP "gitgit-smoke-$([guid]::NewGuid().ToString('N')).log"
-$TmpRoot  = Join-Path $env:TEMP "gitgit-smoke-$([guid]::NewGuid().ToString('N'))"
+$LogFile  = Join-Path $ScratchTemp "gitgit-smoke-$([guid]::NewGuid().ToString('N')).log"
+$TmpRoot  = Join-Path $ScratchTemp "gitgit-smoke-$([guid]::NewGuid().ToString('N'))"
 $ServerProc = $null
+
+$GitCmd = Get-ToolPath -Name 'git'
+if (-not $GitCmd) {
+    Write-Error '[smoke] FAIL: git not found on PATH'
+    exit 1
+}
 
 function Write-Status($msg) {
     Write-Host "[smoke] $msg"
@@ -69,11 +82,7 @@ function Fail($msg) {
     if ($ServerProc -and -not $ServerProc.HasExited) {
         try { Stop-Process -Id $ServerProc.Id -Force -ErrorAction SilentlyContinue } catch {}
     }
-    if (Test-Path $TmpRoot) {
-        # Use cmd /c rmdir rather than Remove-Item — the latter is
-        # blocked by some safety policies, and rmdir works here.
-        cmd /c "rmdir /S /Q `"$TmpRoot`"" 2>$null | Out-Null
-    }
+    Remove-ScratchRoot $TmpRoot
     exit 1
 }
 
@@ -82,24 +91,32 @@ function Fail($msg) {
 function Invoke-Git {
     param([Parameter(ValueFromRemainingArguments=$true)][string[]]$GitArgs)
     $local:ErrorActionPreference = 'Continue'
-    $output = & git.exe @GitArgs 2>&1
+    $output = & $GitCmd @GitArgs 2>&1
     return $output
 }
 
 # 1. Build ---------------------------------------------------------------
 if (-not $SkipBuild) {
-    Write-Status "cargo build --quiet (debug)"
-    $build = & cargo build --quiet 2>&1
-    if ($LASTEXITCODE -ne 0) {
-        Write-Host ($build -join "`n")
-        Fail "cargo build failed"
+    Write-Status "cargo build --locked --quiet (debug)"
+    $cargo = Get-ToolPath -Name 'cargo'
+    if (-not $cargo) {
+        Fail 'cargo not found on PATH'
+    }
+    # --locked so a build in CI cannot quietly rewrite Cargo.lock.
+    $build = Invoke-External -FilePath $cargo -TimeoutSec 600 `
+        -WorkingDirectory $RepoRoot `
+        -ArgumentList @('build', '--locked', '--quiet')
+    if ($build.ExitCode -ne 0) {
+        Write-Host ($build.StdOut + $build.StdErr)
+        Fail "cargo build failed (exit=$($build.ExitCode))"
     }
 }
 
-# Locate the built binary. CARGO_TARGET_DIR may be set in the user env.
+# Locate the built binary. CARGO_TARGET_DIR may be set by the caller.
+$exeSuffix = if (Test-IsWindows) { '.exe' } else { '' }
 $targetDir = $env:CARGO_TARGET_DIR
 if (-not $targetDir) { $targetDir = Join-Path $RepoRoot 'target' }
-$bin = Join-Path $targetDir 'debug\gitgit.exe'
+$bin = Join-Path $targetDir "debug/gitgit$exeSuffix"
 if (-not (Test-Path $bin)) {
     Fail "binary not found at $bin"
 }
@@ -123,22 +140,14 @@ $ServerProc = Start-Process -FilePath $bin `
 Write-Status "gitgit init-repo $RepoName"
 $initOut = & $bin init-repo $RepoName --repos-dir $reposDir 2>&1
 if ($LASTEXITCODE -ne 0) { Fail "init-repo failed: $($initOut -join "`n")" }
-if (-not (Test-Path (Join-Path $reposDir "$RepoName.git\HEAD"))) {
+if (-not (Test-Path (Join-Path $reposDir "$RepoName.git/HEAD"))) {
     Fail "bare repo HEAD not found at $reposDir/$RepoName.git/HEAD"
 }
 
 # 5. Wait until /info/refs responds 200 (with a query string) ------------
 $probeUrl = "http://$Bind/repos/$RepoName.git/info/refs?service=git-upload-pack"
 Write-Status "waiting for $probeUrl"
-$ready = $false
-for ($i = 0; $i -lt 50; $i++) {
-    Start-Sleep -Milliseconds 200
-    # Use the absolute path to System32 curl.exe via `cmd /c` to avoid
-    # PowerShell 5's `curl` alias for Invoke-WebRequest, and avoid
-    # `?` in the URL being treated as a wildcard.
-    $out = cmd /c "C:\Windows\System32\curl.exe -sS -o NUL -w ""%{http_code}"" --max-time 2 ""$probeUrl""" 2>$null
-    if ($out -eq '200') { $ready = $true; break }
-}
+$ready = Wait-HttpReady -Url $probeUrl -MaxAttempts 50 -DelayMs 200
 if (-not $ready) {
     if (Test-Path $LogFile) { Get-Content $LogFile | Select-Object -Last 20 }
     Fail "server did not become ready in time"
@@ -271,9 +280,7 @@ if ($ServerProc -and -not $ServerProc.HasExited) {
     $ServerProc.WaitForExit(5000) | Out-Null
 }
 
-if (Test-Path $TmpRoot) {
-    cmd /c "rmdir /S /Q `"$TmpRoot`"" 2>$null | Out-Null
-}
+Remove-ScratchRoot $TmpRoot
 if (Test-Path "$LogFile.err") {
     if ((Get-Item "$LogFile.err").Length -gt 0) {
         Write-Status "server stderr (informational):"

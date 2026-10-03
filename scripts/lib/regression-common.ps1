@@ -1,4 +1,4 @@
-#requires -Version 5
+#requires -Version 7
 <#
 .SYNOPSIS
     Common helpers shared by all GitGit regression-tier scripts (UT/IT/ST).
@@ -15,21 +15,119 @@
       * Callers use `New-RegressionRun -Tier <name>`, then
         `Assert-True / Assert-Equal / Assert-Match / Assert-StatusCode`,
         then `Write-RegressionReport` and `exit` the return code.
-      * No external dependencies beyond what is on a stock Windows +
-        git-bash dev box: cargo, git, curl, jq.
+      * No external dependencies beyond a stock CI/dev image:
+        cargo, git, curl. The IT tier additionally requires jq, because
+        its JSON-shape and array-length assertions have no meaningful
+        fallback — see scripts/regression-it.ps1.
+
+    Portability: every path built here uses forward slashes, which are
+    accepted by the .NET file APIs on Windows *and* Linux, and no helper
+    shells out to cmd.exe. The tier scripts therefore run unchanged on
+    Windows pwsh 7 and on ubuntu-latest GitHub runners.
 #>
 
 $ErrorActionPreference = 'Stop'
 
 # Repo root = parent of the scripts/ directory that sourced this file.
-$script:RegressionRepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
-$script:RegressionLogRoot  = Join-Path $script:RegressionRepoRoot 'target\regression-logs'
+$script:RegressionRepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..' | Join-Path -ChildPath '..')).Path
+$script:RegressionLogRoot  = Join-Path $script:RegressionRepoRoot 'target/regression-logs'
 if (-not (Test-Path $script:RegressionLogRoot)) {
     New-Item -ItemType Directory -Path $script:RegressionLogRoot -Force | Out-Null
 }
 
 function Get-RepoRoot { $script:RegressionRepoRoot }
 function Get-LogRoot  { $script:RegressionLogRoot }
+
+# ── Cross-platform primitives ───────────────────────────────────────────────
+
+function Test-IsWindows {
+    # $IsWindows is an automatic variable on PowerShell 6+; the
+    # PlatformID probe is the fallback for Windows PowerShell 5.1.
+    if ($null -ne $IsWindows) { return [bool]$IsWindows }
+    return ([System.Environment]::OSVersion.Platform -eq [System.PlatformID]::Win32NT)
+}
+
+function Get-NullDevicePath {
+    # curl's `-o` needs a real discard target; `NUL` only exists on Windows.
+    if (Test-IsWindows) { return 'NUL' }
+    return '/dev/null'
+}
+
+function Get-ScratchTempRoot {
+    # $env:TEMP is a Windows-ism. PowerShell on Linux leaves it unset, so
+    # fall back to $env:TMP and then to the runtime's temp directory.
+    if ($env:TEMP) { return $env:TEMP }
+    if ($env:TMP)  { return $env:TMP }
+    return ([System.IO.Path]::GetTempPath()).TrimEnd('/', '\')
+}
+
+function Get-ToolPath {
+    <#
+      Resolve an external tool to an absolute path, tolerating the
+      Windows `.exe` suffix and the PowerShell `curl` alias (WinPS maps
+      `curl` to Invoke-WebRequest, which is not an HTTP client we can
+      spawn). Returns $null when the tool is absent.
+    #>
+    param([Parameter(Mandatory)][string]$Name)
+
+    $candidates = @($Name)
+    if ($Name -notmatch '\.(exe|cmd|bat)$') { $candidates += "$Name.exe" }
+    foreach ($c in $candidates) {
+        $cmd = Get-Command $c -CommandType Application -ErrorAction SilentlyContinue
+        if ($cmd) { return $cmd.Source }
+    }
+    return $null
+}
+
+function Invoke-External {
+    <#
+      Run a program with an exact argv vector and capture its output.
+
+      Uses ProcessStartInfo.ArgumentList, which hands each element to the
+      OS verbatim. That is what makes this work identically on Windows
+      and Linux: no cmd.exe quoting, no PowerShell re-splitting, and no
+      risk of a JSON body or a `content-type: application/json` header
+      being torn into two arguments. Requires PowerShell 6+.
+
+      Both pipes are drained with ReadToEndAsync *before* WaitForExit so
+      a chatty child (cargo) cannot fill one pipe and deadlock.
+    #>
+    param(
+        [Parameter(Mandatory)][string]$FilePath,
+        [string[]]$ArgumentList = @(),
+        [string]$WorkingDirectory,
+        [int]$TimeoutSec = 0
+    )
+
+    $psi = [System.Diagnostics.ProcessStartInfo]::new()
+    $psi.FileName               = $FilePath
+    $psi.UseShellExecute        = $false
+    $psi.RedirectStandardOutput = $true
+    $psi.RedirectStandardError  = $true
+    $psi.CreateNoWindow         = $true
+    if ($WorkingDirectory) { $psi.WorkingDirectory = $WorkingDirectory }
+    foreach ($a in $ArgumentList) { [void]$psi.ArgumentList.Add([string]$a) }
+
+    $proc = [System.Diagnostics.Process]::Start($psi)
+    $outTask = $proc.StandardOutput.ReadToEndAsync()
+    $errTask = $proc.StandardError.ReadToEndAsync()
+
+    $timedOut = $false
+    if ($TimeoutSec -gt 0) {
+        if (-not $proc.WaitForExit($TimeoutSec * 1000)) {
+            $timedOut = $true
+            try { $proc.Kill($true) } catch { }
+        }
+    }
+    $proc.WaitForExit()
+
+    [pscustomobject]@{
+        ExitCode = if ($timedOut) { -1 } else { $proc.ExitCode }
+        StdOut   = $outTask.GetAwaiter().GetResult()
+        StdErr   = $errTask.GetAwaiter().GetResult()
+        TimedOut = $timedOut
+    }
+}
 
 function Write-Step {
     param([string]$Message)
@@ -216,23 +314,25 @@ function Exit-RegressionRun {
 function Resolve-Binary {
     # Locate the gitgit binary. Prefer the per-worktree target dir
     # (target-regression/) so we always run against the current source.
-    # Fall back to the shared dev cache (E:\DevCache\cargo\target) if
-    # a per-worktree build hasn't been done.
     #
-    # Staleness check: a binary in target-regression/ is considered
-    # fresh only if it is newer than src/main.rs. If it's stale, we
-    # return $null so the caller triggers a rebuild.
-    $root = Get-RepoRoot
-    $mainSrc = Join-Path $root 'src\main.rs'
+    # Staleness check: a binary is considered fresh only if it is newer
+    # than src/main.rs. If every candidate is stale we return $null so
+    # the caller triggers a rebuild.
+    #
+    # No machine-specific path is searched: a hardcoded shared cache would
+    # make the result depend on which developer box the script runs on,
+    # and on a CI runner such a path can only ever be a stale hit.
+    $root    = Get-RepoRoot
+    $exe     = if (Test-IsWindows) { '.exe' } else { '' }
+    $mainSrc = Join-Path $root 'src/main.rs'
     $mainSrcTime = (Get-Item $mainSrc -ErrorAction SilentlyContinue).LastWriteTime
 
     $candidates = @()
     if ($env:CARGO_TARGET_DIR) {
-        $candidates += (Join-Path $env:CARGO_TARGET_DIR 'debug\gitgit.exe')
+        $candidates += (Join-Path $env:CARGO_TARGET_DIR "debug/gitgit$exe")
     }
-    $candidates += (Join-Path $root 'target-regression\debug\gitgit.exe')
-    $candidates += (Join-Path $root 'target\debug\gitgit.exe')
-    $candidates += 'E:\DevCache\cargo\target\debug\gitgit.exe'
+    $candidates += (Join-Path $root "target-regression/debug/gitgit$exe")
+    $candidates += (Join-Path $root "target/debug/gitgit$exe")
     foreach ($c in $candidates) {
         if ($c -and (Test-Path $c)) {
             $binTime = (Get-Item $c).LastWriteTime
@@ -248,7 +348,7 @@ function Resolve-Binary {
 
 function New-ScratchRoot {
     param([string]$Prefix = 'gitgit-regression')
-    $d = Join-Path $env:TEMP "$Prefix-$([guid]::NewGuid().ToString('N'))"
+    $d = Join-Path (Get-ScratchTempRoot) "$Prefix-$([guid]::NewGuid().ToString('N'))"
     New-Item -ItemType Directory -Path $d -Force | Out-Null
     return $d
 }
@@ -256,7 +356,10 @@ function New-ScratchRoot {
 function Remove-ScratchRoot {
     param([string]$Path)
     if ($Path -and (Test-Path $Path)) {
-        cmd /c "rmdir /S /Q `"$Path`"" 2>$null | Out-Null
+        # Remove-Item -Recurse is the only spelling that works on both
+        # Windows and Linux; the previous `cmd /c rmdir /S /Q` form was
+        # Windows-only and silently no-opped off-Windows.
+        Remove-Item -LiteralPath $Path -Recurse -Force -ErrorAction SilentlyContinue
     }
 }
 
@@ -266,10 +369,18 @@ function Wait-HttpReady {
         [int]$MaxAttempts = 50,
         [int]$DelayMs = 200
     )
+    $curl = Get-ToolPath -Name 'curl'
+    if (-not $curl) {
+        Write-Fail 'curl not found on PATH; cannot probe server readiness'
+        return $false
+    }
     for ($i = 0; $i -lt $MaxAttempts; $i++) {
         Start-Sleep -Milliseconds $DelayMs
-        $code = cmd /c "C:\Windows\System32\curl.exe -sS -o NUL -w ""%{http_code}"" --max-time 2 ""$Url""" 2>$null
-        if ($code -eq '200') { return $true }
+        $r = Invoke-External -FilePath $curl -ArgumentList @(
+            '-sS', '-o', (Get-NullDevicePath), '-w', '%{http_code}',
+            '--max-time', '2', $Url
+        )
+        if ($r.ExitCode -eq 0 -and $r.StdOut.Trim() -eq '200') { return $true }
     }
     return $false
 }
