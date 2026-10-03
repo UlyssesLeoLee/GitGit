@@ -50,6 +50,76 @@ pub enum Command {
     /// V0 Credential Vault operations (per ADR-0021 + ADR-0022).
     #[command(subcommand)]
     Key(KeyCommand),
+
+    /// AI-assisted Git workflows (commit message, explain, review).
+    ///
+    /// The API key is read from the `GITGIT_AI_API_KEY` environment
+    /// variable, never from a flag: an argument is visible in `ps` output
+    /// and lands in shell history.
+    ///
+    /// Repository content is sent to a third-party API after a
+    /// heuristic redaction pass. That pass catches known credential
+    /// shapes and is NOT a guarantee — the authoritative control is not
+    /// committing secrets in the first place.
+    #[command(subcommand)]
+    Gitai(GitaiCommand),
+}
+
+/// Sub-actions under `gitgit gitai`.
+#[derive(Debug, Subcommand)]
+pub enum GitaiCommand {
+    /// Write a commit message for a diff.
+    Commit(GitaiTaskArgs),
+
+    /// Explain what a change does.
+    Explain(GitaiTaskArgs),
+
+    /// Review a diff for correctness and security problems.
+    Review(GitaiTaskArgs),
+
+    /// List the registered provider presets and their endpoints.
+    ///
+    /// Performs no network call.
+    Providers,
+}
+
+/// Arguments shared by `gitai commit` / `explain` / `review`.
+#[derive(Debug, Clone, clap::Args)]
+pub struct GitaiTaskArgs {
+    /// Repository to read the diff from. Default: current directory.
+    #[arg(long, default_value = ".")]
+    pub repo: PathBuf,
+
+    /// Provider preset key. Run `gitgit gitai providers` for the list.
+    #[arg(long, default_value = "openai")]
+    pub provider: String,
+
+    /// Override the provider's base URL. Use for a proxy, a private
+    /// gateway, or an OpenAI-compatible host with no preset.
+    #[arg(long)]
+    pub ai_base_url: Option<String>,
+
+    /// Override the provider's default model.
+    #[arg(long)]
+    pub ai_model: Option<String>,
+
+    /// Include uncommitted working-tree changes in the diff.
+    #[arg(long)]
+    pub from_diff: bool,
+
+    /// Explicit revision range, e.g. `HEAD~1..HEAD`. Takes precedence over
+    /// `--from-diff` when both are given.
+    #[arg(long)]
+    pub range: Option<String>,
+
+    /// Limit the diff to these paths.
+    #[arg(long = "path")]
+    pub paths: Vec<String>,
+
+    /// Print the provider and model that would be used, then exit without
+    /// contacting the API.
+    #[arg(long)]
+    pub dry_run: bool,
 }
 
 /// Sub-actions against the V0 Credential Vault.
