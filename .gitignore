@@ -5,6 +5,11 @@
 # Bare repos (the server stores them under ./repos/)
 /repos/
 
+# Default V0 Credential Vault root (DEFAULT_VAULT_FILE_ROOT = .gitgit/vault).
+# This holds real API keys: `gitgit key set openai <key>` writes into it, so
+# without this rule a plain `git add .` would stage a live credential.
+.gitgit/
+
 # Editor / OS noise
 .idea/
 .vscode/
