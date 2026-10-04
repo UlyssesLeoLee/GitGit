@@ -57,7 +57,8 @@
     "resources": [],
     "windows": {
       "wix": {
-        "language": ["en-US", "zh-CN"]
+        "language": ["en-US", "zh-CN"],
+        "template": "wix/main.wxs"
       }
     },
     "macOS": {
@@ -71,29 +72,5 @@
       }
     }
   },
-  "plugins": {
-    "log": {
-      "level": "info",
-      "targets": [
-        {
-          "kind": "Stdout"
-        },
-        {
-          "kind": "LogDir",
-          "maxFileSize": 1048576
-        }
-      ]
-    },
-    "updater": {
-      "active": false,
-      "endpoints": ["https://releases.gitgit.example/desktop/{{target}}/{{arch}}/{{current_version}}"],
-      "dialog": true,
-      "windows": {
-        "installMode": "passive"
-      }
-    },
-    "notification": {
-      "title": "gitgit Desktop"
-    }
-  }
+  "plugins": {}
 }

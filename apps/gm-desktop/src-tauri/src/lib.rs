@@ -36,9 +36,31 @@ use crate::state::{BufferLayer, DesktopState, DEFAULT_VAULT_DIR};
 /// caller still needs to decide how to report that (and whether to
 /// exit) rather than having the decision taken by a panic.
 pub fn run() -> Result<(), Box<dyn std::error::Error>> {
-    init_tracing();
     let app = tauri::Builder::default()
-        .plugin(tauri_plugin_log::Builder::new().build())
+        // Log level and targets are configured here rather than under
+        // `plugins.log` in tauri.conf.json, because tauri-plugin-log
+        // 2.9.1 registers itself as `plugin::Builder::new("log")` with no
+        // config type. A `plugins.log` object in the config file is
+        // therefore deserialized into `()`, and the app dies on startup
+        // with "invalid type: map, expected unit" before it ever draws a
+        // window. The same block used to sit in tauri.conf.json looking
+        // authoritative and did nothing except crash.
+        .plugin(
+            tauri_plugin_log::Builder::new()
+                // `Builder::level` takes `log::LevelFilter`, and the
+                // plugin's own `LogLevel` only converts to `log::Level`.
+                // The plugin re-exports `log`, so this avoids taking a
+                // direct dependency on it just for one enum variant.
+                .level(tauri_plugin_log::log::LevelFilter::Info)
+                .targets([
+                    tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::Stdout),
+                    tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::LogDir {
+                        file_name: None,
+                    }),
+                ])
+                .max_file_size(1024 * 1024)
+                .build(),
+        )
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_dialog::init())
@@ -180,17 +202,6 @@ fn build_tray_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
     let hide = MenuItem::with_id(app, "hide", "Hide Window", true, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
     Menu::with_items(app, &[&show, &hide, &quit])
-}
-
-/// Wire the public tracing subscriber to stdout + the in-memory log
-/// buffer so the Svelte UI can stream recent log records.
-fn init_tracing() {
-    use tracing_subscriber::{fmt, prelude::*, EnvFilter};
-    let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
-    let _ = tracing_subscriber::registry()
-        .with(filter)
-        .with(fmt::layer().with_writer(std::io::stdout))
-        .try_init();
 }
 
 /// Public re-export so integration tests can build a `gitgit`

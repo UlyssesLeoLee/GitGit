@@ -94,6 +94,15 @@ jobs:
             librsvg2-dev \
             patchelf
 
+      # `cargo fmt --all -- --check`: the sibling crate `rust-backend.yml`
+      # gates on this, and `src-tauri` had accumulated 44 formatting
+      # hunks across 8 files purely because nothing ever ran it. Formatting
+      # is not cosmetic debt here — it is what makes a 130-line diff
+      # reviewable, and this gate is what keeps the next one small.
+      - name: Rust format (src-tauri)
+        working-directory: apps/gm-desktop/src-tauri
+        run: cargo fmt --all -- --check
+
       # `cargo clippy`, not a bare `cargo check`: clippy runs the same
       # compile, so it replaces check rather than adding to it, and it is
       # the only thing that would have caught the 20 clippy errors and 14
