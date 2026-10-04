@@ -1,7 +1,8 @@
 # Rust backend CI — covers gitgit-server itself.
 #
-# Two required jobs:
-#   * `test`        — cargo fmt / clippy / test --bins / test --doc / release build.
+# Three required jobs:
+#   * `test`        — cargo fmt / clippy / test --all-targets / test --doc / release build.
+#   * `audit`       — RUSTSEC advisory scan over Cargo.lock.
 #   * `integration` — scripts/regression-it.ps1 + scripts/regression-st.ps1:
 #                     a real `git` client pushing over real HTTP to a live
 #                     `gitgit serve`, plus HTTP-level /api/* assertions.
@@ -10,6 +11,14 @@
 # separate self-hosted runner workflow (out of scope for V0.1). The
 # integration job is a hard gate: it has no continue-on-error and no
 # step-level `|| true`, so a real end-to-end failure fails this workflow.
+#
+# `audit` is a separate job rather than a step inside `test` on purpose. It
+# needs a one-off `cargo install cargo-audit`, and a CVE should fail in
+# seconds rather than after a full release build. As a job it also fails
+# without cancelling the unit-test signal, which a failing step inside
+# `test` would do: GitHub Actions skips every step after the first failure,
+# so an early audit step there would silently cost us the test and build
+# results every time a dependency is flagged.
 name: rust-backend
 
 on:
@@ -87,6 +96,48 @@ jobs:
 
       - name: Build release
         run: cargo build --release
+
+  audit:
+    name: dependency audit (RUSTSEC)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@1.98.1
+
+      - name: Install cargo-audit
+        # Pinned, deliberately. A floating cargo-audit silently changes the
+        # rule set, and a security gate whose verdicts drift with the tool's
+        # release is not a gate. 0.22.2 is the version this scan was last
+        # verified against locally.
+        run: cargo install cargo-audit --locked --version 0.22.2
+
+      - name: Audit dependencies
+        # `cargo audit` exits non-zero both when advisories are present and
+        # when the advisory database cannot be fetched. A gate that quietly
+        # passed in the second case would be worse than no gate, so both fail
+        # — the message below says which is which rather than leaving the
+        # reader to guess from an exit code.
+        #
+        # `set +e` around the pipeline is required: the runner's default
+        # `bash -e` would abort on the failure before PIPESTATUS could be
+        # read, and the pipe status is what tells us cargo-audit's own
+        # verdict rather than tee's.
+        run: |
+          set +e
+          cargo audit 2>&1 | tee /tmp/cargo-audit.txt
+          status=${PIPESTATUS[0]}
+          set -e
+          if [ "$status" -ne 0 ]; then
+            if grep -qE '^(Crate|ID):' /tmp/cargo-audit.txt; then
+              echo "::error::RUSTSEC advisories are present in Cargo.lock (cargo audit exit $status)"
+            else
+              echo "::error::cargo audit could not complete (exit $status) — the advisory database was likely unreachable, so this gate checked nothing"
+            fi
+            exit "$status"
+          fi
 
   integration:
     # Real end-to-end gate: real git client over real HTTP, plus HTTP-level
