@@ -141,6 +141,13 @@ jobs:
         # subcommand went unnoticed.
         run: pwsh -NoProfile -File scripts/verify-gitai-e2e.ps1
 
+      - name: gitremote end-to-end against real git repos
+        # Same rationale: the library tests never run the binary. Builds
+        # two bare repos plus a clone, then checks add / ls / rm / sync
+        # end to end, including that a URL carrying shell metacharacters
+        # is stored but never executed.
+        run: pwsh -NoProfile -File scripts/verify-gitremote-e2e.ps1
+
       - name: Upload regression logs
         if: always()
         uses: actions/upload-artifact@v4
