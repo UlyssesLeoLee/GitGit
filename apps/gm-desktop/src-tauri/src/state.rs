@@ -115,11 +115,7 @@ impl ServerManager {
 
     /// Start the embedded server. Returns a [`ServerStatus`] snapshot on
     /// success, `ServerAlreadyRunning` if already up.
-    pub async fn start_with<F, Fut>(
-        &self,
-        bind: String,
-        spawn: F,
-    ) -> AppResult<ServerStatus>
+    pub async fn start_with<F, Fut>(&self, bind: String, spawn: F) -> AppResult<ServerStatus>
     where
         F: FnOnce(String) -> Fut,
         Fut: Future<Output = AppResult<JoinHandle<()>>>,
@@ -194,10 +190,7 @@ impl ServerManager {
         Ok(prev)
     }
 
-    fn status_from_guard(
-        &self,
-        guard: &std::sync::MutexGuard<Option<Running>>,
-    ) -> ServerStatus {
+    fn status_from_guard(&self, guard: &std::sync::MutexGuard<Option<Running>>) -> ServerStatus {
         match &**guard {
             Some(r) => ServerStatus {
                 handle: String::from("embedded"),
@@ -316,7 +309,8 @@ impl tracing::field::Visit for StringVisitor {
         if self.value.is_empty() {
             self.value = format!("{}={:?}", field.name(), value);
         } else {
-            self.value.push_str(&format!(" {}={:?}", field.name(), value));
+            self.value
+                .push_str(&format!(" {}={:?}", field.name(), value));
         }
     }
     fn record_str(&mut self, field: &tracing::field::Field, value: &str) {
@@ -351,11 +345,7 @@ pub struct DesktopState {
 impl DesktopState {
     /// Build a `DesktopState` from explicit roots. Called from the
     /// Tauri `setup` hook with the paths resolved by the runtime.
-    pub fn new(
-        vault_root: PathBuf,
-        repos_dir: PathBuf,
-        app_data_dir: PathBuf,
-    ) -> AppResult<Self> {
+    pub fn new(vault_root: PathBuf, repos_dir: PathBuf, app_data_dir: PathBuf) -> AppResult<Self> {
         std::fs::create_dir_all(&vault_root).map_err(|e| AppError::Io(e.to_string()))?;
         std::fs::create_dir_all(&repos_dir).map_err(|e| AppError::Io(e.to_string()))?;
         let file_vault = gitgit::server::vault::FileVault::new(vault_root.clone());
@@ -428,25 +418,22 @@ mod tests {
         let addr_slot = Arc::new(StdMutex::new(None));
 
         let status = manager
-            .start_with(
-                String::from(REQUESTED_BIND),
-                {
-                    let addr_slot = Arc::clone(&addr_slot);
-                    move |_bind| async move {
-                        let listener = tokio::net::TcpListener::bind(REQUESTED_BIND)
-                            .await
-                            .expect("ephemeral port is bindable");
-                        let addr = listener.local_addr().expect("listener reports local_addr");
-                        *addr_slot.lock().expect("addr slot is not poisoned") = Some(addr);
-                        let handle = tokio::spawn(async move {
-                            if let Err(e) = axum::serve(listener, axum::Router::new()).await {
-                                tracing::error!(error = %e, "test server exited");
-                            }
-                        });
-                        Ok::<JoinHandle<()>, AppError>(handle)
-                    }
-                },
-            )
+            .start_with(String::from(REQUESTED_BIND), {
+                let addr_slot = Arc::clone(&addr_slot);
+                move |_bind| async move {
+                    let listener = tokio::net::TcpListener::bind(REQUESTED_BIND)
+                        .await
+                        .expect("ephemeral port is bindable");
+                    let addr = listener.local_addr().expect("listener reports local_addr");
+                    *addr_slot.lock().expect("addr slot is not poisoned") = Some(addr);
+                    let handle = tokio::spawn(async move {
+                        if let Err(e) = axum::serve(listener, axum::Router::new()).await {
+                            tracing::error!(error = %e, "test server exited");
+                        }
+                    });
+                    Ok::<JoinHandle<()>, AppError>(handle)
+                }
+            })
             .await
             .expect("start_with succeeds");
 
@@ -494,8 +481,7 @@ mod tests {
 
         // The regression: this bind fails under the old drop-only
         // implementation with "address already in use".
-        std::net::TcpListener::bind(addr)
-            .expect("the port must be released once stop() resolves");
+        std::net::TcpListener::bind(addr).expect("the port must be released once stop() resolves");
 
         assert!(
             manager.stop().await.is_err(),
@@ -511,29 +497,26 @@ mod tests {
         let dropped = Arc::new(AtomicBool::new(false));
 
         manager
-            .start_with(
-                String::from(REQUESTED_BIND),
-                {
-                    let dropped = Arc::clone(&dropped);
-                    move |_bind| async move {
-                        // The witness is a *local of this closure body*, not
-                        // of the spawned task's body. `tokio::spawn` builds
-                        // the future eagerly, so the witness is moved into
-                        // it at spawn time and is dropped when the task's
-                        // future is dropped — whether or not the task ever
-                        // got polled. Under `#[tokio::test]`'s
-                        // current-thread runtime it never does, so a
-                        // witness created inside the task body would never
-                        // exist and this test would prove nothing.
-                        let witness = DropWitness(Arc::clone(&dropped));
-                        let handle = tokio::spawn(async move {
-                            let _witness = witness;
-                            std::future::pending::<()>().await;
-                        });
-                        Ok::<JoinHandle<()>, AppError>(handle)
-                    }
-                },
-            )
+            .start_with(String::from(REQUESTED_BIND), {
+                let dropped = Arc::clone(&dropped);
+                move |_bind| async move {
+                    // The witness is a *local of this closure body*, not
+                    // of the spawned task's body. `tokio::spawn` builds
+                    // the future eagerly, so the witness is moved into
+                    // it at spawn time and is dropped when the task's
+                    // future is dropped — whether or not the task ever
+                    // got polled. Under `#[tokio::test]`'s
+                    // current-thread runtime it never does, so a
+                    // witness created inside the task body would never
+                    // exist and this test would prove nothing.
+                    let witness = DropWitness(Arc::clone(&dropped));
+                    let handle = tokio::spawn(async move {
+                        let _witness = witness;
+                        std::future::pending::<()>().await;
+                    });
+                    Ok::<JoinHandle<()>, AppError>(handle)
+                }
+            })
             .await
             .expect("start_with succeeds");
 
@@ -567,7 +550,10 @@ mod tests {
 
         let status = manager.status();
         assert!(status.running);
-        assert_eq!(status.bind, REQUESTED_BIND, "bind is unchanged by a refused start");
+        assert_eq!(
+            status.bind, REQUESTED_BIND,
+            "bind is unchanged by a refused start"
+        );
         assert!(
             std::net::TcpListener::bind(addr).is_err(),
             "the refused start did not disturb the server that was already running"
@@ -588,7 +574,10 @@ mod tests {
         assert!(!manager.status().running);
 
         let addr = start_real_listener(&manager).await;
-        assert!(manager.status().running, "the manager still accepts a start");
+        assert!(
+            manager.status().running,
+            "the manager still accepts a start"
+        );
         assert_eq!(manager.status().bind, REQUESTED_BIND);
         assert!(
             std::net::TcpListener::bind(addr).is_err(),

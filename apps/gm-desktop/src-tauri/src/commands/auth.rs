@@ -58,9 +58,7 @@ pub async fn set_admin_password(
 }
 
 #[tauri::command]
-pub async fn clear_admin_password(
-    state: State<'_, DesktopState>,
-) -> AppResult<()> {
+pub async fn clear_admin_password(state: State<'_, DesktopState>) -> AppResult<()> {
     let vault = state.vault.clone();
     vault.delete(ADMIN_PASSWORD_VAULT_KEY).await?;
     Ok(())

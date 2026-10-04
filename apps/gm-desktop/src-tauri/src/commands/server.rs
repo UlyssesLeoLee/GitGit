@@ -36,7 +36,8 @@ pub async fn start_server(
     let repos_dir = state.repos_dir.clone();
     let bind_for_spawn = bind.clone();
 
-    state.server
+    state
+        .server
         .start_with(bind, move |b| async move {
             spawn_embedded_server(b, vault, repos_dir, bind_for_spawn).await
         })
@@ -54,10 +55,7 @@ pub async fn stop_server(state: State<'_, DesktopState>) -> AppResult<ServerStat
 
 /// Return up to `limit` recent log lines (oldest-first).
 #[tauri::command]
-pub fn server_logs(
-    state: State<'_, DesktopState>,
-    limit: Option<usize>,
-) -> AppResult<Vec<String>> {
+pub fn server_logs(state: State<'_, DesktopState>, limit: Option<usize>) -> AppResult<Vec<String>> {
     Ok(state.logs.snapshot(limit.unwrap_or(200)))
 }
 
