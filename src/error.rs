@@ -72,6 +72,14 @@ pub enum GitGitError {
     /// printed to the terminal and captured by CI logs.
     #[error("ai error: {0}")]
     Ai(String),
+
+    /// A remote name or URL failed validation (V0 T8 `gitremote`).
+    #[error("invalid remote URL: {0:?}")]
+    InvalidRemoteUrl(String),
+
+    /// Remote registry or `gitremote` operation failure (V0 T8).
+    #[error("remote error: {0}")]
+    Remote(String),
 }
 
 /// Convenience alias used throughout the codebase.

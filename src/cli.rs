@@ -25,7 +25,11 @@ pub struct Cli {
 
     /// Root directory for the V0 Credential Vault (file backend).
     /// Per ADR-0021 §1.2 + ADR-0022, default FileVault lives here.
-    /// Env override: `GITGIT_VAULT_FILE_ROOT`.
+    ///
+    /// Env override: `GITGIT_VAULT_FILE_ROOT`, applied in `build_config`
+    /// rather than by a clap `env` key -- the `env` feature is not enabled
+    /// on the clap dependency, and the doc comment previously promised an
+    /// override that was never read.
     #[arg(long, global = true, default_value = DEFAULT_VAULT_FILE_ROOT)]
     pub vault_file_root: PathBuf,
 
@@ -63,6 +67,51 @@ pub enum Command {
     /// committing secrets in the first place.
     #[command(subcommand)]
     Gitai(GitaiCommand),
+
+    /// Named upstream remotes (add / list / fast-forward sync).
+    ///
+    /// Storage is a local JSON file under `.gitgit/`, not a database.
+    /// Per ADR-0022 §2.1 this crate does not take a sqlx / PG dependency,
+    /// and ADR-0022 already rejected wiring an external schema in.
+    #[command(subcommand)]
+    Gitremote(GitremoteCommand),
+}
+
+/// Sub-actions under `gitgit gitremote`.
+#[derive(Debug, Subcommand)]
+pub enum GitremoteCommand {
+    /// Register a named upstream, or point an existing name at a new URL.
+    Add {
+        /// Short name, e.g. `gitee`. Re-adding with a different URL
+        /// updates in place rather than failing.
+        name: String,
+        /// Upstream URL. Passed verbatim to `git fetch` / `git push`.
+        url: String,
+    },
+
+    /// List every registered remote.
+    Ls,
+
+    /// Remove a registered remote.
+    ///
+    /// Removes the registry entry only. It never touches the remote.
+    Rm {
+        /// Remote name to forget.
+        name: String,
+    },
+
+    /// Fast-forward sync a managed bare repo with a named remote.
+    Sync {
+        /// Remote name as registered by `gitremote add`.
+        name: String,
+        /// Bare repository to sync. Default: resolved from
+        /// `--repos-dir` + name, i.e. the repo `gitgit serve` manages.
+        #[arg(long)]
+        repo: Option<PathBuf>,
+        /// Branch to sync. Default: the remote's default branch.
+        #[arg(long)]
+        branch: Option<String>,
+    },
 }
 
 /// Sub-actions under `gitgit gitai`.

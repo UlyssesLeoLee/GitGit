@@ -10,14 +10,15 @@
 
 use anyhow::Context;
 use clap::Parser;
+use std::path::{Path, PathBuf};
 
 use gitgit::ai::{diff::DiffRequest, Invocation, Task, API_KEY_ENV};
-use gitgit::cli::{Cli, Command, GitaiCommand, GitaiTaskArgs, KeyCommand};
-use gitgit::config::Config;
+use gitgit::cli::{Cli, Command, GitaiCommand, GitaiTaskArgs, GitremoteCommand, KeyCommand};
+use gitgit::config::{Config, DEFAULT_VAULT_FILE_ROOT};
 use gitgit::server::vault::{FileVault, VaultError};
 use gitgit::server::vault_versioned::VersionedVault;
 use gitgit::server::AppState;
-use gitgit::{ai, repo, server};
+use gitgit::{ai, remote, repo, server};
 
 /// Initialize logging once. Honors `RUST_LOG`, defaults to `info`.
 fn init_tracing() {
@@ -27,12 +28,26 @@ fn init_tracing() {
     let _ = fmt().with_env_filter(filter).try_init();
 }
 
+/// Environment variable that relocates the vault root.
+const VAULT_ROOT_ENV: &str = "GITGIT_VAULT_FILE_ROOT";
+
 fn build_config(cli: &Cli) -> Config {
-    Config::new(
-        cli.bind.clone(),
-        cli.repos_dir.clone(),
-        cli.vault_file_root.clone(),
-    )
+    // The vault root has carried an `env = GITGIT_VAULT_FILE_ROOT`
+    // override in its documentation since it was introduced, but nothing
+    // ever read the variable -- the argument always won with its default.
+    // An explicit flag still takes precedence; the env var only fills in
+    // when the user did not pass one, which is the usual precedence rule
+    // and the reason an empty value is ignored rather than honoured.
+    let vault_file_root = match std::env::var(VAULT_ROOT_ENV) {
+        Ok(v)
+            if !v.trim().is_empty()
+                && cli.vault_file_root.as_path() == Path::new(DEFAULT_VAULT_FILE_ROOT) =>
+        {
+            PathBuf::from(v)
+        }
+        _ => cli.vault_file_root.clone(),
+    };
+    Config::new(cli.bind.clone(), cli.repos_dir.clone(), vault_file_root)
 }
 
 /// Build the V0 Credential Vault. Per ADR-0021 §1.2 + ADR-0022 §follow-up
@@ -264,6 +279,93 @@ async fn run_gitai_task(task: Task, args: GitaiTaskArgs) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Dispatcher for the `gitremote *` subcommands (V0 T8).
+///
+/// The registry lives next to the `FileVault` root rather than inside it,
+/// so `--vault-file-root` relocates both together and wiping a vault does
+/// not silently discard the remote list.
+fn remote_store(config: &Config) -> remote::RemoteStore {
+    let base = config
+        .vault_file_root
+        .parent()
+        .map_or_else(|| PathBuf::from("."), Path::to_path_buf);
+    remote::RemoteStore::under(&base)
+}
+
+/// Determine which branch a bare repo's `HEAD` points at.
+///
+/// `HEAD` may be a symbolic ref (`ref: refs/heads/main`) or a detached
+/// SHA. Only the symbolic form names a branch, and a detached HEAD has no
+/// branch to sync, so that case is an explicit error rather than a guess.
+fn default_branch(repo: &Path) -> anyhow::Result<String> {
+    let head = repo.join("HEAD");
+    let raw = std::fs::read_to_string(&head)
+        .with_context(|| format!("cannot read {}", head.display()))?;
+    let trimmed = raw.trim();
+    match trimmed.strip_prefix("ref: refs/heads/") {
+        Some(b) => Ok(b.to_string()),
+        None => Err(anyhow::anyhow!(
+            "{} does not point at a branch (HEAD is `{trimmed}`); pass --branch",
+            repo.display()
+        )),
+    }
+}
+
+async fn run_gitremote(config: &Config, sub: GitremoteCommand) -> anyhow::Result<()> {
+    let store = remote_store(config);
+    match sub {
+        GitremoteCommand::Add { name, url } => {
+            let outcome = store.add(&name, &url)?;
+            println!("{} {} -> {}", outcome.as_str(), name, url);
+            println!("  registry: {}", store.path().display());
+            Ok(())
+        }
+        GitremoteCommand::Ls => {
+            let remotes = store.list()?;
+            if remotes.is_empty() {
+                println!("(no remotes)");
+            } else {
+                for r in remotes {
+                    println!("{:<16} {}", r.name, r.url);
+                }
+            }
+            Ok(())
+        }
+        GitremoteCommand::Rm { name } => {
+            if store.remove(&name)? {
+                println!("removed {name}");
+            } else {
+                println!("(no such remote: {name})");
+            }
+            Ok(())
+        }
+        GitremoteCommand::Sync { name, repo, branch } => {
+            let remote_entry = store.get(&name)?;
+            // Default to the bare repo `gitgit serve` manages under the
+            // same name, so the common case needs no --repo.
+            let repo_path = match repo {
+                Some(p) => p,
+                None => config.repo_path(&name)?,
+            };
+            let branch = match branch {
+                Some(b) => b,
+                None => default_branch(&repo_path)?,
+            };
+            println!(
+                "syncing {} ({}) <-> {} [{}]",
+                repo_path.display(),
+                branch,
+                remote_entry.url,
+                name
+            );
+            let outcome =
+                remote::sync::sync_ref(&repo_path, &remote_entry.url, &name, &branch).await?;
+            println!("  {}", outcome.as_str());
+            Ok(())
+        }
+    }
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     init_tracing();
@@ -276,5 +378,6 @@ async fn main() -> anyhow::Result<()> {
         Command::List => run_list(&config),
         Command::Key(sub) => run_key(&config, sub).await,
         Command::Gitai(sub) => run_gitai(sub).await,
+        Command::Gitremote(sub) => run_gitremote(&config, sub).await,
     }
 }
