@@ -9,8 +9,8 @@
     "os": "Windows 11 (git-bash + PowerShell 5.1)"
   },
   "ut": {
-    "expectedTotal": 124,
-    "expectedPassed": 122,
+    "expectedTotal": 149,
+    "expectedPassed": 147,
     "expectedFailed": 0,
     "expectedIgnored": 2,
     "ignoredTest": "server::vault::tests::minio_vault_e2e_roundtrip and server::vault_versioned::tests::minio_vault_versioned_e2e (both require a running minIO server)",
@@ -22,6 +22,8 @@
       "ai::registry": 6,
       "ai::sanitize": 17,
       "ai::tests": 3,
+      "remote::sync": 5,
+      "remote::tests": 15,
       "repo::refs": 7,
       "repo::store": 6,
       "server::api": 17,
@@ -29,12 +31,12 @@
       "server::http": 7,
       "server::smart": 4,
       "server::subprocess": 5,
-      "server::vault": 12,
+      "server::vault": 17,
       "server::vault_versioned": 19
     },
     "command": "cargo test --quiet",
     "timeoutSec": 600,
-    "rationale": "Per-module values are passed+ignored counts as the tier reports them. Re-agreed 2026-10-03 after the tier became runnable on this box: the previous numbers (76/75/1, written 2026-09-21 in d36d8c4) had drifted because they were cross-checked by hand with grep and never re-run -- server::vault_versioned alone grew from 9 to 13 #[test] fns after that commit, and the ai:: modules did not exist yet. Corroborated two ways: the tier's own parse of `cargo test` and cargo's own summary line both report 122 passed / 2 ignored / 0 failed. This is a count contract, not a coverage gate: it will go red whenever a test is legitimately added, so re-agree it in the same commit that adds the tests."
+    "rationale": "Per-module values are passed+ignored counts as the tier reports them. Re-agreed 2026-10-03 after the tier became runnable on this box: the previous numbers (76/75/1, written 2026-09-21 in d36d8c4) had drifted because they were cross-checked by hand with grep and never re-run -- server::vault_versioned alone grew from 9 to 13 #[test] fns after that commit, and the ai:: modules did not exist yet. Corroborated two ways: the tier's own parse of `cargo test` and cargo's own summary line both report 122 passed / 2 ignored / 0 failed. Re-agreed again 2026-10-05 after the minIO fixture landed and the two #[ignore]d minIO tests became runnable for the first time; the previous numbers were stale in two separate ways, both verified by running the tier rather than by grepping. (1) +20: `remote::sync` (5) and `remote::tests` (15) were missing from perModule entirely because T8 added src/remote/ without re-agreeing this file, which is why the tier had been red on dev. (2) +5: `server::vault` 12 -> 17, the regression tests added alongside classify_s3_read. Every perModule value above is now a real count taken from `cargo test --locked --lib`, where 149 test lines matched and cargo's own summary line reads 147 passed / 2 ignored / 0 failed; the perModule values sum to exactly 149. The 2 ignored tests stay `#[ignore]` on purpose: they need a running minIO, and no CI workflow is guaranteed to have a container runtime, so they are exercised by scripts/verify-minio-vault.ps1 instead. This is a count contract, not a coverage gate: it will go red whenever a test is legitimately added, so re-agree it in the same commit that adds the tests. This is a count contract, not a coverage gate: it will go red whenever a test is legitimately added, so re-agree it in the same commit that adds the tests."
   },
   "it": {
     "description": "HTTP-level integration tests against a running gitgit server, hitting /api/* via curl. Distinct from ULYS-123's in-process axum oneshot tests in that these run against a real bound socket.",

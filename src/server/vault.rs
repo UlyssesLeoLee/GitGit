@@ -80,6 +80,93 @@ pub enum VaultError {
     /// The stored value was not valid UTF-8.
     #[error("stored value at key {0} is not valid UTF-8")]
     NotUtf8(String),
+
+    /// An S3 error status that `rust-s3` 0.37 hands back as `Ok`
+    /// instead of `Err`.
+    ///
+    /// It is a separate variant because `S3Error` cannot be
+    /// constructed from outside the crate (its variants are
+    /// `pub(crate)`), yet these failures still need to reach the
+    /// caller with the server's own `<Code>` intact: a missing
+    /// credential and a missing bucket are very different problems
+    /// and must not be reported the same way.
+    #[error("minIO/S3 HTTP {status} ({code}): {detail}")]
+    S3Status {
+        status: u16,
+        code: String,
+        detail: String,
+    },
+}
+
+/// What an S3 GET actually returned, once the status code is taken
+/// into account.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum S3Read {
+    /// A 2xx with a body: this is the stored object.
+    Value,
+    /// A 404 for a key that does not exist: the credential is absent.
+    Missing,
+    /// Any other non-2xx: transport, auth, or deployment failure.
+    Failure,
+}
+
+/// Decide what an S3 GET means from its status code and body.
+///
+/// This exists because `rust-s3` 0.37.2 `get_object` does not check the
+/// status: `RequestImpl::response_data` returns `Ok` and hands back the
+/// S3 error *document* as the object body. A caller that trusts `Ok`
+/// then stores a `<?xml ...><Error><Code>NoSuchKey</Code>...` string as
+/// if it were a credential. Verified against minIO
+/// `RELEASE.2025-09-07T16-13-09Z` via `scripts/verify-minio-vault.ps1`.
+///
+/// Status is checked before the body, and only for non-2xx, so a stored
+/// value that happens to contain the text `NoSuchKey` is still returned
+/// as a value.
+///
+/// 404 is split by `<Code>` on purpose: `NoSuchKey` means "this
+/// credential is absent", while `NoSuchBucket` means the deployment is
+/// misconfigured. Collapsing the second into `Missing` would let a
+/// broken bucket look like an empty vault.
+pub(crate) fn classify_s3_read(status: u16, body: &[u8]) -> S3Read {
+    if (200..300).contains(&status) {
+        return S3Read::Value;
+    }
+    let text = String::from_utf8_lossy(body);
+    let code = extract_s3_error_code(&text).unwrap_or_else(|| format!("HTTP{status}"));
+    if status == 404 && code == "NoSuchKey" {
+        return S3Read::Missing;
+    }
+    S3Read::Failure
+}
+
+/// Pull `<Code>NAME</Code>` out of an S3 error document.
+fn extract_s3_error_code(text: &str) -> Option<String> {
+    let start = text.find("<Code>")? + "<Code>".len();
+    let end = text[start..].find("</Code>")? + start;
+    Some(text[start..end].trim().to_string())
+}
+
+/// Build the error for a non-2xx S3 read, keeping the server's wording
+/// but capping it so a large body cannot flood a log line.
+fn s3_status_error(status: u16, body: &[u8]) -> VaultError {
+    let text = String::from_utf8_lossy(body);
+    let code = extract_s3_error_code(&text).unwrap_or_else(|| format!("HTTP{status}"));
+    const MAX_DETAIL: usize = 256;
+    // `chars().take()` rather than a byte slice: the body is arbitrary
+    // server output, and `&text[..MAX_DETAIL]` would panic whenever the
+    // boundary landed inside a multi-byte character.
+    let detail = if text.chars().count() > MAX_DETAIL {
+        let mut capped: String = text.chars().take(MAX_DETAIL).collect();
+        capped.push_str("...");
+        capped
+    } else {
+        text.to_string()
+    };
+    VaultError::S3Status {
+        status,
+        code,
+        detail,
+    }
 }
 
 impl From<VaultError> for GitGitError {
@@ -267,7 +354,21 @@ impl MinioVault {
         object_key: &str,
     ) -> std::result::Result<Option<bytes::Bytes>, VaultError> {
         match self.bucket.get_object(object_key).await {
-            Ok(resp) => Ok(Some(resp.bytes().clone())),
+            // Same status-first rule as `Vault::get`: a missing sidecar
+            // arrives as `Ok` carrying the S3 error document, and
+            // `minio_load_timeline` feeds this straight into
+            // `serde_json::from_slice`, so an unchecked read turned a
+            // never-written sidecar into "versioned-vault serde error:
+            // expected value at line 1 column 1".
+            Ok(resp) => {
+                let status = resp.status_code();
+                let bytes = resp.bytes().clone();
+                match classify_s3_read(status, &bytes) {
+                    S3Read::Missing => Ok(None),
+                    S3Read::Failure => Err(s3_status_error(status, &bytes)),
+                    S3Read::Value => Ok(Some(bytes)),
+                }
+            }
             Err(e) if is_not_found(&e) => Ok(None),
             Err(e) => Err(VaultError::from(e)),
         }
@@ -323,10 +424,19 @@ impl Vault for MinioVault {
         let object_key = self.object_key(key);
         match self.bucket.get_object(&object_key).await {
             Ok(resp) => {
-                let bytes = resp.bytes();
-                match String::from_utf8(bytes.to_vec()) {
-                    Ok(s) => Ok(Some(s)),
-                    Err(_) => Err(VaultError::NotUtf8(key.to_string()).into()),
+                // `Ok` alone does not mean the object exists: see
+                // `classify_s3_read`. Checking the status here is what
+                // keeps a missing credential from being handed back as
+                // the S3 error document.
+                let status = resp.status_code();
+                let bytes = resp.bytes().clone();
+                match classify_s3_read(status, &bytes) {
+                    S3Read::Missing => Ok(None),
+                    S3Read::Failure => Err(s3_status_error(status, &bytes).into()),
+                    S3Read::Value => match String::from_utf8(bytes.to_vec()) {
+                        Ok(s) => Ok(Some(s)),
+                        Err(_) => Err(VaultError::NotUtf8(key.to_string()).into()),
+                    },
                 }
             }
             // `S3Error::NoSuchKey` (and the 404-shaped variants) collapse
@@ -784,6 +894,64 @@ mod tests {
         cfg.key_prefix.clear();
         let v = MinioVault::connect(&cfg).unwrap();
         assert_eq!(v.object_key("openai"), "openai");
+    }
+
+    /// Verbatim 404 body captured from minIO `RELEASE.2025-09-07T16-13-09Z`
+    /// on 2026-10-05 by `scripts/verify-minio-vault.ps1`.
+    ///
+    /// `rust-s3` 0.37.2 `get_object` returns `Ok` for this and puts the
+    /// document in the body, so before `classify_s3_read` existed
+    /// `MinioVault::get` handed callers this XML as the credential.
+    const REAL_NO_SUCH_KEY_BODY: &[u8] = b"<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<Error><Code>NoSuchKey</Code><Message>The specified key does not exist.</Message><Key>ut-890292cf2a2e4919b7369d92585789bf/definitely-not-there</Key><BucketName>gitgit-vault</BucketName><Resource>/gitgit-vault/ut-890292cf2a2e4919b7369d92585789bf/definitely-not-there</Resource><RequestId>18DB743F6C9EA474</RequestId><HostId>dd9025bab4ad464b049177c95eb6ebf374d3b3fd1af9251148b658df7ac2e3e8</HostId></Error>";
+
+    #[test]
+    fn s3_read_404_with_no_such_key_is_missing() {
+        assert_eq!(
+            classify_s3_read(404, REAL_NO_SUCH_KEY_BODY),
+            S3Read::Missing
+        );
+    }
+
+    #[test]
+    fn s3_read_200_returns_the_body_even_when_it_looks_like_an_error_document() {
+        // Status is checked before the body, so stored data that happens
+        // to contain `NoSuchKey` is still data.
+        assert_eq!(classify_s3_read(200, REAL_NO_SUCH_KEY_BODY), S3Read::Value);
+        assert_eq!(classify_s3_read(200, b"sk-real-secret"), S3Read::Value);
+    }
+
+    #[test]
+    fn s3_read_404_for_a_missing_bucket_is_a_failure_not_an_empty_vault() {
+        let body = b"<Error><Code>NoSuchBucket</Code><Message>The specified bucket does not exist.</Message></Error>";
+        assert_eq!(classify_s3_read(404, body), S3Read::Failure);
+    }
+
+    #[test]
+    fn s3_read_other_error_statuses_are_failures() {
+        for status in [400u16, 403, 500, 503] {
+            assert_eq!(
+                classify_s3_read(status, b"<Error><Code>AccessDenied</Code></Error>"),
+                S3Read::Failure,
+                "status {status} should not read as a value"
+            );
+        }
+    }
+
+    #[test]
+    fn s3_status_error_keeps_the_server_code_and_caps_the_detail() {
+        let msg = s3_status_error(404, REAL_NO_SUCH_KEY_BODY).to_string();
+        assert!(msg.contains("NoSuchKey"), "server code lost: {msg}");
+        assert!(msg.contains("404"), "status lost: {msg}");
+
+        // Multi-byte body: a byte-index slice here would panic on a
+        // char boundary, so the cap is asserted with non-ASCII input.
+        let wide = "<Error><Code>X</Code>".repeat(300);
+        let wide_msg = s3_status_error(500, wide.as_bytes()).to_string();
+        assert!(
+            wide_msg.len() < 512,
+            "detail was not capped: {} bytes",
+            wide_msg.len()
+        );
     }
 
     #[test]

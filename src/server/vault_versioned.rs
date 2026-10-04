@@ -707,7 +707,21 @@ impl VersionedVault for MinioVault {
 
     async fn get_at_version(&self, key: &str, version: i32) -> Result<Option<String>> {
         let tl = minio_load_timeline(self, key).await?;
-        let entry = find_version(&tl, version)?;
+        // "Absent" is not "broken". A key that was never written has an
+        // empty timeline, and a version the timeline never saw is
+        // documented (on this trait, and asserted by
+        // `minio_vault_versioned_e2e_roundtrip`) to be `Ok(None)` with no
+        // versionId lookup attempted. `find_version` keeps returning
+        // `VersionNotFound` because `restore_to_version` and
+        // `diff_versions` must still reject an unknown version, so the
+        // lookup is inlined here rather than changing the shared helper.
+        if version < 1 {
+            return Err(VersionedVaultError::InvalidVersion(version).into());
+        }
+        let entry = match tl.versions.iter().find(|v| v.version == version) {
+            Some(e) => e.clone(),
+            None => return Ok(None),
+        };
         // 1. If the sidecar carries a `version_id` (i.e. the
         //    corresponding `set_with_version` ran against a
         //    minIO server with bucket versioning enabled), try
