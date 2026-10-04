@@ -86,6 +86,16 @@ pub trait VersionedVault: Vault + Send + Sync {
 | `FileVault` | `<root>/_versions/<key-encoded>.versions.json`（atomic write temp+rename） | **不可还原** —— `set` 直接覆盖原文件；保留 metadata 但 bytes 只做 marker |
 | `MinioVault` | `gitgit-vault/<key>.versions.json` 同 bucket sidecar object | **V0.2 已真接 minIO server-side versioning**：sidecar 每条 entry 记录 minIO 返回的 `x-amz-version-id`; `get_at_version` 优先用 `presign_get` + 自定义 `versionId` query 拼签名 URL, 调 reqwest 直读 minIO server-side bytes; attachment slot 仅作 fallback |
 
+### 2.3.1 T8 验收口径变更（2026-10-03，ADR 本体不变）
+
+`[FACT]` v0-tasks T8 的原验收是「`gitremote add gitee <url>` **存 PG** + fast-forward sync 工作」。该措辞与 §2.1「不引入 sqlx / PG 到 gitgit」直接冲突，而 §2.3 上文已把「直接对接 AssetsLake schema + sqlx」列为**已否决方案**（风险 #2）。
+
+`[FACT]` 2026-10-03 经 Ulysses 拍板：**本 ADR 不变**，改的是 T8 的验收口径 —— 存储落到 `.gitgit/remotes.json`，验收条件变为「add 存本地 + fast-forward sync 工作」。
+
+`[FACT]` 在此记录，不是为了追认，而是为了避免后来者把 T8 的落地读成对本 ADR 的绕过：`gitremote` 没有引入任何 sqlx / PG 依赖，ADR-0022 的边界完好。
+
+`[FACT]` `src/remote/mod.rs` 的 `RemoteStore` 被刻意收敛成单一可替换接口，将来若 T8 真的需要外部存储，换实现不触碰 CLI 层，也不必再次触碰本 ADR。
+
 **为什么不强还原**：
 - gitgit 已有 minIO 服务端 versioning 缺失（per AssetsLake ADR-0022 §2.4 同源判断），V0 阶段不重复 minIO 配置
 - 字节 marker + sidecar metadata + `tracing::info!` 已经支撑审计可见性
