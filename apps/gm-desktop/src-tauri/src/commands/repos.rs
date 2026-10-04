@@ -6,7 +6,7 @@
 //! libgit2 / gix bindings). Output parsing is intentionally tolerant —
 //! the UI falls back to "Unknown" when fields are missing.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Stdio;
 
 use serde::Serialize;
@@ -107,7 +107,7 @@ pub async fn repo_detail(
 /// safer scheme is V1 work).
 #[tauri::command]
 pub async fn clone_url(
-    state: State<'_, DesktopState>,
+    _state: State<'_, DesktopState>,
     name: String,
     server_bind: Option<String>,
 ) -> AppResult<String> {
@@ -115,12 +115,13 @@ pub async fn clone_url(
     // We deliberately omit credential embedding at this layer. The
     // URL alone is enough for `git clone <url>` to work; the embedded
     // server treats reads as open per `auth::require_basic` semantics.
-    let scheme = if bind.starts_with("127.0.0.1") || bind.starts_with("localhost") {
-        "http"
-    } else {
-        "http"
-    };
-    Ok(format!("{scheme}://{bind}/repos/{name}.git"))
+    //
+    // The scheme is unconditionally http, not chosen by host: the embedded
+    // server speaks plain HTTP in V0 (see the note above this command).
+    // An earlier version branched on whether the bind was loopback, but
+    // both arms returned "http" -- a decision that looked real and decided
+    // nothing. TLS terminates at V1, at the proxy, never in here.
+    Ok(format!("http://{bind}/repos/{name}.git"))
 }
 
 /// Open the repo directory in the host file manager. Resolution:
@@ -139,7 +140,7 @@ pub async fn open_repo_in_shell(
 
 // --- pure helpers ------------------------------------------------------
 
-fn read_default_branch(repo: &PathBuf) -> std::io::Result<String> {
+fn read_default_branch(repo: &Path) -> std::io::Result<String> {
     let head = std::fs::read_to_string(repo.join("HEAD"))?;
     let head = head.trim_start_matches("ref:").trim();
     head.rsplit('/').next()
@@ -147,7 +148,7 @@ fn read_default_branch(repo: &PathBuf) -> std::io::Result<String> {
         .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::InvalidData, "HEAD is empty"))
 }
 
-fn dir_size_bytes(path: &PathBuf) -> std::io::Result<u64> {
+fn dir_size_bytes(path: &Path) -> std::io::Result<u64> {
     let mut total: u64 = 0;
     for entry in std::fs::read_dir(path)? {
         let entry = entry?;

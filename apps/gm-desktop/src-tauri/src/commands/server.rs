@@ -11,7 +11,7 @@ use std::sync::Arc;
 use tauri::State;
 
 use crate::error::{AppError, AppResult};
-use crate::state::{DesktopState, ServerStatus, DEFAULT_BIND};
+use crate::state::{resolve_bind_with_default, DesktopState, ServerStatus};
 
 /// Snapshot of the server status. Cheap; safe to call on every UI tick.
 #[tauri::command]
@@ -27,11 +27,11 @@ pub async fn start_server(
     state: State<'_, DesktopState>,
     bind: Option<String>,
 ) -> AppResult<ServerStatus> {
-    let bind = bind.unwrap_or_else(|| String::from(DEFAULT_BIND));
+    let bind = resolve_bind_with_default(bind).await;
 
     // Construct a fresh router + listener. Each (re)start owns its own
-    // `axum::serve` task; the previous instance, if any, was previously
-    // dropped in `stop_server`.
+    // `axum::serve` task; the previous instance, if any, is aborted in
+    // `stop_server`.
     let vault = state.vault.clone();
     let repos_dir = state.repos_dir.clone();
     let bind_for_spawn = bind.clone();
@@ -44,9 +44,12 @@ pub async fn start_server(
 }
 
 /// Stop the embedded server. Returns the prior status snapshot.
+///
+/// Async because `ServerManager::stop` awaits the cancelled task, so the
+/// port is genuinely free by the time this resolves.
 #[tauri::command]
-pub fn stop_server(state: State<'_, DesktopState>) -> AppResult<ServerStatus> {
-    state.server.stop()
+pub async fn stop_server(state: State<'_, DesktopState>) -> AppResult<ServerStatus> {
+    state.server.stop().await
 }
 
 /// Return up to `limit` recent log lines (oldest-first).

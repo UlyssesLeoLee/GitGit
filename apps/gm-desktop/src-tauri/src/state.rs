@@ -1,6 +1,10 @@
 //! In-process application state for the Tauri runtime.
 //!
-//! Holds three distinct concerns:
+//! No part of this file touches gitgit's `vault / auth / http` business
+//! logic. Construction uses only `pub` types already exposed by the
+//! gitgit library target.
+//!
+//! It holds three distinct concerns:
 //!
 //! 1. `ServerManager` — owns the embedded axum server that mirrors what
 //!    `gitgit serve` would do as a CLI. Per ADR-0020 §2.2 we embed the
@@ -13,10 +17,6 @@
 //! 3. `LogBuffer` — a ring buffer fed by the tracing layer so the UI can
 //!    fetch recent log lines through the `server_logs` command.
 
-//! No part of this file touches gitgit's `vault / auth / http` business
-//! logic. Construction uses only `pub` types already exposed by the
-//! gitgit library target.
-
 use std::collections::VecDeque;
 use std::future::Future;
 use std::path::PathBuf;
@@ -26,7 +26,6 @@ use std::time::Instant;
 use gitgit::server::vault::Vault;
 use gitgit::server::vault_versioned::VersionedVault;
 use serde::Serialize;
-use tokio::sync::Mutex as AsyncMutex;
 use tokio::task::JoinHandle;
 use tracing_subscriber::Layer;
 
@@ -63,8 +62,9 @@ pub struct ServerStatus {
 struct Running {
     bind: String,
     started_at: Instant,
-    /// The tokio task driving `axum::serve`. Held to allow graceful
-    /// shutdown via `abort()`.
+    /// The tokio task driving `axum::serve`. Held so `stop` can `abort()`
+    /// it — dropping this handle would only detach the task, leaving the
+    /// port bound.
     join: JoinHandle<()>,
 }
 
@@ -124,21 +124,20 @@ impl ServerManager {
         F: FnOnce(String) -> Fut,
         Fut: Future<Output = AppResult<JoinHandle<()>>>,
     {
-        // Phase 1: hold the lock long enough to mark the slot as
-        // "starting" (still None — pre-join). Drop the guard before
-        // awaiting the spawn closure so the lock isn't held across
-        // .await (MutexGuard is !Send).
-        let already_running = {
+        // Phase 1: hold the lock long enough to reject a double start.
+        // Drop the guard before awaiting the spawn closure so the lock
+        // isn't held across .await (MutexGuard is !Send). The result is
+        // `Result<(), AppError>` and is consumed by `?` — binding it to a
+        // name would only discard the Ok(()) immediately.
+        {
             let guard = self
                 .inner
                 .lock()
                 .map_err(|_| AppError::ServerManagerPoisoned)?;
             if guard.is_some() {
-                Err(AppError::ServerAlreadyRunning(std::process::id()))
-            } else {
-                Ok(())
+                return Err(AppError::ServerAlreadyRunning(std::process::id()));
             }
-        }?;
+        }
         // Phase 2: drive the spawn closure to completion (no lock held).
         let join = spawn(bind.clone()).await?;
         // Phase 3: re-acquire the lock and commit the JoinHandle.
@@ -155,21 +154,44 @@ impl ServerManager {
     }
 
     /// Stop a running server and return its prior status.
-    pub fn stop(&self) -> AppResult<ServerStatus> {
-        let mut guard = self
-            .inner
-            .lock()
-            .map_err(|_| AppError::ServerManagerPoisoned)?;
-        match &*guard {
-            None => Err(AppError::ServerNotRunning),
-            Some(_) => {
-                let prev = self.status_from_guard(&guard);
-                // Drop the join handle — its inner future is dropped,
-                // which aborts the task.
-                *guard = None;
-                Ok(prev)
-            }
-        }
+    ///
+    /// The handle is aborted AND awaited. Aborting alone is not enough to
+    /// report "stopped": cancellation is delivered at the task's next await
+    /// point, so returning immediately would let a caller observe
+    /// `running: false` while `axum::serve` still holds the port.
+    ///
+    /// The previous implementation simply dropped the `Option<Running>`,
+    /// which drops the `JoinHandle` — and dropping a tokio `JoinHandle`
+    /// *detaches* the task rather than cancelling it. The server kept
+    /// running and kept the port bound after `stop_server` had reported it
+    /// down. `abort()` is what actually stops it.
+    pub async fn stop(&self) -> AppResult<ServerStatus> {
+        let taken = {
+            let mut guard = self
+                .inner
+                .lock()
+                .map_err(|_| AppError::ServerManagerPoisoned)?;
+            guard.take()
+        };
+        let Some(running) = taken else {
+            return Err(AppError::ServerNotRunning);
+        };
+
+        let prev = ServerStatus {
+            handle: String::from("embedded"),
+            bind: running.bind.clone(),
+            pid: std::process::id(),
+            uptime_secs: Some(running.started_at.elapsed().as_secs()),
+            running: true,
+        };
+
+        running.join.abort();
+        // Wait for the cancellation to land so the port is released before
+        // this call reports the server as down. Err(Cancelled) is the
+        // expected result and carries no information we need.
+        let _ = running.join.await;
+
+        Ok(prev)
     }
 
     fn status_from_guard(
@@ -366,12 +388,231 @@ impl DesktopState {
 /// Re-exported helper used by the `spawn_embedded_server` function in
 /// `lib.rs`. Kept here so the `ServerManager` test surface stays
 /// cohesive.
-pub async fn resolve_bind_with_default(
-    requested: Option<String>,
-) -> String {
+pub async fn resolve_bind_with_default(requested: Option<String>) -> String {
     requested.unwrap_or_else(|| String::from(DEFAULT_BIND))
 }
 
-/// Marker re-export for code that wants to refer to the app data dir
-/// without pulling in tauri's `AppHandle`.
-pub type SharedState = Arc<AsyncMutex<()>>;
+#[cfg(test)]
+mod tests {
+    // The crate lints deny `unwrap_used` / `expect_used` / `panic`, which
+    // are the normal vocabulary of test assertions. They are re-enabled
+    // for this module only, which is compiled exclusively under
+    // `cfg(test)` and never reaches the shipped binary.
+    #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+
+    use super::*;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::Mutex as StdMutex;
+
+    /// The bind string the test helpers ask for. Port `0` makes the OS
+    /// pick a free port, so the address actually bound is only known
+    /// after the listener exists — which is exactly why the helpers below
+    /// return it separately.
+    const REQUESTED_BIND: &str = "127.0.0.1:0";
+
+    /// Flips a flag when it is dropped. A value constructed *inside* a
+    /// spawned task is therefore a witness for "this task was actually
+    /// torn down" as opposed to "its `JoinHandle` was merely discarded".
+    struct DropWitness(Arc<AtomicBool>);
+
+    impl Drop for DropWitness {
+        fn drop(&mut self) {
+            self.0.store(true, Ordering::SeqCst);
+        }
+    }
+
+    /// Start a server on `manager` whose task owns a real `TcpListener`
+    /// on an ephemeral port, exactly like `spawn_embedded_server` does in
+    /// production. Returns the address that was bound.
+    async fn start_real_listener(manager: &ServerManager) -> std::net::SocketAddr {
+        let addr_slot = Arc::new(StdMutex::new(None));
+
+        let status = manager
+            .start_with(
+                String::from(REQUESTED_BIND),
+                {
+                    let addr_slot = Arc::clone(&addr_slot);
+                    move |_bind| async move {
+                        let listener = tokio::net::TcpListener::bind(REQUESTED_BIND)
+                            .await
+                            .expect("ephemeral port is bindable");
+                        let addr = listener.local_addr().expect("listener reports local_addr");
+                        *addr_slot.lock().expect("addr slot is not poisoned") = Some(addr);
+                        let handle = tokio::spawn(async move {
+                            if let Err(e) = axum::serve(listener, axum::Router::new()).await {
+                                tracing::error!(error = %e, "test server exited");
+                            }
+                        });
+                        Ok::<JoinHandle<()>, AppError>(handle)
+                    }
+                },
+            )
+            .await
+            .expect("start_with succeeds");
+
+        assert!(status.running, "a freshly started server reports running");
+        assert_eq!(status.handle, "embedded");
+        let addr = *addr_slot
+            .lock()
+            .expect("addr slot is not poisoned")
+            .as_ref()
+            .expect("the spawned task recorded its bound address");
+        addr
+    }
+
+    /// Regression test for the detached-task defect.
+    ///
+    /// The previous `stop()` only did `*guard = None`, which drops the
+    /// `JoinHandle`. Dropping a tokio `JoinHandle` *detaches* the task
+    /// instead of cancelling it, so `axum::serve` kept running, the port
+    /// stayed bound, and `stop_server` had already reported
+    /// `running: false`. Re-binding the port is the user-visible symptom,
+    /// so that is what this asserts: the port must be free the instant
+    /// `stop()` resolves, not "eventually, if the process happens to
+    /// notice".
+    #[tokio::test]
+    async fn stop_releases_the_listening_port_before_returning() {
+        let manager = ServerManager::new();
+        let addr = start_real_listener(&manager).await;
+
+        // Precondition: while "running", the port really is occupied. If
+        // this ever fails the test would pass vacuously below.
+        assert!(
+            std::net::TcpListener::bind(addr).is_err(),
+            "precondition: {addr} must be occupied while the server is running"
+        );
+
+        let previous = manager.stop().await.expect("stop returns the prior status");
+        assert!(previous.running, "stop reports the server it just stopped");
+        // `ServerStatus.bind` echoes the *requested* bind string, not the
+        // address the kernel resolved. With the production default
+        // (`127.0.0.1:38080`) the two are the same string; they diverge
+        // only when the caller asks for port 0, which is why this test
+        // tracks the resolved address separately.
+        assert_eq!(previous.bind, REQUESTED_BIND);
+        assert!(!manager.status().running, "status flips to down after stop");
+
+        // The regression: this bind fails under the old drop-only
+        // implementation with "address already in use".
+        std::net::TcpListener::bind(addr)
+            .expect("the port must be released once stop() resolves");
+
+        assert!(
+            manager.stop().await.is_err(),
+            "a second stop reports that nothing is running"
+        );
+    }
+
+    /// Companion to the port test: proves the *task* was cancelled rather
+    /// than the listener happening to be released by some other path.
+    #[tokio::test]
+    async fn stop_cancels_the_task_instead_of_detaching_it() {
+        let manager = ServerManager::new();
+        let dropped = Arc::new(AtomicBool::new(false));
+
+        manager
+            .start_with(
+                String::from(REQUESTED_BIND),
+                {
+                    let dropped = Arc::clone(&dropped);
+                    move |_bind| async move {
+                        // The witness is a *local of this closure body*, not
+                        // of the spawned task's body. `tokio::spawn` builds
+                        // the future eagerly, so the witness is moved into
+                        // it at spawn time and is dropped when the task's
+                        // future is dropped — whether or not the task ever
+                        // got polled. Under `#[tokio::test]`'s
+                        // current-thread runtime it never does, so a
+                        // witness created inside the task body would never
+                        // exist and this test would prove nothing.
+                        let witness = DropWitness(Arc::clone(&dropped));
+                        let handle = tokio::spawn(async move {
+                            let _witness = witness;
+                            std::future::pending::<()>().await;
+                        });
+                        Ok::<JoinHandle<()>, AppError>(handle)
+                    }
+                },
+            )
+            .await
+            .expect("start_with succeeds");
+
+        assert!(
+            !dropped.load(Ordering::SeqCst),
+            "the task is still alive before stop"
+        );
+
+        manager.stop().await.expect("stop returns the prior status");
+
+        assert!(
+            dropped.load(Ordering::SeqCst),
+            "stop() must cancel the task; dropping a JoinHandle only detaches it"
+        );
+    }
+
+    /// A second `start_with` while running is rejected, and the manager
+    /// still reports the original bind rather than the rejected one.
+    #[tokio::test]
+    async fn start_is_rejected_while_a_server_is_already_running() {
+        let manager = ServerManager::new();
+        let addr = start_real_listener(&manager).await;
+
+        let err = manager
+            .start_with(String::from("127.0.0.1:1"), |_bind| async move {
+                panic!("the spawn closure must not run for a rejected start");
+            })
+            .await
+            .expect_err("a second start is refused");
+        assert!(matches!(err, AppError::ServerAlreadyRunning(_)), "{err:?}");
+
+        let status = manager.status();
+        assert!(status.running);
+        assert_eq!(status.bind, REQUESTED_BIND, "bind is unchanged by a refused start");
+        assert!(
+            std::net::TcpListener::bind(addr).is_err(),
+            "the refused start did not disturb the server that was already running"
+        );
+
+        manager.stop().await.expect("stop returns the prior status");
+    }
+
+    /// `stop` on a manager that never started is an error, and — because
+    /// a failed stop must not consume the guard — the *same* manager is
+    /// still able to start afterwards.
+    #[tokio::test]
+    async fn stop_without_start_reports_not_running_and_leaves_the_manager_usable() {
+        let manager = ServerManager::new();
+
+        let err = manager.stop().await.expect_err("nothing is running");
+        assert!(matches!(err, AppError::ServerNotRunning), "{err:?}");
+        assert!(!manager.status().running);
+
+        let addr = start_real_listener(&manager).await;
+        assert!(manager.status().running, "the manager still accepts a start");
+        assert_eq!(manager.status().bind, REQUESTED_BIND);
+        assert!(
+            std::net::TcpListener::bind(addr).is_err(),
+            "the reused manager really did take a fresh listening port"
+        );
+
+        manager.stop().await.expect("stop returns the prior status");
+        assert!(!manager.status().running);
+    }
+
+    /// `resolve_bind_with_default` is the single source of the default
+    /// bind string; `commands::server` used to carry its own copy of the
+    /// literal, which is exactly the kind of drift this pins down.
+    #[tokio::test]
+    async fn resolve_bind_falls_back_to_the_documented_default() {
+        assert_eq!(
+            resolve_bind_with_default(None).await,
+            DEFAULT_BIND,
+            "an absent bind resolves to DEFAULT_BIND"
+        );
+        assert_eq!(
+            resolve_bind_with_default(Some(String::from("127.0.0.1:1234"))).await,
+            "127.0.0.1:1234",
+            "an explicit bind is passed through untouched"
+        );
+    }
+}
