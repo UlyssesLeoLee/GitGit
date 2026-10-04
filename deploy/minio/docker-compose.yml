@@ -1,0 +1,99 @@
+# Dev/test-only object storage for the gitgit Credential Vault (V0 task T11).
+#
+# Scope, stated up front because this file is committed to the repo:
+#
+#   * This is a DEVELOPMENT AND TEST fixture. It is not a shipped
+#     component and nothing in the product needs it at runtime. The V0
+#     credential path is FileVault under `.gitgit/vault`; the S3 vault is
+#     opt-in through the GITGIT_MINIO_* environment variables, and
+#     ADR-0022 2.1 keeps sqlx / PostgreSQL out of this crate on purpose.
+#   * The MinIO server is GNU AGPLv3. Its own `--version` banner says so
+#     ("License: GNU AGPLv3"), which is where that statement comes from.
+#     It runs here as a separate process the product talks to over HTTP;
+#     that is the ordinary way to consume an AGPL service. The point is
+#     written down instead of left implicit, so nobody later mistakes
+#     this fixture for a shipping component.
+#   * Both ports are published on 127.0.0.1 only, so nothing off this
+#     machine can reach the bucket.
+#   * The credentials are the literal acceptance-criterion values from
+#     docs/plan/v0-tasks.md T11 (minio / minio123). They are dev
+#     credentials for a loopback-only container, not a secret. Override
+#     GITGIT_MINIO_ACCESS_KEY / GITGIT_MINIO_SECRET_KEY if you ever point
+#     this at anything shared.
+#
+# Start:  docker compose -f deploy/minio/docker-compose.yml up -d --wait
+# Verify: pwsh -NoProfile -File scripts/verify-minio-vault.ps1
+# Stop:   docker compose -f deploy/minio/docker-compose.yml down
+#         add -v to also drop the volume and every stored credential
+
+name: gitgit-minio
+
+services:
+  minio:
+    # Pinned to the exact upstream release, read out of the running
+    # image's own `--version` banner rather than guessed:
+    #   RELEASE.2025-09-07T16-13-09Z (commit 07c3a429bfed433e49018cb0f78a52145d4bedeb)
+    image: minio/minio:RELEASE.2025-09-07T16-13-09Z
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${GITGIT_MINIO_ACCESS_KEY:-minio}
+      MINIO_ROOT_PASSWORD: ${GITGIT_MINIO_SECRET_KEY:-minio123}
+    ports:
+      - "127.0.0.1:9000:9000" # S3 API
+      - "127.0.0.1:9001:9001" # web console
+    volumes:
+      - minio-data:/data
+    # `curl` is present in this image (verified: /usr/bin/curl), so the
+    # documented liveness probe works without extra packages.
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:9000/minio/health/live"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
+
+  createbuckets:
+    # Same provenance for the tag:
+    #   RELEASE.2025-08-13T08-35-41Z (commit 7394ce0dd2a80935aded936b09fa12cbb3cb8096)
+    image: minio/mc:RELEASE.2025-08-13T08-35-41Z
+    depends_on:
+      minio:
+        condition: service_healthy
+    restart: "no"
+    environment:
+      GITGIT_MINIO_ACCESS_KEY: ${GITGIT_MINIO_ACCESS_KEY:-minio}
+      GITGIT_MINIO_SECRET_KEY: ${GITGIT_MINIO_SECRET_KEY:-minio123}
+      GITGIT_MINIO_BUCKET: ${GITGIT_MINIO_BUCKET:-gitgit-vault}
+    # `$$` is a literal `$` after compose interpolation; the script itself
+    # runs under /bin/sh inside the mc image.
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        set -eu
+        # `mc alias set` fails until the server answers, so retry instead
+        # of trusting a healthcheck alone.
+        i=0
+        until mc alias set local http://minio:9000 \
+          "$$GITGIT_MINIO_ACCESS_KEY" "$$GITGIT_MINIO_SECRET_KEY" >/dev/null 2>&1; do
+          i=$$((i + 1))
+          if [ "$$i" -ge 30 ]; then
+            echo "minIO did not become ready after 60s" >&2
+            exit 1
+          fi
+          sleep 2
+        done
+        mc mb --ignore-existing "local/$$GITGIT_MINIO_BUCKET"
+        # Versioning is load-bearing, not decoration. VaultVersionSummary
+        # stores the x-amz-version-id that minIO returns on PUT, and it
+        # only returns one for a versioned bucket
+        # (src/server/vault_versioned.rs). Leave this off and every stored
+        # credential keeps an empty version_id.
+        mc version enable "local/$$GITGIT_MINIO_BUCKET"
+        mc anonymous set none "local/$$GITGIT_MINIO_BUCKET"
+        echo "bucket ready:"
+        mc version info "local/$$GITGIT_MINIO_BUCKET"
+        mc ls "local/$$GITGIT_MINIO_BUCKET"
+
+volumes:
+  minio-data:
