@@ -1,6 +1,5 @@
 //! Cross-cutting utility commands: clipboard, app data dir, version.
 
-use gitgit::server::vault::Vault;
 use serde::Serialize;
 use tauri::State;
 

@@ -18,6 +18,14 @@ description = "Local desktop shell for gitgit (V0, per ADR-0020)"
 name = "gm_desktop_lib"
 path = "src/lib.rs"
 
+[features]
+# `build_test_state` is gated on `any(test, feature = "test-support")` so
+# that integration tests and external harnesses can build a `DesktopState`
+# without a running Tauri app. Declaring the feature is what stops
+# `unexpected_cfgs` from firing on the `feature = "test-support"` arm; the
+# flag exists purely to make that arm selectable, it adds no behaviour.
+test-support = []
+
 [[bin]]
 name = "gm-desktop"
 path = "src/main.rs"

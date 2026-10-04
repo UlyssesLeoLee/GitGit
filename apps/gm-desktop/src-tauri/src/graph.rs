@@ -8,6 +8,42 @@ use std::collections::{BTreeSet, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
 
+/// Compile a regex from a **literal** pattern.
+///
+/// Every call site in this module passes a `&'static str` written in the
+/// source, never user input and never a built string. `Regex::new` on
+/// such a pattern can only fail if the source itself is malformed, which
+/// is a compile-time authoring error rather than a runtime condition.
+/// The crate's `unwrap_used = "deny"` is relaxed here, and only here, to
+/// express exactly that.
+///
+/// This is deliberately *not* a general "wrap any regex" helper: handing
+/// it a runtime-built pattern would reintroduce the panic the crate lint
+/// exists to prevent. A future call site that needs a dynamic pattern
+/// must thread a `Result` instead.
+#[allow(clippy::unwrap_used)]
+fn literal_regex(pattern: &str) -> Regex {
+    Regex::new(pattern).unwrap()
+}
+
+/// Read a capture group that this module's patterns always produce.
+///
+/// `Captures::get` returns an `Option` only because a *pattern* may mark
+/// a group optional (`(x)?`) or make it non-capturing. Every group read
+/// below comes from a plain `(...)` with no `?`, so `None` at a read
+/// site means the pattern and the reader drifted apart — an authoring
+/// bug, not something a document in the repo can trigger.
+///
+/// This is the same indexing style the rest of this module already uses
+/// (`&c[1]`, `c[2]`); naming it in one helper gives that invariant a
+/// single place to state and a single place to change. It covers both
+/// `Regex::captures` (one `Captures`) and `Regex::captures_iter`, whose
+/// `Item` is also `Captures`.
+#[allow(clippy::unwrap_used)]
+fn group<'h>(c: &regex::Captures<'h>, index: usize) -> &'h str {
+    c.get(index).unwrap().as_str()
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ParsedDoc {
     pub source: String,
@@ -109,17 +145,17 @@ pub fn load_graph_from_repo(root: &Path) -> Result<(Vec<ParsedDoc>, Vec<ParsedDo
 }
 
 pub fn parse_doc(source: &str, raw: &str) -> ParsedDoc {
-    let req_re   = Regex::new(r"(?:[A-Z]{2,5}-)?REQ-(\d{3})(?:-(SEQ|MVP))?").unwrap();
-    let adr_re   = Regex::new(r"\bADR-(\d{4})\b").unwrap();
-    let rgs_re   = Regex::new(r"\bRGS-IMPL-(\d{3})\b").unwrap();
-    let sec_re   = Regex::new(r"^##\s+(\d+)\.\s+(.+?)\s*$").unwrap();
-    let h1_re    = Regex::new(r"^#\s+(.+?)\s*$").unwrap();
-    let phase_re = Regex::new(r"Phase\s+(\d{1,2})").unwrap();
-    let tbd_re   = Regex::new(r"\bTBD\b").unwrap();
+    let req_re   = literal_regex(r"(?:[A-Z]{2,5}-)?REQ-(\d{3})(?:-(SEQ|MVP))?");
+    let adr_re   = literal_regex(r"\bADR-(\d{4})\b");
+    let rgs_re   = literal_regex(r"\bRGS-IMPL-(\d{3})\b");
+    let sec_re   = literal_regex(r"^##\s+(\d+)\.\s+(.+?)\s*$");
+    let h1_re    = literal_regex(r"^#\s+(.+?)\s*$");
+    let phase_re = literal_regex(r"Phase\s+(\d{1,2})");
+    let tbd_re   = literal_regex(r"\bTBD\b");
 
-    let mut title = source.split('/').last().unwrap_or(source).to_string();
+    let mut title = source.split('/').next_back().unwrap_or(source).to_string();
     for line in raw.lines() {
-        if let Some(c) = h1_re.captures(line) { title = c.get(1).unwrap().as_str().to_string(); break; }
+        if let Some(c) = h1_re.captures(line) { title = group(&c, 1).to_string(); break; }
     }
     let title = title;
 
@@ -130,7 +166,7 @@ pub fn parse_doc(source: &str, raw: &str) -> ParsedDoc {
     let mut tbd = 0usize;
     for line in raw.lines() {
         for c in req_re.captures_iter(line) {
-            let canonical = c.get(0).unwrap().as_str()
+            let canonical = group(&c, 0)
                 .trim_end_matches("-SEQ").trim_end_matches("-MVP")
                 .to_string();
             reqs.insert(canonical);
@@ -145,7 +181,7 @@ pub fn parse_doc(source: &str, raw: &str) -> ParsedDoc {
     for (i, line) in raw.lines().enumerate() {
         if let Some(c) = sec_re.captures(line) {
             let preview = raw.lines().skip(i + 1).take(5).collect::<Vec<_>>().join(" ")
-                .replace(|ch: char| matches!(ch, '#' | '*' | '_' | '`' | '>'), "")
+                .replace(['#', '*', '_', '`', '>'], "")
                 .trim()
                 .chars().take(240).collect::<String>();
             sections.push(SectionMeta {
@@ -173,8 +209,8 @@ pub fn parse_doc(source: &str, raw: &str) -> ParsedDoc {
 pub fn kind_of(id: &str) -> String {
     if id.starts_with("ADR-") { return "adr".into(); }
     if id.starts_with("RGS-IMPL-") { return "adr".into(); }
-    if let Some(caps) = Regex::new(r"^([A-Z]{2,5})-REQ-(\d{3})").unwrap().captures(id) {
-        let prefix = caps.get(1).unwrap().as_str();
+    if let Some(caps) = literal_regex(r"^([A-Z]{2,5})-REQ-(\d{3})").captures(id) {
+        let prefix = group(&caps, 1);
         return match prefix {
             "OPS" | "UX" | "CDX" | "CI" | "NFR" | "SEC" => "policy",
             "AGT" | "AI" => "agent",
@@ -182,7 +218,7 @@ pub fn kind_of(id: &str) -> String {
             _ => "requirement",
         }.into();
     }
-    if Regex::new(r"^REQ-\d{3}$").unwrap().is_match(id) { return "requirement".into(); }
+    if literal_regex(r"^REQ-\d{3}$").is_match(id) { return "requirement".into(); }
     "document".into()
 }
 
@@ -269,11 +305,11 @@ pub fn docs_to_graph(parsed: &[ParsedDoc]) -> GraphPair {
     }
 
     // 2) Cross-doc references
-    let ref_re = Regex::new(r"\(\.{0,2}/?(phase\d{1,2}[a-z0-9-]*\.md|00-[a-z0-9-]+\.md)/?\)").unwrap();
+    let ref_re = literal_regex(r"\(\.{0,2}/?(phase\d{1,2}[a-z0-9-]*\.md|00-[a-z0-9-]+\.md)/?\)");
     for d in parsed {
         let from_id = format!("DOC:{}", d.source);
         for cap in ref_re.captures_iter(&d.raw) {
-            let rel = cap.get(0).unwrap().as_str()
+            let rel = group(&cap, 0)
                 .trim_matches(|ch: char| ch == '(' || ch == ')' || ch == '.' || ch == '/')
                 .to_string();
             let target = parsed.iter().find(|p| p.source.ends_with(&rel));
@@ -296,12 +332,12 @@ pub fn docs_to_graph(parsed: &[ParsedDoc]) -> GraphPair {
     }
 
     // 3) Explicit relational statements inside text
-    let stmt_re = Regex::new(r"(?i)\b([A-Z]{2,5}-REQ-\d{3}|REQ-\d{3}|ADR-\d{4})\b[^.\n]{0,40}\b(implements|depends[_ ]on|supersedes|gated[_ ]by|caused[_ ]by|blocks|references)\b[^.\n]{0,40}\b([A-Z]{2,5}-REQ-\d{3}|REQ-\d{3}|ADR-\d{4})\b").unwrap();
+    let stmt_re = literal_regex(r"(?i)\b([A-Z]{2,5}-REQ-\d{3}|REQ-\d{3}|ADR-\d{4})\b[^.\n]{0,40}\b(implements|depends[_ ]on|supersedes|gated[_ ]by|caused[_ ]by|blocks|references)\b[^.\n]{0,40}\b([A-Z]{2,5}-REQ-\d{3}|REQ-\d{3}|ADR-\d{4})\b");
     for d in parsed {
         for cap in stmt_re.captures_iter(&d.raw) {
-            let a = cap.get(1).unwrap().as_str();
-            let rel = cap.get(2).unwrap().as_str().to_lowercase().replace(' ', "_");
-            let b = cap.get(3).unwrap().as_str();
+            let a = group(&cap, 1);
+            let rel = group(&cap, 2).to_lowercase().replace(' ', "_");
+            let b = group(&cap, 3);
             if nodes.contains_key(a) && nodes.contains_key(b) {
                 let k = format!("{}|{}|{}", rel, a, b);
                 if seen_edges.insert(k.clone()) {

@@ -90,7 +90,17 @@ pub fn graph_get_node(id: String) -> Result<Option<serde_json::Value>, String> {
     let root = repo_docs_root().map_err(|e| e.to_string())?;
     let (parsed, _) = load_graph_from_repo(&root).map_err(|e| e.to_string())?;
     let g = docs_to_graph(&parsed);
-    Ok(g.nodes.into_iter().find(|n| n.id == id).map(|n| serde_json::to_value(n).unwrap()))
+    // Serialization failure is propagated rather than unwrapped: the UI
+    // asked for one node by id, and "that node exists but could not be
+    // encoded" is a real answer, not an invariant we may assume.
+    let node = g
+        .nodes
+        .into_iter()
+        .find(|n| n.id == id)
+        .map(serde_json::to_value)
+        .transpose()
+        .map_err(|e| e.to_string())?;
+    Ok(node)
 }
 
 #[derive(Debug, Serialize)]

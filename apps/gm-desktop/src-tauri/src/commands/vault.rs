@@ -13,8 +13,7 @@
 //! `VersionDiffDto` so the on-the-wire JSON contract with the Svelte
 //! frontend is unchanged.
 
-use gitgit::server::vault::Vault;
-use gitgit::server::vault_versioned::{VaultVersionDiff, VaultVersionSummary, VersionedVault};
+use gitgit::server::vault_versioned::{VaultVersionDiff, VaultVersionSummary};
 use serde::Serialize;
 use tauri::State;
 

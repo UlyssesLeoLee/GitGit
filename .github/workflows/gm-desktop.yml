@@ -94,14 +94,48 @@ jobs:
             librsvg2-dev \
             patchelf
 
-      # `cargo check`, not `cargo build`: this validates the Rust side
-      # compiles without paying for a full Tauri link. A prior
-      # `svelte-spa-router` import of `afterUpdate` broke the *Svelte*
-      # build; this step is the matching guard for the Rust side, which
-      # was previously covered by no workflow at all.
-      - name: Cargo check (src-tauri)
+      # `cargo clippy`, not a bare `cargo check`: clippy runs the same
+      # compile, so it replaces check rather than adding to it, and it is
+      # the only thing that would have caught the 20 clippy errors and 14
+      # warnings that were sitting in `src-tauri` before this step
+      # existed. `-D warnings` matches the gate in `rust-backend.yml`.
+      #
+      # `--all-targets` is required: the default `cargo clippy` lints
+      # only the lib, and every test in this crate lives in `#[cfg(test)]`
+      # modules that a lib-only run never sees.
+      - name: Clippy (deny warnings)
         working-directory: apps/gm-desktop/src-tauri
-        run: cargo check --locked
+        run: cargo clippy --all-targets --locked -- -D warnings
+
+      # `ServerManager` had zero coverage, which is why `stop()` could
+      # report `running: false` while `axum::serve` kept the port bound:
+      # dropping a tokio `JoinHandle` detaches the task instead of
+      # cancelling it. The regression tests for that live in
+      # `state.rs` and cannot run unless a workflow runs them.
+      #
+      # `--lib` rather than `--all-targets`: the tests are all in the
+      # lib target, and the bin target is the full Tauri executable,
+      # which this job has no reason to link a second time. The guard
+      # below is what keeps "0 tests ran" from reading as green.
+      - name: Rust unit tests (src-tauri)
+        working-directory: apps/gm-desktop/src-tauri
+        run: |
+          cargo test --locked --lib 2>&1 | tee /tmp/gm-desktop-cargo-test.txt
+          # `cargo test` exits 0 even when every target ran zero tests, so
+          # a refactor that moved the tests out of the compiled target
+          # set would turn this step green while testing nothing.
+          if ! grep -qE 'test result: ok\. [1-9][0-9]* passed' /tmp/gm-desktop-cargo-test.txt; then
+            echo "::error::src-tauri ran zero Rust tests (or failed) — refusing to pass"
+            exit 1
+          fi
+
+      - name: Upload Rust test log
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gm-desktop-cargo-test-log
+          path: /tmp/gm-desktop-cargo-test.txt
+          retention-days: 7
 
       - name: Upload web bundle
         if: always()

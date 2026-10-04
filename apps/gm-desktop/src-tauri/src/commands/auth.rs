@@ -6,7 +6,6 @@
 //! key (`gitgit.password`) so the next iteration of `auth.rs` can read
 //! it without any contract change.
 
-use gitgit::server::vault::Vault;
 use serde::Serialize;
 use tauri::State;
 

@@ -22,16 +22,22 @@ use tauri::{
     tray::TrayIconBuilder,
     AppHandle, Manager, RunEvent, WindowEvent,
 };
+use tracing_subscriber::prelude::*;
 
 use crate::error::{AppError, AppResult};
-use crate::state::{BufferLayer, DesktopState, LogBuffer, DEFAULT_BIND};
+use crate::state::{BufferLayer, DesktopState, DEFAULT_VAULT_DIR};
 
 /// Build the `tauri::Builder` and start the runtime. `main.rs` wraps
 /// this in a single `gm_desktop_lib::run()` call so the integration
 /// tests can mount a bare command surface without spawning a window.
-pub fn run() {
+///
+/// Returns the builder's error instead of unwrapping it: a shell that
+/// cannot build its own context has nothing to fall back to, but the
+/// caller still needs to decide how to report that (and whether to
+/// exit) rather than having the decision taken by a panic.
+pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     init_tracing();
-    tauri::Builder::default()
+    let app = tauri::Builder::default()
         .plugin(tauri_plugin_log::Builder::new().build())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_clipboard_manager::init())
@@ -73,9 +79,9 @@ pub fn run() {
             commands::graph::docs_read,
         ])
         .on_window_event(handle_window_event)
-        .build(tauri::generate_context!())
-        .expect("error while building tauri application")
-        .run(handle_run_event);
+        .build(tauri::generate_context!())?;
+    app.run(handle_run_event);
+    Ok(())
 }
 
 /// Build a `DesktopState` for unit testing — returned to integration
@@ -85,7 +91,11 @@ pub async fn build_test_state(
     app_data_dir: PathBuf,
     repos_dir: PathBuf,
 ) -> AppResult<DesktopState> {
-    DesktopState::new(app_data_dir.join("vault"), repos_dir, app_data_dir)
+    DesktopState::new(
+        app_data_dir.join(crate::state::DEFAULT_VAULT_DIR),
+        repos_dir,
+        app_data_dir,
+    )
 }
 
 fn setup_app(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
@@ -94,7 +104,7 @@ fn setup_app(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         .path()
         .app_data_dir()
         .unwrap_or_else(|_| std::env::temp_dir().join("gitgit-desktop"));
-    let vault_dir = app_data_dir.join("vault");
+    let vault_dir = app_data_dir.join(DEFAULT_VAULT_DIR);
     let repos_dir = app_data_dir.join("repos");
 
     let desktop_state = DesktopState::new(vault_dir, repos_dir, app_data_dir.clone())?;
@@ -146,14 +156,11 @@ fn setup_app(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
 }
 
 fn handle_window_event(window: &tauri::Window, event: &WindowEvent) {
-    match event {
-        WindowEvent::CloseRequested { api, .. } => {
-            // Brief requirement: "关闭按钮最小化到托盘". Prevent
-            // the default close and hide the window instead.
-            api.prevent_close();
-            let _ = window.hide();
-        }
-        _ => {}
+    // Brief requirement: "关闭按钮最小化到托盘". Prevent
+    // the default close and hide the window instead.
+    if let WindowEvent::CloseRequested { api, .. } = event {
+        api.prevent_close();
+        let _ = window.hide();
     }
 }
 
@@ -211,13 +218,6 @@ pub async fn run_embedded_router(
     });
     Ok(handle)
 }
-
-#[allow(unused_imports)]
-use tracing_subscriber::prelude::*;
-
-// Avoid unused import warnings for items used only on some targets.
-#[allow(dead_code)]
-const DEFAULT_BIND_DUP: &str = DEFAULT_BIND;
 
 // Add LogBuffer re-export for tests.
 pub use crate::state::LogBuffer as LogBufferPublic;
