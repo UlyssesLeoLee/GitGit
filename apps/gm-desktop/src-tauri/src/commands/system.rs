@@ -51,9 +51,7 @@ pub fn set_clipboard_text(text: String) -> AppResult<()> {
 /// Quickly check whether the embedded vault is reachable without
 /// surfacing its contents.
 #[tauri::command]
-pub async fn vault_diagnostics(
-    state: State<'_, DesktopState>,
-) -> AppResult<VaultDiagnostic> {
+pub async fn vault_diagnostics(state: State<'_, DesktopState>) -> AppResult<VaultDiagnostic> {
     let vault = state.vault.clone();
     let keys = vault.list().await?;
     Ok(VaultDiagnostic {

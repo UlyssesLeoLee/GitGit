@@ -60,8 +60,8 @@ pub struct CommitEntry {
 /// CLI's `gitgit list`.
 #[tauri::command]
 pub fn list_repos(state: State<'_, DesktopState>) -> AppResult<Vec<RepoSummary>> {
-    let names = gitgit::repo::list_repos(&state.repos_dir)
-        .map_err(|e| AppError::Gitgit(format!("{e}")))?;
+    let names =
+        gitgit::repo::list_repos(&state.repos_dir).map_err(|e| AppError::Gitgit(format!("{e}")))?;
 
     let mut out = Vec::with_capacity(names.len());
     for name in names {
@@ -91,7 +91,9 @@ pub async fn repo_detail(
     }
     let default_branch = read_default_branch(&path).unwrap_or_else(|_| String::from("main"));
     let refs = read_refs(&path).await.unwrap_or_default();
-    let commits = read_log(&path, limit.unwrap_or(20)).await.unwrap_or_default();
+    let commits = read_log(&path, limit.unwrap_or(20))
+        .await
+        .unwrap_or_default();
     Ok(RepoDetail {
         name,
         path: path.to_string_lossy().into_owned(),
@@ -127,10 +129,7 @@ pub async fn clone_url(
 /// Open the repo directory in the host file manager. Resolution:
 /// Windows → `explorer`, macOS → `open`, Linux → `xdg-open`.
 #[tauri::command]
-pub async fn open_repo_in_shell(
-    state: State<'_, DesktopState>,
-    name: String,
-) -> AppResult<()> {
+pub async fn open_repo_in_shell(state: State<'_, DesktopState>, name: String) -> AppResult<()> {
     let path = state.repos_dir.join(format!("{name}.git"));
     if !path.is_dir() {
         return Err(AppError::InvalidRepoName(name));
@@ -143,7 +142,8 @@ pub async fn open_repo_in_shell(
 fn read_default_branch(repo: &Path) -> std::io::Result<String> {
     let head = std::fs::read_to_string(repo.join("HEAD"))?;
     let head = head.trim_start_matches("ref:").trim();
-    head.rsplit('/').next()
+    head.rsplit('/')
+        .next()
         .map(|s| s.to_string())
         .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::InvalidData, "HEAD is empty"))
 }

@@ -110,12 +110,19 @@ pub fn repo_docs_root() -> Result<PathBuf> {
         // explicit override takes priority over every path guess
         std::env::var_os("GITGIT_DOCS").map(PathBuf::from),
         // when the app sits at apps/desktop/src-tauri/target/debug/...
-        std::env::current_dir().ok().map(|d| d.join("../../../docs/requirements")),
-        std::env::current_dir().ok().map(|d| d.join("../../../docs_archive_rust_impl_2026_08_26/requirements")),
+        std::env::current_dir()
+            .ok()
+            .map(|d| d.join("../../../docs/requirements")),
+        std::env::current_dir()
+            .ok()
+            .map(|d| d.join("../../../docs_archive_rust_impl_2026_08_26/requirements")),
         // when packaged
-        std::env::current_exe().ok().and_then(|p| p.parent().map(|p| p.join("docs/requirements"))),
+        std::env::current_exe()
+            .ok()
+            .and_then(|p| p.parent().map(|p| p.join("docs/requirements"))),
         // user home fallback
-        std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE"))
+        std::env::var_os("HOME")
+            .or_else(|| std::env::var_os("USERPROFILE"))
             .map(|h| PathBuf::from(h).join("GitGit/docs/requirements")),
     ];
     for c in candidates.into_iter().flatten() {
@@ -123,17 +130,27 @@ pub fn repo_docs_root() -> Result<PathBuf> {
             return Ok(c.canonicalize().unwrap_or(c));
         }
     }
-    Err(anyhow!("could not locate docs/requirements — set GITGIT_DOCS env var to the requirements folder"))
+    Err(anyhow!(
+        "could not locate docs/requirements — set GITGIT_DOCS env var to the requirements folder"
+    ))
 }
 
 pub fn load_graph_from_repo(root: &Path) -> Result<(Vec<ParsedDoc>, Vec<ParsedDoc>)> {
     let mut docs: Vec<ParsedDoc> = Vec::new();
-    for entry in WalkDir::new(root).max_depth(1).into_iter().filter_map(Result::ok) {
+    for entry in WalkDir::new(root)
+        .max_depth(1)
+        .into_iter()
+        .filter_map(Result::ok)
+    {
         let path = entry.path();
         if path.is_file() && path.extension().map(|s| s == "md").unwrap_or(false) {
             let raw = std::fs::read_to_string(path)
                 .with_context(|| format!("read {}", path.display()))?;
-            let rel = path.strip_prefix(root).unwrap_or(path).to_string_lossy().replace('\\', "/");
+            let rel = path
+                .strip_prefix(root)
+                .unwrap_or(path)
+                .to_string_lossy()
+                .replace('\\', "/");
             let parsed = parse_doc(&rel, &raw);
             docs.push(parsed);
         }
@@ -145,17 +162,20 @@ pub fn load_graph_from_repo(root: &Path) -> Result<(Vec<ParsedDoc>, Vec<ParsedDo
 }
 
 pub fn parse_doc(source: &str, raw: &str) -> ParsedDoc {
-    let req_re   = literal_regex(r"(?:[A-Z]{2,5}-)?REQ-(\d{3})(?:-(SEQ|MVP))?");
-    let adr_re   = literal_regex(r"\bADR-(\d{4})\b");
-    let rgs_re   = literal_regex(r"\bRGS-IMPL-(\d{3})\b");
-    let sec_re   = literal_regex(r"^##\s+(\d+)\.\s+(.+?)\s*$");
-    let h1_re    = literal_regex(r"^#\s+(.+?)\s*$");
+    let req_re = literal_regex(r"(?:[A-Z]{2,5}-)?REQ-(\d{3})(?:-(SEQ|MVP))?");
+    let adr_re = literal_regex(r"\bADR-(\d{4})\b");
+    let rgs_re = literal_regex(r"\bRGS-IMPL-(\d{3})\b");
+    let sec_re = literal_regex(r"^##\s+(\d+)\.\s+(.+?)\s*$");
+    let h1_re = literal_regex(r"^#\s+(.+?)\s*$");
     let phase_re = literal_regex(r"Phase\s+(\d{1,2})");
-    let tbd_re   = literal_regex(r"\bTBD\b");
+    let tbd_re = literal_regex(r"\bTBD\b");
 
     let mut title = source.split('/').next_back().unwrap_or(source).to_string();
     for line in raw.lines() {
-        if let Some(c) = h1_re.captures(line) { title = group(&c, 1).to_string(); break; }
+        if let Some(c) = h1_re.captures(line) {
+            title = group(&c, 1).to_string();
+            break;
+        }
     }
     let title = title;
 
@@ -167,23 +187,37 @@ pub fn parse_doc(source: &str, raw: &str) -> ParsedDoc {
     for line in raw.lines() {
         for c in req_re.captures_iter(line) {
             let canonical = group(&c, 0)
-                .trim_end_matches("-SEQ").trim_end_matches("-MVP")
+                .trim_end_matches("-SEQ")
+                .trim_end_matches("-MVP")
                 .to_string();
             reqs.insert(canonical);
         }
-        for c in adr_re.captures_iter(line) { adrs.insert(format!("ADR-{}", &c[1])); }
-        for c in rgs_re.captures_iter(line) { rgss.insert(format!("RGS-IMPL-{}", &c[1])); }
-        for c in phase_re.captures_iter(line) { phases.insert(c[1].parse::<u32>().unwrap_or(0)); }
+        for c in adr_re.captures_iter(line) {
+            adrs.insert(format!("ADR-{}", &c[1]));
+        }
+        for c in rgs_re.captures_iter(line) {
+            rgss.insert(format!("RGS-IMPL-{}", &c[1]));
+        }
+        for c in phase_re.captures_iter(line) {
+            phases.insert(c[1].parse::<u32>().unwrap_or(0));
+        }
         tbd += tbd_re.find_iter(line).count();
     }
 
     let mut sections = Vec::new();
     for (i, line) in raw.lines().enumerate() {
         if let Some(c) = sec_re.captures(line) {
-            let preview = raw.lines().skip(i + 1).take(5).collect::<Vec<_>>().join(" ")
+            let preview = raw
+                .lines()
+                .skip(i + 1)
+                .take(5)
+                .collect::<Vec<_>>()
+                .join(" ")
                 .replace(['#', '*', '_', '`', '>'], "")
                 .trim()
-                .chars().take(240).collect::<String>();
+                .chars()
+                .take(240)
+                .collect::<String>();
             sections.push(SectionMeta {
                 number: c[1].parse().unwrap_or(0),
                 title: c[2].trim().to_string(),
@@ -199,16 +233,23 @@ pub fn parse_doc(source: &str, raw: &str) -> ParsedDoc {
         preview,
         raw: raw.to_string(),
         requirement_ids: reqs.into_iter().collect(),
-        adr_ids:         adrs.into_iter().collect(),
-        rgs_ids:         rgss.into_iter().collect(),
+        adr_ids: adrs.into_iter().collect(),
+        rgs_ids: rgss.into_iter().collect(),
         sections,
-        tag_counts: TagCounts { tbd, phases: phases.into_iter().collect() },
+        tag_counts: TagCounts {
+            tbd,
+            phases: phases.into_iter().collect(),
+        },
     }
 }
 
 pub fn kind_of(id: &str) -> String {
-    if id.starts_with("ADR-") { return "adr".into(); }
-    if id.starts_with("RGS-IMPL-") { return "adr".into(); }
+    if id.starts_with("ADR-") {
+        return "adr".into();
+    }
+    if id.starts_with("RGS-IMPL-") {
+        return "adr".into();
+    }
     if let Some(caps) = literal_regex(r"^([A-Z]{2,5})-REQ-(\d{3})").captures(id) {
         let prefix = group(&caps, 1);
         return match prefix {
@@ -216,9 +257,12 @@ pub fn kind_of(id: &str) -> String {
             "AGT" | "AI" => "agent",
             "CTX" => "document",
             _ => "requirement",
-        }.into();
+        }
+        .into();
     }
-    if literal_regex(r"^REQ-\d{3}$").is_match(id) { return "requirement".into(); }
+    if literal_regex(r"^REQ-\d{3}$").is_match(id) {
+        return "requirement".into();
+    }
     "document".into()
 }
 
@@ -230,13 +274,20 @@ pub fn docs_to_graph(parsed: &[ParsedDoc]) -> GraphPair {
     let mut eid = 0u64;
 
     let mut upsert = |n: GraphNode| {
-        nodes.entry(n.id.clone())
+        nodes
+            .entry(n.id.clone())
             .and_modify(|existing| {
                 let mut tag_bset: BTreeSet<String> = existing.tags.iter().cloned().collect();
-                for t in &n.tags { tag_bset.insert(t.clone()); }
+                for t in &n.tags {
+                    tag_bset.insert(t.clone());
+                }
                 existing.tags = tag_bset.into_iter().collect();
-                if existing.body.is_none() { existing.body = n.body.clone(); }
-                if existing.source.is_none() { existing.source = n.source.clone(); }
+                if existing.body.is_none() {
+                    existing.body = n.body.clone();
+                }
+                if existing.source.is_none() {
+                    existing.source = n.source.clone();
+                }
             })
             .or_insert(n);
     };
@@ -249,7 +300,15 @@ pub fn docs_to_graph(parsed: &[ParsedDoc]) -> GraphPair {
             kind: "document".into(),
             title: d.title.clone(),
             body: Some(d.preview.chars().take(240).collect()),
-            tags: vec![format!("phases:{}", d.tag_counts.phases.iter().map(u32::to_string).collect::<Vec<_>>().join(","))],
+            tags: vec![format!(
+                "phases:{}",
+                d.tag_counts
+                    .phases
+                    .iter()
+                    .map(u32::to_string)
+                    .collect::<Vec<_>>()
+                    .join(",")
+            )],
             source: Some(d.source.clone()),
             created_at: now.clone(),
             updated_at: now.clone(),
@@ -268,7 +327,10 @@ pub fn docs_to_graph(parsed: &[ParsedDoc]) -> GraphPair {
             let k = format!("references|{}|{}", doc_id, r);
             if seen_edges.insert(k.clone()) {
                 edges.push(GraphEdge {
-                    id: format!("e{}", { eid += 1; eid }),
+                    id: format!("e{}", {
+                        eid += 1;
+                        eid
+                    }),
                     kind: "references".into(),
                     from: doc_id.clone(),
                     to: r.clone(),
@@ -292,7 +354,10 @@ pub fn docs_to_graph(parsed: &[ParsedDoc]) -> GraphPair {
             let k = format!("references|{}|{}", doc_id, a);
             if seen_edges.insert(k.clone()) {
                 edges.push(GraphEdge {
-                    id: format!("e{}", { eid += 1; eid }),
+                    id: format!("e{}", {
+                        eid += 1;
+                        eid
+                    }),
                     kind: "references".into(),
                     from: doc_id.clone(),
                     to: a.clone(),
@@ -318,7 +383,10 @@ pub fn docs_to_graph(parsed: &[ParsedDoc]) -> GraphPair {
                 let k = format!("references|{}|{}", from_id, to_id);
                 if seen_edges.insert(k.clone()) {
                     edges.push(GraphEdge {
-                        id: format!("e{}", { eid += 1; eid }),
+                        id: format!("e{}", {
+                            eid += 1;
+                            eid
+                        }),
                         kind: "references".into(),
                         from: from_id.clone(),
                         to: to_id,
@@ -332,7 +400,9 @@ pub fn docs_to_graph(parsed: &[ParsedDoc]) -> GraphPair {
     }
 
     // 3) Explicit relational statements inside text
-    let stmt_re = literal_regex(r"(?i)\b([A-Z]{2,5}-REQ-\d{3}|REQ-\d{3}|ADR-\d{4})\b[^.\n]{0,40}\b(implements|depends[_ ]on|supersedes|gated[_ ]by|caused[_ ]by|blocks|references)\b[^.\n]{0,40}\b([A-Z]{2,5}-REQ-\d{3}|REQ-\d{3}|ADR-\d{4})\b");
+    let stmt_re = literal_regex(
+        r"(?i)\b([A-Z]{2,5}-REQ-\d{3}|REQ-\d{3}|ADR-\d{4})\b[^.\n]{0,40}\b(implements|depends[_ ]on|supersedes|gated[_ ]by|caused[_ ]by|blocks|references)\b[^.\n]{0,40}\b([A-Z]{2,5}-REQ-\d{3}|REQ-\d{3}|ADR-\d{4})\b",
+    );
     for d in parsed {
         for cap in stmt_re.captures_iter(&d.raw) {
             let a = group(&cap, 1);
@@ -342,7 +412,10 @@ pub fn docs_to_graph(parsed: &[ParsedDoc]) -> GraphPair {
                 let k = format!("{}|{}|{}", rel, a, b);
                 if seen_edges.insert(k.clone()) {
                     edges.push(GraphEdge {
-                        id: format!("e{}", { eid += 1; eid }),
+                        id: format!("e{}", {
+                            eid += 1;
+                            eid
+                        }),
                         kind: rel,
                         from: a.to_string(),
                         to: b.to_string(),
@@ -394,19 +467,27 @@ ADR-0001 says so.
 
     #[test]
     fn docs_to_graph_dedupes_edges() {
-        let a = parse_doc("a.md", "# A\nREQ-001 implements REQ-002\nREQ-001 implements REQ-002\n");
+        let a = parse_doc(
+            "a.md",
+            "# A\nREQ-001 implements REQ-002\nREQ-001 implements REQ-002\n",
+        );
         let b = parse_doc("b.md", "# B\nREQ-001 implements REQ-002\n");
         let g = docs_to_graph(&[a, b]);
         let mut count = 0;
         for e in &g.edges {
-            if e.from == "REQ-001" && e.to == "REQ-002" && e.kind == "implements" { count += 1; }
+            if e.from == "REQ-001" && e.to == "REQ-002" && e.kind == "implements" {
+                count += 1;
+            }
         }
         assert_eq!(count, 1, "duplicate edges should be deduped");
     }
 
     #[test]
     fn explicit_relations_normalize_to_underscore_kind() {
-        let a = parse_doc("a.md", "# A\nREQ-001 depends on REQ-002\nREQ-001 gated_by REQ-002\n");
+        let a = parse_doc(
+            "a.md",
+            "# A\nREQ-001 depends on REQ-002\nREQ-001 gated_by REQ-002\n",
+        );
         let g = docs_to_graph(&[a]);
         let kinds: Vec<&str> = g.edges.iter().map(|e| e.kind.as_str()).collect();
         assert!(kinds.contains(&"depends_on"), "kinds were {kinds:?}");

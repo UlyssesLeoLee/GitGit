@@ -76,10 +76,7 @@ pub async fn vault_list(state: State<'_, DesktopState>) -> AppResult<Vec<String>
 }
 
 #[tauri::command]
-pub async fn vault_get(
-    state: State<'_, DesktopState>,
-    key: String,
-) -> AppResult<Option<String>> {
+pub async fn vault_get(state: State<'_, DesktopState>, key: String) -> AppResult<Option<String>> {
     let vault = state.vault.clone();
     let value = vault.get(&key).await?;
     Ok(value)
@@ -97,10 +94,7 @@ pub async fn vault_set(
 }
 
 #[tauri::command]
-pub async fn vault_rotate(
-    state: State<'_, DesktopState>,
-    key: String,
-) -> AppResult<()> {
+pub async fn vault_rotate(state: State<'_, DesktopState>, key: String) -> AppResult<()> {
     let vault = state.vault.clone();
     vault.rotate(&key).await?;
     Ok(())
@@ -140,10 +134,7 @@ pub async fn vault_restore(
 }
 
 #[tauri::command]
-pub async fn vault_delete(
-    state: State<'_, DesktopState>,
-    key: String,
-) -> AppResult<()> {
+pub async fn vault_delete(state: State<'_, DesktopState>, key: String) -> AppResult<()> {
     let vault = state.vault.clone();
     vault.delete(&key).await?;
     Ok(())
