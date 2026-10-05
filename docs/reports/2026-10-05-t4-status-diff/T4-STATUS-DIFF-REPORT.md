@@ -415,13 +415,17 @@ application.** No window was opened and no real `invoke` round trip was
 observed. The store and component cases drive the store directly with
 the wire payloads the Rust side produces.
 
-`[TBD]` **The default install still lists bare repositories**, so out of
+`[FACT]` **The default install still lists bare repositories**, so out of
 the box every repo in the desktop's own `repos` directory answers
 `NotAWorkTree`. Pointing at a checkout requires passing the optional
 `root` argument; no folder-picker UI was built in this change, so a user
 of the shipped app cannot yet set that root from the interface. The
 `root` parameter exists, is validated identically, and is used by the
 store and the dev mock, but wiring a picker is outstanding work.
+
+`[FACT]` **That gap is closed by commit `5088f7d`** (branch
+`feat/worktree-picker`, base `f690486`). See §7. Nothing in this section
+above is retracted: the statements describe the state at `f690486`.
 
 `[FACT]` The webview already holds `fs:allow-read-dir` over `$HOME/**`,
 `$DOCUMENT/**` and `$DOWNLOAD/**` plus `dialog:allow-open`
@@ -492,3 +496,133 @@ instead of the repository name. This is the same defect class the
 review-page test recorded for `Review.svelte` and it was fixed there. It
 is fixed here as a one-line correction in a file this change already
 touches.
+
+---
+
+## 7. Follow-up: the working-tree root a user can actually set
+
+`[FACT]` Commit `5088f7d`, branch `feat/worktree-picker`, base `f690486`.
+`[FACT]` Frontend-only: no file under `src/**` or
+`apps/gm-desktop/src-tauri/src/**` changed, so
+`scripts/regression-baseline.json` is untouched and the root crate's
+188 / 186 / 2 contract is unaffected.
+
+### 7.1 What landed
+
+| Area | File | What |
+| --- | --- | --- |
+| Store | `src/lib/stores/worktreeRoot.ts` (new) | persisted root, validated read, picker wrapper |
+| Component | `src/lib/components/WorktreeRootPicker.svelte` (new) | current value / choose / clear; `compact` form |
+| Component | `src/lib/components/RepoWorktree.svelte` | `effectiveRoot` feeds both commands; picker in the `NotAWorkTree` panel |
+| Route | `src/routes/Settings.svelte` | the persistent home for the setting |
+| i18n | `src/lib/i18n/{en,zh-CN}.ts` | 11 keys added to each catalogue |
+| Mock | `src/mocks/handlers.ts` | `plugin:dialog|open` fixture; a non-null `root` makes `repo_status` succeed |
+| Tests | `apps/gm-desktop/tests/unit/worktree-root.test.ts` (new) | 25 cases |
+
+### 7.2 Design choices
+
+`[FACT]` The control is mounted in **two** places, one component: a card
+in `Settings` (the persistent home) and inside the `NotAWorkTree` error
+panel, because that panel is where a user meets the problem. One
+component means one behaviour and one place to read it.
+
+`[FACT]` The storage key is `gm-desktop.worktreeRoot`, following
+`theme.ts`'s `gm-desktop.<name>` convention, with a validated read:
+non-string, empty/whitespace, over 4096 chars, containing a control
+character, or containing a double quote all read as "not set". A
+corrupted value never reaches git.
+
+`[FACT]` Cancelling the dialog returns `'cancelled'`, which writes
+nothing and toasts nothing — the previous value survives untouched.
+This is asserted in the store and again in the component.
+
+`[FACT]` A rejected path is a **fourth** outcome, not a third: the
+backend's `NotAWorkTree` renders the error panel, and the remedy line
+has two wordings — `notWorkTree.noRoot` when nothing is set ("the app
+is reading its own bare repository") and `notWorkTree.withRoot` when a
+folder is set ("that folder is not a git working tree"). Two different
+wrong situations, two different instructions.
+
+`[FACT]` The picker takes a `title` argument rather than reading the
+catalogue itself, because a store is not a component and the caller
+owns the locale.
+
+`[FACT]` `RepoWorktree` reads `root ?? $worktreeRoot`. An explicit prop
+still wins, so the component stays testable and embeddable, and the
+initial fetch moved from `onMount` to an `$effect` keyed on
+`effectiveRoot` so changing the setting re-issues both calls. `target` is
+read `untrack`ed there, otherwise every target click would fire a
+second unrequested fetch.
+
+### 7.3 Evidence
+
+`[FACT]` All commands run from `D:\GitGit\.worktrees\worktree-picker`.
+
+| Gate | Command | Result |
+| --- | --- | --- |
+| typecheck | `corepack pnpm@9.15.9 check` | exit 0, `svelte-check found 0 errors and 0 warnings` |
+| frontend tests | `corepack pnpm@9.15.9 test` | exit 0, see below |
+| build | `corepack pnpm@9.15.9 build` | exit 0, `✓ built in 2.27s`, 153 modules |
+| lint | `corepack pnpm@9.15.9 lint` | exit 0, 0 problems |
+
+```
+ Test Files  9 passed (9)
+      Tests  122 passed (122)
+```
+
+`[FACT]` 122 = the 97 recorded in §4.2 plus 25 new. No test is
+skipped, no `describe.skip` was added, no threshold was lowered, and no
+`istanbul ignore` / `v8 ignore` / `coverage.exclude` was added. The one
+`.skip` in the tree is a pre-existing word in a `review.test.ts`
+comment.
+
+`[FACT]` i18n parity, counted directly from the two catalogues:
+
+```
+en keys  = 184
+zh keys  = 184
+identical key sets = true
+duplicates en = []
+duplicates zh = []
+only in en = []
+only in zh = []
+```
+
+`[FACT]` 184 = 173 + 11. The 11 new keys are 9 `repos.root.*` and 2
+`repos.error.notWorkTree.*`, and none of them interpolates.
+
+`[FACT]` The persisted → command path, asserted rather than assumed. The
+`repoStatus` / `repoDiff` wrappers in `src/lib/api/tauri.ts` forward
+`root` as a named arg; four cases in
+`tests/unit/worktree-root.test.ts` intercept `invoke` and assert what
+arrived:
+
+- stored root present → `repo_status` args `root = '/home/user/checkouts/demo'`, same for `repo_diff`;
+- no root → `root = null`, so the backend applies its own default;
+- explicit prop → overrides the stored value (`'/opt/explicit'`);
+- root changed after mount → both commands are re-issued with the new value.
+
+`[FACT]` Rejected-path and cancel behaviour: `pickWorktreeRoot`
+resolves `'invalid'` for a non-string or quote-bearing value and
+`'error'` when the dialog throws, and in both cases
+`get(worktreeRoot)` still holds the previous value.
+
+`[FACT]` The picker was **not** run inside a real Tauri window: no
+`tauri dev` session, no packaged app, and no native folder dialog was
+exercised. The dialog is stubbed at the `invoke` boundary
+(`plugin:dialog|open`), which is the same interception the dev mock
+uses. Everything downstream of the returned string is covered; the OS
+picker itself is not.
+
+`[FACT]` No capability was added. `src-tauri/capabilities/default.json`
+already granted `dialog:allow-open` and `fs:allow-read-dir` over
+`$HOME/**`, `$DOCUMENT/**` and `$DOWNLOAD/**`, so a user-picked folder
+under their home is not a new privilege. A checkout outside those
+trees is reachable through the native dialog but not through the
+webview's `fs` scope — worth knowing, and no scope was widened to avoid
+the question.
+
+`[TBD]` A user whose checkout lives outside `$HOME` / `$DOCUMENT` /
+`$DOWNLOAD` can still pick it (the native dialog is not `fs`-scoped),
+but the `fs` plugin would not read it. The status and diff path does
+not use `fs`, so this is latent rather than blocking.
