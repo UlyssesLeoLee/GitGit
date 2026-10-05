@@ -44,45 +44,60 @@ These were found by reading the code and by running the test suites, and are
 recorded so the state is not misrepresented. Where a fix has since landed, the
 entry says so and describes only what is still true.
 
-### The HTTP API has no authentication
+### The HTTP API is authenticated, but the credential travels in cleartext
 
-> **Partially fixed.** The default bind address was `0.0.0.0:8080` and is now
-> `127.0.0.1:8080`, so a default install is no longer reachable off the machine.
-> The missing authentication on `/api/*` is **unchanged and still open** — anyone
-> who passes `--bind 0.0.0.0:8080` deliberately still gets an unauthenticated API
-> that returns credentials in plaintext. Read the rest of this section as
-> describing what is still true.
+> **Fixed (2026-10-05).** `/api/*` now requires HTTP Basic auth, and the
+> credential is no longer compiled into the binary. The section below has been
+> rewritten to describe what is true now. Read the **residual risks** list
+> rather than assuming the fix was complete.
 
-`gitgit serve` defaults to `127.0.0.1:8080` (`src/config.rs`, `DEFAULT_BIND`; it
-was `0.0.0.0:8080` until this was corrected, and network exposure remains
-available explicitly via `--bind 0.0.0.0:8080`). On that router, `/api/*` is
-mounted with no authentication layer at all (`src/server/api.rs`): the only auth
-helper in the crate, `auth_optional`, is a no-op that is never called and is kept
-alive with `#[allow(dead_code)]`. The single place real authentication is enforced
-is the git push path (`require_basic` in `src/server/http.rs`), and that one
-credential pair is hardcoded as `admin` / `admin` (`src/config.rs`).
+**What changed.** `/api/*` is mounted behind an auth layer
+(`src/server/api.rs`, `build_api_router` applies
+`route_layer(middleware::from_fn_with_state(state, require_api_auth))` to the
+API sub-router, not per handler — a per-handler check is a check the next
+endpoint forgets). The no-op `auth_optional` helper and the hardcoded
+`admin` / `admin` pair in `src/config.rs` are deleted; `cargo metadata`
+reports no `admin` constant in the binary. The credential is resolved at
+start-up in this order:
 
-`GET /api/vault/keys/:key` returns the stored credential value in plaintext
-(`src/server/api.rs`, `get_vault_key`), and `DELETE /api/vault/keys/:key` plus
-`POST /api/vault/keys/:key/restore` are equally unauthenticated.
+1. `GITGIT_ADMIN_PASS` / `GITGIT_ADMIN_USER` from the environment,
+2. the vault key `gitgit.password` (what the desktop Settings page writes),
+3. a generated 128-bit random password, printed once to the console by the
+   CLI.
 
-**Impact:** on a default configuration the server is reachable only from the
-machine itself, which is what the corrected default now guarantees. Once the bind
-is widened — deliberately, with `--bind 0.0.0.0:8080` — any host that can reach the
-machine on that port can read, delete, and roll back stored API credentials, and
-can clone any repository. The desktop shell adds a second path to the same
-outcome: the bind string reaches `TcpListener::bind` unvalidated from the frontend
-(`apps/gm-desktop/src-tauri/src/state.rs` and `commands/server.rs`), so the
-WebView can request a non-loopback bind.
+A **non-loopback bind with a generated password is refused at start-up** in
+both the CLI (`src/main.rs`) and the desktop's embedded server
+(`apps/gm-desktop/src-tauri/src/commands/server.rs`), both calling
+`enforce_exposure_policy`. Widening the bind therefore requires an operator
+to choose a password, rather than producing a service protected by one nobody
+knows.
 
-**Status: partially fixed; the authentication half is still open, awaiting a
-decision on the fix shape.** The loopback default has been applied because it is
-strictly more restrictive, is what the desktop shell has always used
-(`127.0.0.1:38080`), and is what this repository's own architecture notes already
-prescribe (`admin_listen: "127.0.0.1:3001"  # 默认仅本机`). What remains —
-enforced auth on `/api/*` and credentials sourced from the environment instead of
-compiled in — changes what local development and demos can do without
-credentials, so it is not being changed unilaterally.
+`GET /api/health` is deliberately **outside** the auth layer. It is a
+documented liveness probe and returns only a version string and a boolean; a
+probe that needed the admin password would be unable to report that the
+server is healthy in exactly the situation where the password is the problem.
+
+The web console (`apps/gm-console`) has a sign-in gate
+(`src/components/LoginGate.tsx`) and sends the credential on every request via
+an axios request interceptor. It holds the credential in memory only
+(`src/stores/credentials.ts`): there is deliberately no `localStorage` arm and
+no `VITE_*` variable, because both would put the secret in a file or inline it
+into the JavaScript bundle that ships to every browser.
+
+**Residual risks, stated plainly:**
+
+- **No TLS.** Basic auth is base64, not encryption. Over a widened bind, any
+  host that can observe the network path can read the credential directly.
+  Terminating TLS in front of the server is the operator's responsibility and
+  is not something this codebase provides.
+- **A generated password is not recoverable from the desktop shell.** The CLI
+  prints it once to the console; the desktop has no console, so it appears only
+  in the log. This fails closed — the server refuses a non-loopback bind while
+  the password is generated — but it means the web console cannot be used
+  against a widened bind until a password is set in Settings.
+- **The credential is cached for the process lifetime.** It is resolved once at
+  start-up. Changing it in the desktop Settings page takes effect at the next
+  server start, and the page says so rather than claiming an immediate effect.
 
 The MinIO backend is dev/test-only and is not part of any release.
 
