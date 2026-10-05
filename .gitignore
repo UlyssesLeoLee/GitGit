@@ -23,6 +23,11 @@ Thumbs.db
 # Per-worktree build cache used by scripts/regression*.ps1
 target-regression/
 
+# Per-lane Cargo target dirs. `CARGO_TARGET_DIR` is shared process-wide, so
+# concurrent lanes each get their own; without this rule a bare `git add -A`
+# stages several GB of build output.
+target-*/
+
 # Local overrides
 .env
 .env.local
