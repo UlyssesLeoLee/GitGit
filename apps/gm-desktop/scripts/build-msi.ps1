@@ -252,10 +252,15 @@ $arch = switch ([System.Runtime.InteropServices.RuntimeInformation]::OSArchitect
     default { throw "unsupported host architecture for MSI naming: $([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture)" }
 }
 
-$scopes = switch ($Scope) {
-    'both'       { @('perMachine', 'perUser') }
-    default      { @($Scope) }
-}
+# @() for the same reason as $pnpm below: assigning the output of a `switch`
+# unrolls a one-element result to a scalar, and the arithmetic below
+# ($scopes.Count * $Language.Count) then depends on PS7 giving a bare string a
+# .Count of 1 rather than $null.
+$scopes = @(switch ($Scope) {
+    'both'  { @('perMachine', 'perUser') }
+    default { @($Scope) }
+})
+if ($scopes.Count -eq 0) { throw "no scope resolved from -Scope '$Scope'" }
 
 # The per-user WiX template is generated. If it is missing, the build would
 # fail deep inside candle with a confusing message, so check it up front.
@@ -421,15 +426,19 @@ $lockAfter = if (Test-Path -LiteralPath $lockFile) {
     (Get-FileHash -LiteralPath $lockFile -Algorithm SHA256).Hash
 } else { $null }
 if ($lockBefore -ne $lockAfter) {
-    # The -f operator belongs INSIDE the parentheses. Written as
-    # `Write-Warning ("...") -f $lockFile` it binds -f as a parameter of
-    # Write-Warning, which does not exist, and the run dies with
-    # "a parameter cannot be found that matches parameter name 'f'" - i.e.
-    # this warning would take down a fresh CI checkout, which is exactly
-    # when it fires.
-    Write-Warning ("{0} was rewritten by dependency re-resolution during this build. " +
+    # The message is built first and formatted second, for two reasons that
+    # both bit in testing:
+    #   * `Write-Warning ("...") -f $lockFile` binds -f as a parameter of
+    #     Write-Warning, which does not exist, and the run dies with "a
+    #     parameter cannot be found that matches parameter name 'f'".
+    #   * `("a {0} " + "b ") -f $x` still leaves {0} unsubstituted, because -f
+    #     binds tighter than + and so applies only to the last fragment.
+    # This path runs exactly when a fresh checkout re-resolves the lock, i.e.
+    # on the new CI job's first run.
+    $lockMessage = "{0} was rewritten by dependency re-resolution during this build. " +
         "It is NOT committed by this script; commit the refresh deliberately, or the next " +
-        "`--locked` build will fail. See docs/reports/2026-10-05-bundle-ci/README.md." -f $lockFile)
+        "--locked build will fail. See docs/reports/2026-10-05-bundle-ci/README.md."
+    Write-Warning ($lockMessage -f $lockFile)
 }
 
 $manifest = [ordered]@{

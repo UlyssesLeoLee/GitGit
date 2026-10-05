@@ -73,6 +73,14 @@ executable; only the package metadata differs. `[INFERENCE]` A size-only check
 would therefore not have detected the collision — this is why the script
 compares hashes.
 
+`[FACT]` **MSI builds are not byte-reproducible.** A second run of the same
+command produced different hashes for all four files at identical byte sizes
+(e.g. perMachine/en-US `6e8e79bc…` then `ff04a272…`). `[INFERENCE]` Windows
+Installer mints a fresh `ProductCode` GUID per build, so the hashes below
+identify *that run's* artifacts and must not be treated as stable constants to
+compare a future build against. What is stable across runs is the shape of the
+result: four distinct filenames, four distinct hashes, the same byte sizes.
+
 ## 4. Smoke check evidence
 
 `[FACT]`
@@ -123,15 +131,19 @@ pwsh -NoProfile -File apps/gm-desktop/scripts/build-msi.ps1 -Scope perMachine \
 #   Present in <empty-dir>\release\bundle\msi: <bundle directory does not exist>
 ```
 
-`[FACT]` Three further defects were found by running the script rather than
-reading it, and all three are fixed in `564c1da`/`f68bda6`/the follow-up commit:
-a scalar-string index that invoked `p` instead of `pnpm`; a missing working
-directory for the Tauri call (`ERR_PNPM_NO_IMPORTER_MANIFEST_FOUND`); and
-`Write-Warning ("...") -f $lockFile`, which binds `-f` as a parameter of
-`Write-Warning` and aborts the run with *a parameter cannot be found that
-matches parameter name 'f'*. `[INFERENCE]` That last one fires precisely when
-the lock file is re-resolved, i.e. on a fresh CI checkout, so it would have
-broken the new job on its first run.
+`[FACT]` Four further defects were found by running the script rather than
+reading it, and all are fixed: a scalar-string index that invoked `p` instead of
+`pnpm`; a missing working directory for the Tauri call
+(`ERR_PNPM_NO_IMPORTER_MANIFEST_FOUND`); `GetFullPath` on a relative
+`-OutputDir` resolving against the .NET current directory rather than the repo
+root; and the `Cargo.lock` warning, which failed twice — first because
+`Write-Warning ("...") -f $lockFile` binds `-f` as a *parameter* of
+`Write-Warning` and aborts with *a parameter cannot be found that matches
+parameter name 'f'*, then because `("a {0} " + "b ") -f $x` leaves `{0}`
+unsubstituted (`-f` binds tighter than `+`, so it applies only to the last
+fragment). `[INFERENCE]` That warning path runs exactly when a fresh checkout
+re-resolves the lock — that is, on the new CI job's first run — so shipping it
+unfixed would have failed the job immediately.
 
 ## 6. CI
 
