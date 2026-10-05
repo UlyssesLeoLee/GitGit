@@ -119,7 +119,6 @@ function installAnimationStub(): void {
 beforeEach(() => {
   cleanup();
   installAnimationStub();
-  delete window.__TAURI_INTERNALS__;
   installMock();
   setTheme('auto');
   clearToasts();

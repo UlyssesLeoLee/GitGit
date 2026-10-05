@@ -144,7 +144,11 @@ export function installAnimationStub(): void {
  */
 export function resetRouteStores(): void {
   cleanup();
-  delete window.__TAURI_INTERNALS__;
+  // `[FACT]` The `delete window.__TAURI_INTERNALS__` that used to sit here
+  // was a workaround for `installMock()` identifying itself by grepping
+  // its own source text. It is redundant now that the mock carries a
+  // symbol, and a case that replaced the bridge still gets the mock back
+  // from the plain call below.
   installMock();
   installAnimationStub();
   setTheme('auto');

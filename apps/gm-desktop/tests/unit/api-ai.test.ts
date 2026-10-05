@@ -65,13 +65,14 @@ function recordThroughMock(): string[] {
 }
 
 beforeEach(() => {
-  // `[FACT]` `installMock()` is idempotent by grepping the installed
-  // function's own source text for the substring "mock". A stub
-  // written by these tests can accidentally contain that word — a
-  // `model: 'mock'` payload, say — and then the real mock is never
-  // reinstalled and every later case silently talks to the stub.
-  // Dropping the global first makes the reinstall unconditional.
-  delete window.__TAURI_INTERNALS__;
+  // `[FACT]` This used to `delete window.__TAURI_INTERNALS__` first,
+  // because `installMock()` grepped the installed function's own source
+  // for the substring "mock" — and these tests genuinely contain that
+  // word (a `model: 'mock'` payload, above), so the mock was not always
+  // reinstalled. The mock now identifies itself with a symbol, so the
+  // reinstall is unconditional. `mocks-handlers.test.ts` pins the defect
+  // and the fix; the absence of the delete here is the proof for this
+  // file, whose own fixtures are the ones that used to trigger it.
   installMock();
   listenMock.mockReset();
   fakeListen();

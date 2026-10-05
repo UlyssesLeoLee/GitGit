@@ -45,11 +45,13 @@ function commands(calls: Call[]): string[] {
 }
 
 beforeEach(() => {
-  // `installMock()` skips reinstalling when the currently installed
-  // `invoke` source happens to contain the word "mock", which a
-  // hand-written stub below could. Clearing the global first makes the
-  // reinstall unconditional and keeps the cases order-independent.
-  delete window.__TAURI_INTERNALS__;
+  // `[FACT]` This used to `delete window.__TAURI_INTERNALS__` first,
+  // because `installMock()` skipped reinstalling when the installed
+  // `invoke`'s source text happened to contain "mock" — which a
+  // hand-written stub in this file could. The mock now identifies itself
+  // with a symbol, so reinstalling is unconditional and the cases are
+  // order-independent on their own. `mocks-handlers.test.ts` pins both
+  // the old defect and the new behaviour.
   installMock();
 });
 

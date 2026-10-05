@@ -78,7 +78,12 @@ function rejectsWith(rejection: unknown): void {
 }
 
 beforeEach(() => {
-  delete window.__TAURI_INTERNALS__;
+  // `[FACT]` `rejectsWith` above installs a one-line stub whose source is
+  // just `() => Promise.reject(...)`. It used to need a
+  // `delete window.__TAURI_INTERNALS__` before `installMock()`, because
+  // the mock was recognised by grepping its own source text. That is
+  // gone, so the reinstall is unconditional and this file is
+  // order-independent without the delete.
   installMock();
   resetGraph();
 });
