@@ -22,7 +22,7 @@ import {
 import type { ReviewEventDto } from '../../src/lib/api/types';
 import Review from '../../src/routes/Review.svelte';
 import { installMock } from '../../src/mocks/handlers';
-import { tFor } from '../../src/lib/i18n';
+import { tFor, locale } from '../../src/lib/i18n';
 
 beforeEach(() => {
   cleanup();
@@ -242,37 +242,44 @@ describe('store / review — failure and refusal', () => {
 /**
  * Component-render cases for the review page.
  *
- * `[TBD]` Still skipped, and now with the root cause identified rather than a
- * guess. `@sveltejs/vite-plugin-svelte` compiles `.svelte` files to their
- * **server** output under this vitest setup, so `@testing-library/svelte`'s
- * `render` throws `lifecycle_function_unavailable: mount(...) is not available
- * on the server` from `svelte/src/internal/server/errors.js` before any
- * assertion runs.
+ * `[FACT]` These now run. The blocker was module *resolution*, not the
+ * `.svelte` compile step. `svelte` was resolving to `index-server.js`, so
+ * `@testing-library/svelte`'s `render` threw `lifecycle_function_unavailable:
+ * mount(...) is not available on the server` from
+ * `svelte/src/internal/server/errors.js`.
  *
- * Two candidate fixes were applied to `apps/gm-desktop/vite.config.ts` and
- * measured on 2026-10-05. **Neither works**, so neither is left in the config:
+ * The two candidates recorded previously were both aimed at the wrong
+ * lever, and that is why they failed:
  *
- *   1. `test: { resolve: { conditions: ['browser'] } }` — does not help.
- *   2. the above plus `test: { server: { deps: { inline: ['svelte'] } } }` —
- *      still fails identically.
+ *   1. `test: { resolve: { conditions: ['browser'] } }` — `test.resolve` is
+ *      merged into the resolved config, but vitest's module runner resolves
+ *      through the top-level `resolve`/`ssr` conditions, so this never
+ *      reached the lookup.
+ *   2. the above plus `test.server.deps.inline: ['svelte']` — same reason.
  *
- * Both fail because the server build is chosen by the *plugin's* compile step,
- * not by Node's export-condition resolution, so resolution-level settings
- * cannot reach it. The next thing to try is a plugin-level or version-level
- * fix (`svelte({ compilerOptions: { generate: 'client' } })`, or a vitest /
- * vite-plugin-svelte / vitest-environment-svelte version combination that
- * agrees on Svelte 5) — not a third guess at the same resolution knob.
+ * The fix is in `apps/gm-desktop/vite.config.ts`: the documented
+ * `svelteTesting()` plugin from `@testing-library/svelte/vite` (which adds
+ * the `ssr.noExternal` rule) plus top-level
+ * `resolve: { conditions: ['browser'] }` gated on `process.env.VITEST`.
  *
- * The cases are kept, not deleted, so they can be re-enabled the moment the
- * render path works. Meanwhile the store cases above cover the same state
- * machine (idle, streaming accumulation, stop, error, unsupported provider).
+ * `[FACT]` 5 of these 6 cases pass. The 6th is blocked by a defect in
+ * application source and stays `.skip`ed with the reason recorded at the
+ * case itself. Two other cases had to drop a hardcoded `zh-CN` expectation:
+ * jsdom reports `navigator.language === 'en-US'`, so `pickInitial()` in
+ * `src/lib/stores/locale.ts` resolves to `en` and the page renders English.
+ * They now assert against the active locale, which is what they meant.
  */
-describe.skip('component / Review page', () => {
+describe('component / Review page', () => {
   it('refuses to start with an empty diff, without calling the backend', async () => {
     render(Review);
     await fireEvent.click(screen.getByTestId('review-start'));
     const err = await screen.findByTestId('review-local-error');
-    expect(err.textContent?.trim()).toBe(tFor('zh-CN', 'review.invalidDiff'));
+    // Asserted against the *active* locale, not a hardcoded one. jsdom
+    // reports `navigator.language === 'en-US'` (measured), so
+    // `pickInitial()` in `src/lib/stores/locale.ts` resolves to `en` and
+    // the page renders English. Hardcoding `zh-CN` here asserted an
+    // environment the test does not run in.
+    expect(err.textContent?.trim()).toBe(tFor(get(locale), 'review.invalidDiff'));
     expect(get(review).status).toBe('idle');
   });
 
@@ -324,7 +331,25 @@ describe.skip('component / Review page', () => {
     });
   });
 
-  it('shows a clearly-worded unsupported-provider message', async () => {
+  // `[FACT]` Skipped for a *source* defect, not a tooling one. This is the
+  // one case that the toolchain upgrade could not rescue, and it fails on a
+  // real bug in `src/routes/Review.svelte:157`:
+  //
+  //   {fill($catalog, '{provider}', $review.unsupportedProvider ?? provider)}
+  //
+  // `fill` is declared as `(t, token, value) => (t[token] ?? token)…`, so it
+  // looks up the literal key `'{provider}'` in the catalogue, finds nothing,
+  // falls back to the token itself, and returns `'anthropic'`. The panel
+  // therefore renders the provider name alone; the `review.unsupported`
+  // string ('{provider} cannot stream. Its protocol has no streaming
+  // implementation…') is never interpolated. Measured: panel textContent
+  // is exactly `'anthropic'`, so `toContain('cannot stream')` fails.
+  //
+  // The fix is a one-line change to `fill`'s call site (pass
+  // `$catalog['review.unsupported']` instead of `$catalog`), which is
+  // application source and outside this lane's ownership. Fix the source,
+  // then drop this `.skip`.
+  it.skip('shows a clearly-worded unsupported-provider message', async () => {
     render(Review);
     const bridge = fakeSubscribe();
     await startReview('diff', { provider: 'anthropic', subscribe: bridge.subscribe });
@@ -350,11 +375,14 @@ describe.skip('component / Review page', () => {
 
   it('every rendered string comes from the catalogue', async () => {
     // Cheap guard against a hardcoded string slipping into the page.
+    // Compared against the active locale rather than a pinned one: this
+    // asserts "the page renders the catalogue's string", which is the
+    // actual intent, and it keeps holding under either locale.
     render(Review);
     const heading = screen.getByTestId('review-heading');
-    expect(heading.textContent?.trim()).toBe(tFor('zh-CN', 'review.heading'));
+    expect(heading.textContent?.trim()).toBe(tFor(get(locale), 'review.heading'));
     expect(screen.getByTestId('review-start').textContent?.trim()).toBe(
-      tFor('zh-CN', 'review.start')
+      tFor(get(locale), 'review.start')
     );
   });
 });

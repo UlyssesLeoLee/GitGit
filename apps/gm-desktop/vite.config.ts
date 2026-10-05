@@ -1,5 +1,6 @@
 import { defineConfig } from 'vite';
 import { svelte } from '@sveltejs/vite-plugin-svelte';
+import { svelteTesting } from '@testing-library/svelte/vite';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
@@ -9,13 +10,20 @@ const projectRoot = path.dirname(fileURLToPath(import.meta.url));
 // Browser-side bundle goes to `dist/`, which Tauri's `beforeBuildCommand`
 // in `tauri.conf.json` then packages into the OS-specific bundle.
 export default defineConfig({
-  plugins: [svelte()],
+  plugins: [svelte(), svelteTesting()],
   resolve: {
     alias: {
       $lib: path.resolve(projectRoot, 'src/lib'),
       $routes: path.resolve(projectRoot, 'src/routes'),
       $mocks: path.resolve(projectRoot, 'src/mocks'),
     },
+    // `svelteTesting()` adds the `browser` condition and the `ssr.noExternal`
+    // rule for `@testing-library/svelte`, but its own condition splice only
+    // fires when a `node` condition is already present, which it never is
+    // here. Setting the condition at the top level of `resolve` (gated on
+    // VITEST so the production build keeps its own defaults) is what makes
+    // `svelte` resolve to the client build instead of `index-server.js`.
+    ...(process.env.VITEST ? { conditions: ['browser'] } : {}),
   },
   // Tauri's debug tooling reads `process.env.TAURI_DEV_HOST` to wire up
   // a hot-reload server. We expose that here without leaking it into the
