@@ -377,16 +377,35 @@ function Resolve-Binary {
     # (target-regression/) so we always run against the current source.
     #
     # Staleness check: a binary is considered fresh only if it is newer
-    # than src/main.rs. If every candidate is stale we return $null so
-    # the caller triggers a rebuild.
+    # than the **newest file under src/**. If every candidate is stale we
+    # return $null so the caller triggers a rebuild.
+    #
+    # `[FACT]` This used to compare against `src/main.rs` alone, and that
+    # is the wrong reference. Measured on 2026-10-05: with
+    # `src/server/api.rs` edited and `src/main.rs` untouched, the IT tier
+    # reported every assertion green against a binary built *before* the
+    # edit — the new auth assertions passed with the auth layer deleted,
+    # because the server under test was the previous build. A check that
+    # only asks about the crate root is blind to every module, which is
+    # where all the logic is. `Cargo.toml` and `Cargo.lock` are included
+    # because a manifest change also invalidates the binary.
     #
     # No machine-specific path is searched: a hardcoded shared cache would
     # make the result depend on which developer box the script runs on,
     # and on a CI runner such a path can only ever be a stale hit.
     $root    = Get-RepoRoot
     $exe     = if (Test-IsWindows) { '.exe' } else { '' }
-    $mainSrc = Join-Path $root 'src/main.rs'
-    $mainSrcTime = (Get-Item $mainSrc -ErrorAction SilentlyContinue).LastWriteTime
+
+    $srcDir  = Join-Path $root 'src'
+    $newest  = @()
+    if (Test-Path $srcDir) {
+        $newest = @(Get-ChildItem -Path $srcDir -Recurse -File -Include '*.rs' -ErrorAction SilentlyContinue)
+    }
+    foreach ($manifest in @('Cargo.toml', 'Cargo.lock')) {
+        $p = Join-Path $root $manifest
+        if (Test-Path $p) { $newest += (Get-Item $p) }
+    }
+    $newestSrcTime = ($newest | Measure-Object -Property LastWriteTime -Maximum).Maximum
 
     $candidates = @()
     if ($env:CARGO_TARGET_DIR) {
@@ -397,7 +416,7 @@ function Resolve-Binary {
     foreach ($c in $candidates) {
         if ($c -and (Test-Path $c)) {
             $binTime = (Get-Item $c).LastWriteTime
-            if ($mainSrcTime -and ($binTime -lt $mainSrcTime)) {
+            if ($newestSrcTime -and ($binTime -lt $newestSrcTime)) {
                 # Stale — skip this candidate so the caller rebuilds.
                 continue
             }
