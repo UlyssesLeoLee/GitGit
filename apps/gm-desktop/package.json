@@ -1,6 +1,7 @@
 {
   "name": "gm-desktop",
   "private": true,
+  "license": "AGPL-3.0",
   "version": "0.1.0",
   "type": "module",
   "description": "Local desktop shell for gitgit MVP (per ADR-0020)",

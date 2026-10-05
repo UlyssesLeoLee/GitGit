@@ -1,6 +1,7 @@
 {
   "name": "@gitgit/gm-console",
   "private": true,
+  "license": "AGPL-3.0",
   "version": "0.1.0",
   "type": "module",
   "description": "gm-console v0.1 — RGS web admin UI for repos and credential vault.",

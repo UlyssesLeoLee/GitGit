@@ -7,7 +7,7 @@ name = "gm-desktop"
 version = "0.1.0"
 edition = "2021"
 rust-version = "1.75"
-license = "Apache-2.0"
+license = "AGPL-3.0"
 publish = false
 description = "Local desktop shell for gitgit (V0, per ADR-0020)"
 
