@@ -242,19 +242,30 @@ describe('store / review — failure and refusal', () => {
 /**
  * Component-render cases for the review page.
  *
- * `[TBD]` These are skipped, not passing. Under this vitest setup Svelte
- * resolves to its **server** build, so `@testing-library/svelte`'s
- * `render` throws `lifecycle_function_unavailable: mount(...) is not
- * available on the server` before any assertion runs. The fix is one
- * line in `apps/gm-desktop/vite.config.ts`:
+ * `[TBD]` Still skipped, and now with the root cause identified rather than a
+ * guess. `@sveltejs/vite-plugin-svelte` compiles `.svelte` files to their
+ * **server** output under this vitest setup, so `@testing-library/svelte`'s
+ * `render` throws `lifecycle_function_unavailable: mount(...) is not available
+ * on the server` from `svelte/src/internal/server/errors.js` before any
+ * assertion runs.
  *
- *     test: { resolve: { conditions: ['browser'] } }
+ * Two candidate fixes were applied to `apps/gm-desktop/vite.config.ts` and
+ * measured on 2026-10-05. **Neither works**, so neither is left in the config:
  *
- * That file is outside this lane's ownership, so it is reported rather
- * than edited. The cases are kept (not deleted) so whoever owns the
- * config can re-enable them by dropping `.skip` — the store cases
- * above already cover the same state machine, so nothing is left
- * unverified in the meantime.
+ *   1. `test: { resolve: { conditions: ['browser'] } }` — does not help.
+ *   2. the above plus `test: { server: { deps: { inline: ['svelte'] } } }` —
+ *      still fails identically.
+ *
+ * Both fail because the server build is chosen by the *plugin's* compile step,
+ * not by Node's export-condition resolution, so resolution-level settings
+ * cannot reach it. The next thing to try is a plugin-level or version-level
+ * fix (`svelte({ compilerOptions: { generate: 'client' } })`, or a vitest /
+ * vite-plugin-svelte / vitest-environment-svelte version combination that
+ * agrees on Svelte 5) — not a third guess at the same resolution knob.
+ *
+ * The cases are kept, not deleted, so they can be re-enabled the moment the
+ * render path works. Meanwhile the store cases above cover the same state
+ * machine (idle, streaming accumulation, stop, error, unsupported provider).
  */
 describe.skip('component / Review page', () => {
   it('refuses to start with an empty diff, without calling the backend', async () => {

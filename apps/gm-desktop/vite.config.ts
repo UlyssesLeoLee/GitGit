@@ -47,9 +47,24 @@ export default defineConfig({
         'src/**/*.d.ts',
       ],
       thresholds: {
-        // Per brief: lines >= 70%. We surface this in CI logs as a
-        // soft warning, not a hard failure, because the first
-        // coverage run is necessarily a snapshot.
+        // `[FACT]` These numbers are NOT enforced anywhere today, and an
+        // earlier version of this comment claimed they were "a soft
+        // warning". Neither was true. Two separate facts:
+        //
+        //   1. `pnpm test` is `vitest run`, without `--coverage`, and that
+        //      is what `.github/workflows/gm-desktop.yml` calls. Coverage is
+        //      therefore never measured in CI, so these thresholds are
+        //      never evaluated at all. A threshold in a config file that no
+        //      job reads is the appearance of a gate, not a gate.
+        //   2. If `pnpm test:coverage` were run, it would exit non-zero:
+        //      vitest fails a run that misses a threshold. Measured
+        //      2026-10-05: 37.71% lines / 50% functions at the base commit,
+        //      45.06% / 53.19% after the T9 review UI landed.
+        //
+        // So the thresholds stay where they are — lowering them to match
+        // today's numbers would destroy the only statement of intent this
+        // file makes — and the gap is tracked as real work: raise actual
+        // coverage, then make CI run `test:coverage` once it can pass.
         lines: 70,
         functions: 60,
         statements: 70,
