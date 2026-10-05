@@ -210,10 +210,20 @@ due. Verified by running the tier's own command, not by grepping:
 
 ## 6. Needs outside this lane's ownership
 
-1. **`apps/gm-desktop/vite.config.ts`** — add
+1. **Scope note — `apps/gm-desktop/tests/unit/review.test.ts`.** `[FACT]`
+   This path appears in neither the may-modify list nor the
+   must-not-touch list. It was added because deliverable 3 requires
+   frontend tests and `vite.config.ts` sets
+   `include: ['tests/unit/**/*.test.ts']`, so that is the only place
+   vitest collects from; the forbidden `apps/gm-desktop/scripts/**` is a
+   different directory. The file is purely additive and touches no
+   packaging or CI surface. Flagged rather than assumed: if the parent
+   considers `tests/**` owned by another lane, this one file should move
+   with it.
+2. **`apps/gm-desktop/vite.config.ts`** — add
    `test: { resolve: { conditions: ['browser'] } }` to un-skip the six
    component tests. One line.
-2. **`apps/gm-desktop/src-tauri/Cargo.lock`** — `[FACT]` it does not
+3. **`apps/gm-desktop/src-tauri/Cargo.lock`** — `[FACT]` it does not
    satisfy its own manifest, so `--locked` fails for the `gm-desktop`
    crate. Proven pre-existing: extracting `328962a` with `git archive`
    into a scratch directory and running `cargo metadata --locked` there,
@@ -226,7 +236,7 @@ due. Verified by running the tier's own command, not by grepping:
    was restored to `328962a` before every commit — this lane's four
    commits touch no lock file. Regenerating the lock is a packaging-lane
    decision.
-3. **`apps/gm-desktop/vite.config.ts` coverage thresholds** — `[FACT]`
+4. **`apps/gm-desktop/vite.config.ts` coverage thresholds** — `[FACT]`
    `vitest run --coverage` exits 1 at `328962a` **without** this lane's
    changes: 37.71% lines / 50% functions against thresholds of 70 / 60.
    This lane *raises* those to **45.06% / 53.19%** (`review.ts` 87.09%
