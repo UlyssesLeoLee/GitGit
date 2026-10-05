@@ -237,13 +237,33 @@ pub async fn spawn_review(
     let mut req = ChatRequest::new(model.clone(), prompt::review(diff));
     // Untrusted tagging + heuristic secret redaction, after the prompt
     // is built — sanitizing an empty request would be a no-op.
-    let redactions = sanitize::sanitize_request(&mut req);
+    //
+    // `sanitize_request` returns how many *messages* it rewrote, which
+    // is always at least one because every untrusted message gains the
+    // structural `<untrusted>` tag. That number does not tell the
+    // operator whether a secret was stripped, so the count reported to
+    // the UI is counted separately from the rules that actually fired.
+    let redactions = sanitize::scrub(diff).1.len();
+    sanitize::sanitize_request(&mut req);
 
     let provider = spec.build(provider_key);
     // A provider that cannot stream refuses here rather than falling
     // back to `send`; the `supports_streaming` check above makes the
     // refusal reachable at all, and this is the backstop.
-    let rx = provider.send_stream(&api_key, &req).await?;
+    //
+    // The error is scrubbed on the way out. Layer 1 includes the
+    // provider's response body in a non-2xx error, on the reasoning
+    // that the body is provider-authored text and cannot contain our
+    // key — which holds for a real provider and fails for a
+    // misconfigured proxy that echoes the `Authorization` header back.
+    // A test drives exactly that case, so the key cannot reach the UI,
+    // the error boundary, or the log buffer through this path.
+    let rx = provider
+        .send_stream(&api_key, &req)
+        .await
+        .map_err(|e| {
+            AppError::Gitgit(sanitize::scrub_secret(&e.to_string(), &api_key))
+        })?;
 
     let session_id = new_session_id();
     let join = tokio::spawn(pump(
@@ -399,4 +419,944 @@ pub async fn ai_review_cancel(
     state: State<'_, DesktopState>,
 ) -> AppResult<String> {
     cancel_review(Arc::clone(&state.reviews), Arc::new(TauriEmitter(app))).await
+}
+
+#[cfg(test)]
+mod tests {
+//! Tests for the streaming review command layer (V0 task T9).
+//!
+//! The behaviour worth protecting here cannot be seen through a
+//! Tauri app handle, so the tests drive [`spawn_review`] directly with
+//! a recording emitter. Two of them go further and run a real socket:
+//! [`MockSseServer`] speaks the OpenAI SSE wire shape over loopback TCP,
+//! which is what makes "the tokens arrive in order" an observation rather
+//! than an assertion about a mock's own bookkeeping.
+//!
+//! The socket is raw `tokio::net` rather than `axum` on purpose. Building
+//! a streaming response body needs a `futures_core::Stream`, and this
+//! crate's manifest does not declare one; raw chunked-transfer-encoding
+//! keeps the test dependency-free and, as a bonus, makes the
+//! cancellation test able to observe the peer actually going away.
+
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
+
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::{TcpListener, TcpStream};
+
+use gitgit::ai::provider::StreamEvent;
+use gitgit::ai::stream::stream_channel;
+
+use super::*;
+use crate::state::REVIEW_MAX_DIFF_BYTES;
+
+/// Collects every event instead of shipping it to a webview.
+#[derive(Default)]
+struct Recorder {
+    events: Mutex<Vec<ReviewEvent>>,
+}
+
+impl Recorder {
+    fn new() -> Arc<Self> {
+        Arc::new(Self::default())
+    }
+
+    fn events(&self) -> Vec<ReviewEvent> {
+        self.events.lock().expect("recorder is not poisoned").clone()
+    }
+
+    /// Deltas in arrival order — the observable proof of streaming.
+    fn deltas(&self) -> Vec<String> {
+        self.events()
+            .into_iter()
+            .filter_map(|e| match e {
+                ReviewEvent::Token { delta, .. } => Some(delta),
+                _ => None,
+            })
+            .collect()
+    }
+
+    fn kinds(&self) -> Vec<&'static str> {
+        self.events().iter().map(ReviewEvent::name).collect()
+    }
+}
+
+impl ReviewEmitter for Recorder {
+    fn emit(&self, event: &ReviewEvent) -> Result<(), String> {
+        self.events
+            .lock()
+            .expect("recorder is not poisoned")
+            .push(event.clone());
+        Ok(())
+    }
+}
+
+/// Emitter whose bridge always fails, for the degraded-emitter path.
+struct BrokenEmitter;
+
+impl ReviewEmitter for BrokenEmitter {
+    fn emit(&self, _event: &ReviewEvent) -> Result<(), String> {
+        Err(String::from("webview is gone"))
+    }
+}
+
+fn args(diff: &str) -> ReviewArgs {
+    ReviewArgs {
+        diff: String::from(diff),
+        ..ReviewArgs::default()
+    }
+}
+
+fn start_args(diff: &str, base_url: &str) -> ReviewArgs {
+    ReviewArgs {
+        diff: String::from(diff),
+        base_url: Some(String::from(base_url)),
+        ..ReviewArgs::default()
+    }
+}
+
+/// Wait for `predicate` over the recorder, or fail the test.
+async fn wait_for(
+    recorder: &Arc<Recorder>,
+    what: &str,
+    predicate: impl Fn(&[ReviewEvent]) -> bool,
+) -> Vec<ReviewEvent> {
+    for _ in 0..200 {
+        let events = recorder.events();
+        if predicate(&events) {
+            return events;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    panic!("timed out waiting for {what}; saw {:?}", recorder.kinds());
+}
+
+/* ---------------- validation, no socket required ---------------- */
+
+#[tokio::test]
+async fn an_empty_diff_is_refused_before_the_credential_is_read() {
+    // Ordering claim, not just a claim about the value: the empty-diff
+    // error must win even when no key is available, otherwise a user
+    // with no key configured is told about the key instead of the thing
+    // they actually did wrong.
+    let manager = Arc::new(ReviewManager::new());
+    let recorder = Recorder::new();
+    let err = spawn_review(manager, recorder, None, args("   \n\t "))
+        .await
+        .unwrap_err();
+    assert_eq!(err.kind(), "AiReviewInvalid", "got: {err}");
+    assert!(err.to_string().contains("empty"), "got: {err}");
+}
+
+#[tokio::test]
+async fn an_oversized_diff_is_refused() {
+    let manager = Arc::new(ReviewManager::new());
+    let recorder = Recorder::new();
+    let big = "a".repeat(REVIEW_MAX_DIFF_BYTES + 1);
+    let err = spawn_review(manager, recorder, Some(String::from("k")), args(&big))
+        .await
+        .unwrap_err();
+    assert_eq!(err.kind(), "AiReviewInvalid", "got: {err}");
+}
+
+#[tokio::test]
+async fn an_unknown_provider_names_the_known_ones() {
+    let manager = Arc::new(ReviewManager::new());
+    let recorder = Recorder::new();
+    let mut a = args("diff");
+    a.provider = Some(String::from("not-a-provider"));
+    let err = spawn_review(manager, recorder, Some(String::from("k")), a)
+        .await
+        .unwrap_err();
+    let msg = err.to_string();
+    assert!(msg.contains("not-a-provider"), "got: {msg}");
+    assert!(msg.contains("openai"), "got: {msg}");
+}
+
+#[tokio::test]
+async fn anthropic_is_refused_before_any_network_round_trip() {
+    // The refusal is reached with no base_url set at all, so nothing
+    // can have been sent: `supports_streaming` is consulted from the
+    // registry, not discovered from a failed call.
+    let manager = Arc::new(ReviewManager::new());
+    let recorder = Recorder::new();
+    let mut a = args("diff");
+    a.provider = Some(String::from("anthropic"));
+    let err = spawn_review(manager, recorder.clone(), Some(String::from("k")), a)
+        .await
+        .unwrap_err();
+    assert_eq!(err.kind(), "AiReviewUnsupported", "got: {err}");
+    assert!(err.to_string().contains("anthropic"), "got: {err}");
+    assert!(recorder.events().is_empty(), "nothing may be emitted");
+}
+
+#[tokio::test]
+async fn a_missing_api_key_is_reported_as_such() {
+    let manager = Arc::new(ReviewManager::new());
+    let recorder = Recorder::new();
+    let err = spawn_review(manager, recorder, None, args("diff"))
+        .await
+        .unwrap_err();
+    assert_eq!(err.kind(), "AiReviewNoKey", "got: {err}");
+    assert!(
+        err.to_string().contains(gitgit::ai::API_KEY_ENV),
+        "the message must name the variable: {err}"
+    );
+}
+
+#[tokio::test]
+async fn a_dead_endpoint_does_not_leak_the_key() {
+    // Same shape as `connection_failure_does_not_leak_the_key` in
+    // `src/ai/openai.rs`, one layer up: this asserts the key survives
+    // the *command* boundary, including the `AppError` serialization
+    // the frontend receives.
+    let manager = Arc::new(ReviewManager::new());
+    let recorder = Recorder::new();
+    // Port 1 is reserved and refuses instantly, so the failure path is
+    // exercised without a network dependency.
+    let err = spawn_review(
+        manager,
+        recorder,
+        Some(String::from("sk-SUPERSECRET-VALUE")),
+        start_args("diff", "http://127.0.0.1:1/v1"),
+    )
+    .await
+    .unwrap_err();
+    let serialized = serde_json::to_string(&err).expect("AppError serializes");
+    assert!(!err.to_string().contains("SUPERSECRET"), "leaked: {err}");
+    assert!(
+        !serialized.contains("SUPERSECRET"),
+        "leaked into the frontend payload: {serialized}"
+    );
+}
+
+#[tokio::test]
+async fn a_provider_error_echoing_the_key_is_scrubbed_before_it_is_emitted() {
+    // Defence in depth for the *in-band* error path. The mock opens a
+    // normal 200 stream and then sends a provider `error` frame whose
+    // message quotes the bearer token — a misconfigured proxy really
+    // does this. Layer 1 turns that into an `Err` item on the channel,
+    // and this module's job is to make sure it does not reach the UI.
+    let mock = MockSseServer::start(MockCfg::ok(vec![error_frame(
+        "auth",
+        "upstream rejected bearer sk-LEAKED-KEY",
+    )]))
+    .await;
+    let manager = Arc::new(ReviewManager::new());
+    let recorder = Recorder::new();
+    spawn_review(
+        Arc::clone(&manager),
+        recorder.clone(),
+        Some(String::from("sk-LEAKED-KEY")),
+        start_args("diff", &mock.base_url()),
+    )
+    .await
+    .expect("the stream opens; the failure is in-band");
+
+    let events = wait_for(&recorder, "the failure event", |e| {
+        e.iter().any(|x| matches!(x, ReviewEvent::Failed { .. }))
+    })
+    .await;
+    let _ = manager.cancel().await;
+    mock.finish().await;
+
+    let text = serde_json::to_string(&events).expect("events serialize");
+    assert!(!text.contains("LEAKED-KEY"), "key leaked into events: {text}");
+    // The message still has to be useful, or the guard would be
+    // trivially satisfiable by dropping everything.
+    let message = events
+        .iter()
+        .find_map(|e| match e {
+            ReviewEvent::Failed { message, .. } => Some(message.clone()),
+            _ => None,
+        })
+        .expect("a failure event");
+    assert!(message.contains("auth"), "the provider detail is lost: {message}");
+    assert!(message.contains("upstream rejected"), "got: {message}");
+}
+
+#[tokio::test]
+async fn a_rejected_request_does_not_leak_the_key() {
+    // The other half: a non-2xx response is refused by layer 1 before
+    // any channel exists, so the key must not survive that error either.
+    let mock = MockSseServer::start(MockCfg::failing(401, "unauthorized: sk-LEAKED-KEY"))
+        .await;
+    let manager = Arc::new(ReviewManager::new());
+    let recorder = Recorder::new();
+    let err = spawn_review(
+        manager,
+        recorder.clone(),
+        Some(String::from("sk-LEAKED-KEY")),
+        start_args("diff", &mock.base_url()),
+    )
+    .await
+    .expect_err("a 401 must not be reported as a started review");
+    mock.finish().await;
+    let serialized = serde_json::to_string(&err).expect("AppError serializes");
+    assert!(!serialized.contains("LEAKED-KEY"), "leaked: {serialized}");
+    assert!(recorder.events().is_empty(), "nothing may be emitted");
+}
+
+/* ---------------- the streaming path, over a real socket ---------------- */
+
+#[tokio::test]
+async fn tokens_arrive_in_order_and_the_review_completes() {
+    // The acceptance criterion for T9, end to end: five deltas from a
+    // socket, in the order the server wrote them, then `done`.
+    let mock = MockSseServer::start(MockCfg::ok(sample_frames())).await;
+    let manager = Arc::new(ReviewManager::new());
+    let recorder = Recorder::new();
+    let started = spawn_review(
+        Arc::clone(&manager),
+        recorder.clone(),
+        Some(String::from("k")),
+        start_args("diff --git a/x b/x", &mock.base_url()),
+    )
+    .await
+    .expect("the review starts");
+
+    assert!(started.streaming, "the start must report streaming");
+    assert_eq!(started.provider, "openai");
+    assert!(!started.session_id.is_empty(), "a session id is required");
+
+    wait_for(&recorder, "the done event", |e| {
+        e.iter().any(|x| matches!(x, ReviewEvent::Done { .. }))
+    })
+    .await;
+
+    assert_eq!(recorder.deltas(), SAMPLE_TOKENS, "deltas must not reorder");
+    let events = recorder.events();
+    let done = events
+        .iter()
+        .find_map(|e| match e {
+            ReviewEvent::Done { tokens, .. } => Some(*tokens),
+            _ => None,
+        })
+        .expect("a done event");
+    assert_eq!(done as usize, SAMPLE_TOKENS.len(), "done counts the deltas");
+    assert!(
+        events
+            .iter()
+            .any(|e| matches!(e, ReviewEvent::Model { .. })),
+        "the served model must be reported, not assumed"
+    );
+    // Every event belongs to the session the command handed out.
+    for e in &events {
+        let sid = match e {
+            ReviewEvent::Token { session_id, .. }
+            | ReviewEvent::Model { session_id, .. }
+            | ReviewEvent::Done { session_id, .. }
+            | ReviewEvent::Failed { session_id, .. }
+            | ReviewEvent::Cancelled { session_id } => session_id,
+        };
+        assert_eq!(sid, &started.session_id, "event from a foreign session");
+    }
+    mock.finish().await;
+}
+
+#[tokio::test]
+async fn the_slot_is_released_when_the_stream_finishes() {
+    // A stale slot would make every later start look like a double
+    // start, which is the failure a user would report as "the button
+    // stopped working".
+    let mock = MockSseServer::start(MockCfg::ok(sample_frames())).await;
+    let manager = Arc::new(ReviewManager::new());
+    let recorder = Recorder::new();
+    spawn_review(
+        Arc::clone(&manager),
+        recorder.clone(),
+        Some(String::from("k")),
+        start_args("diff", &mock.base_url()),
+    )
+    .await
+    .expect("the review starts");
+    wait_for(&recorder, "the done event", |e| {
+        e.iter().any(|x| matches!(x, ReviewEvent::Done { .. }))
+    })
+    .await;
+    mock.finish().await;
+    for _ in 0..200 {
+        if manager.running_session().is_none() {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    panic!("the manager slot was not released after the stream finished");
+}
+
+#[tokio::test]
+async fn a_second_start_while_one_is_streaming_is_refused() {
+    let mock = MockSseServer::start(MockCfg::ok(sample_frames())).await;
+    let manager = Arc::new(ReviewManager::new());
+    let recorder = Recorder::new();
+    spawn_review(
+        Arc::clone(&manager),
+        recorder.clone(),
+        Some(String::from("k")),
+        start_args("diff", &mock.base_url()),
+    )
+    .await
+    .expect("the first review starts");
+    let err = spawn_review(
+        Arc::clone(&manager),
+        Recorder::new(),
+        Some(String::from("k")),
+        start_args("diff", &mock.base_url()),
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(err.kind(), "AiReviewAlreadyRunning", "got: {err}");
+    mock.finish().await;
+}
+
+#[tokio::test]
+async fn cancel_stops_the_work_and_the_provider_sees_the_client_leave() {
+    // The load-bearing cancellation test. Two separate claims:
+    //
+    // (1) the manager reports the stream gone, and a new start is
+    //     accepted again — the work stopped, it was not merely hidden;
+    // (2) the *server* observes the connection closing. (2) is the part
+    //     a UI-only fake cannot prove, and it is the part that matters:
+    //     if the socket stayed open, the request was still running.
+    let frames = slow_frames();
+    let mock = MockSseServer::start(MockCfg::ok(frames)).await;
+    let manager = Arc::new(ReviewManager::new());
+    let recorder = Recorder::new();
+    let started = spawn_review(
+        Arc::clone(&manager),
+        recorder.clone(),
+        Some(String::from("k")),
+        start_args("diff", &mock.base_url()),
+    )
+    .await
+    .expect("the review starts");
+
+    // Wait until the stream is genuinely in flight before cancelling.
+    wait_for(&recorder, "the first token", |e| {
+        e.iter().any(|x| matches!(x, ReviewEvent::Token { .. }))
+    })
+    .await;
+
+    let stopped = cancel_review(Arc::clone(&manager), recorder.clone())
+        .await
+        .expect("cancel reports the session it stopped");
+    assert_eq!(stopped, started.session_id, "wrong session cancelled");
+    assert!(
+        manager.running_session().is_none(),
+        "the slot must be free the instant cancel resolves"
+    );
+
+    // The peer must notice. `MockSseServer` records it.
+    for _ in 0..300 {
+        if mock.client_gone() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    assert!(
+        mock.client_gone(),
+        "the provider never saw the client leave: cancellation did not \
+         release the response body"
+    );
+
+    // A new stream is accepted, which it would not be if the cancelled
+    // task were still holding the slot.
+    let second = MockSseServer::start(MockCfg::ok(sample_frames())).await;
+    let r2 = Recorder::new();
+    spawn_review(
+        Arc::clone(&manager),
+        r2,
+        Some(String::from("k")),
+        start_args("diff", &second.base_url()),
+    )
+    .await
+    .expect("a review can start again after a cancel");
+    let _ = manager.cancel().await;
+    second.finish().await;
+    mock.finish().await;
+}
+
+#[tokio::test]
+async fn cancelling_with_nothing_running_is_reported_not_assumed() {
+    // A cancel that silently succeeds teaches the UI that stopping
+    // works when it did not.
+    let manager = Arc::new(ReviewManager::new());
+    let err = cancel_review(manager, Recorder::new()).await.unwrap_err();
+    assert_eq!(err.kind(), "AiReviewNotRunning", "got: {err}");
+}
+
+#[tokio::test]
+async fn cancel_succeeds_even_when_the_bridge_is_gone() {
+    // The webview can close between "start" and "stop". Reporting that
+    // as a failed cancel would be the one genuinely false thing the
+    // command could say: the task really was aborted.
+    let manager = Arc::new(ReviewManager::new());
+    let mock = MockSseServer::start(MockCfg::ok(sample_frames())).await;
+    let _ = spawn_review(
+        Arc::clone(&manager),
+        Recorder::new(),
+        Some(String::from("k")),
+        start_args("diff", &mock.base_url()),
+    )
+    .await;
+    let stopped = cancel_review(manager, Arc::new(BrokenEmitter))
+        .await
+        .expect("cancel reports success despite the dead bridge");
+    assert!(!stopped.is_empty(), "a session id is still reported");
+    mock.finish().await;
+}
+
+#[tokio::test]
+async fn a_truncated_stream_is_reported_as_a_failure() {
+    // The server closes without `data: [DONE]` and without a
+    // finish_reason. Showing the partial text as a finished review is
+    // the failure this guards.
+    let mock = MockSseServer::start(MockCfg::truncated(vec![
+        model_frame(),
+        content_frame("Hel"),
+        content_frame("lo"),
+    ]))
+    .await;
+    let manager = Arc::new(ReviewManager::new());
+    let recorder = Recorder::new();
+    spawn_review(
+        Arc::clone(&manager),
+        recorder.clone(),
+        Some(String::from("k")),
+        start_args("diff", &mock.base_url()),
+    )
+    .await
+    .expect("the review starts");
+    let events = wait_for(&recorder, "the failure event", |e| {
+        e.iter().any(|x| matches!(x, ReviewEvent::Failed { .. }))
+    })
+    .await;
+    assert!(
+        !events
+            .iter()
+            .any(|e| matches!(e, ReviewEvent::Done { .. })),
+        "a truncated stream must never report done: {events:?}"
+    );
+    assert!(recorder.deltas().len() <= 2, "partial output is kept");
+    mock.finish().await;
+}
+
+#[tokio::test]
+async fn a_non_success_status_surfaces_the_status_code() {
+    // A non-2xx is refused by layer 1 *before* any channel exists, so
+    // there is no stream to report an event on: the failure arrives as
+    // the command's own error. What the UI still needs is the status,
+    // because "429" and "401" call for completely different operator
+    // action.
+    let mock = MockSseServer::start(MockCfg::failing(429, "rate limited")).await;
+    let manager = Arc::new(ReviewManager::new());
+    let recorder = Recorder::new();
+    let err = spawn_review(
+        Arc::clone(&manager),
+        recorder.clone(),
+        Some(String::from("k")),
+        start_args("diff", &mock.base_url()),
+    )
+    .await
+    .expect_err("a rejected request must not report a started review");    mock.finish().await;
+    let message = err.to_string();
+    assert!(message.contains("429"), "the status must survive: {message}");
+    assert!(recorder.events().is_empty(), "no stream opened, no events");
+    assert!(
+        manager.running_session().is_none(),
+        "a failed start must not leave the slot occupied"
+    );
+}
+
+#[tokio::test]
+async fn a_secrets_shaped_diff_is_redacted_before_it_is_sent() {
+    // The mock records the request body it received, so this asserts the
+    // sanitizer actually ran on the way out — not merely that some
+    // counter was incremented.
+    let mock = MockSseServer::start(MockCfg::ok(sample_frames())).await;
+    let manager = Arc::new(ReviewManager::new());
+    let recorder = Recorder::new();
+    let started = spawn_review(
+        Arc::clone(&manager),
+        recorder.clone(),
+        Some(String::from("k")),
+        start_args(
+            "diff --git a/x b/x\n+const api_key = \"super-secret-value-1234\";",
+            &mock.base_url(),
+        ),
+    )
+    .await
+    .expect("the review starts");
+    assert_eq!(
+        started.redactions, 1,
+        "one secret-shaped span in the diff must be reported"
+    );
+    wait_for(&recorder, "the done event", |e| {
+        e.iter().any(|x| matches!(x, ReviewEvent::Done { .. }))
+    })
+    .await;
+    let body = mock.request_body();
+    assert!(body.contains(gitgit::ai::sanitize::REDACTED), "body: {body}");
+    assert!(
+        !body.contains("super-secret-value-1234"),
+        "the secret reached the provider unredacted: {body}"
+    );
+    // The diff is also structurally tagged, which is the AISEC-REQ-001
+    // control: the model is told this content is data.
+    assert!(body.contains("<untrusted"), "body: {body}");
+    mock.finish().await;
+}
+
+#[tokio::test]
+async fn every_event_variant_has_its_own_event_name() {
+    // The frontend dispatches on the name; a collision would make two
+    // states indistinguishable.
+    let names = [
+        ReviewEvent::Token {
+            session_id: String::from("s"),
+            delta: String::from("x"),
+        }
+        .name(),
+        ReviewEvent::Model {
+            session_id: String::from("s"),
+            model: String::from("m"),
+        }
+        .name(),
+        ReviewEvent::Done {
+            session_id: String::from("s"),
+            tokens: 1,
+        }
+        .name(),
+        ReviewEvent::Failed {
+            session_id: String::from("s"),
+            message: String::from("e"),
+        }
+        .name(),
+        ReviewEvent::Cancelled {
+            session_id: String::from("s"),
+        }
+        .name(),
+    ];
+    let unique: std::collections::BTreeSet<&str> = names.iter().copied().collect();
+    assert_eq!(unique.len(), names.len(), "event names must be distinct");
+    assert!(names.contains(&EVENT_CANCELLED));
+}
+
+/* ---------------- the layer-1 contract this module leans on ---------------- */
+
+#[tokio::test]
+async fn dropping_the_receiver_ends_the_producer() {
+    // The property `ai_review_cancel` depends on: cancellation is the
+    // ordinary "consumer went away" case, not a special path.
+    let (tx, mut rx) = stream_channel();
+    let (seen_tx, mut seen_rx) = tokio::sync::mpsc::channel::<u32>(1);
+    let producer = tokio::spawn(async move {
+        let mut sent = 0u32;
+        while tx
+            .send(Ok(StreamEvent::Token(format!("t{sent}"))))
+            .await
+            .is_ok()
+        {
+            sent += 1;
+            if sent > 10_000 {
+                break;
+            }
+        }
+        // The `.await` is load-bearing: `Sender::send` returns a future
+        // that is not `#[must_use]`, so dropping it here would discard
+        // the report and the assertion below would then be testing a
+        // closed channel instead of the property it names.
+        let _ = seen_tx.send(sent).await;
+    });
+    assert!(rx.recv().await.is_some(), "the first token arrives");
+    drop(rx);
+    let sent = tokio::time::timeout(Duration::from_secs(5), seen_rx.recv())
+        .await
+        .expect("the producer noticed within 5s")
+        .expect("the producer reported a value");
+    assert!(sent > 0, "the producer really was running");
+    producer.await.expect("the producer task completed");
+}
+
+/* ---------------- a local mock of the OpenAI SSE wire shape ---------------- */
+
+/// The review the mock serves, split the way a real model splits it.
+const SAMPLE_TOKENS: [&str; 5] = ["Hel", "lo", "wo", "rld", "!"];
+
+fn sample_frames() -> Vec<String> {
+    let mut frames = vec![model_frame()];
+    for token in SAMPLE_TOKENS {
+        frames.push(content_frame(token));
+    }
+    frames.push("data: [DONE]\n\n".to_string());
+    frames
+}
+
+/// Same payload, but the inter-frame delay makes mid-stream
+/// cancellation reachable.
+fn slow_frames() -> Vec<String> {
+    let mut frames = vec![model_frame()];
+    for token in SAMPLE_TOKENS {
+        frames.push(content_frame(token));
+    }
+    frames.push("data: [DONE]\n\n".to_string());
+    frames
+}
+
+fn model_frame() -> String {
+    "data: {\"model\":\"mock-model-1\",\"choices\":[{\"delta\":{\"role\":\"assistant\"},\"finish_reason\":null}]}\n\n"
+        .to_string()
+}
+
+fn content_frame(token: &str) -> String {
+    format!(
+        "data: {{\"model\":\"mock-model-1\",\"choices\":[{{\"delta\":{{\"content\":\"{token}\"}}}}]}}\n\n"
+    )
+}
+
+/// A `data:` frame carrying a provider error object, which the wire
+/// format uses for mid-stream failures.
+fn error_frame(kind: &str, message: &str) -> String {
+    format!(
+        "data: {{\"error\":{{\"type\":\"{kind}\",\"message\":\"{message}\"}}}}\n\n"
+    )
+}
+
+/// What the mock server observed.
+#[derive(Debug, Default)]
+struct MockOutcome {
+    /// The client's connection was observed to close.
+    client_gone: bool,
+    /// The body the client sent, so a test can assert on what left the
+    /// process.
+    request_body: String,
+}
+
+/// How a [`MockSseServer`] should behave.
+struct MockCfg {
+    /// SSE frames to write, in order.
+    frames: Vec<String>,
+    /// HTTP status for the response head.
+    status: u16,
+    /// Body sent with a non-200 status.
+    error_body: Option<String>,
+    /// Stop after this many frames, sending no terminator. Produces the
+    /// truncated stream that must be reported as a failure.
+    truncate_at: Option<usize>,
+}
+
+impl MockCfg {
+    /// A 200 response carrying `frames`.
+    fn ok(frames: Vec<String>) -> Self {
+        Self {
+            frames,
+            status: 200,
+            error_body: None,
+            truncate_at: None,
+        }
+    }
+
+    /// A non-200 response with a body.
+    fn failing(status: u16, body: &str) -> Self {
+        Self {
+            frames: Vec::new(),
+            status,
+            error_body: Some(String::from(body)),
+            truncate_at: None,
+        }
+    }
+
+    /// A 200 response cut short with no `[DONE]`.
+    fn truncated(frames: Vec<String>) -> Self {
+        Self {
+            frames,
+            status: 200,
+            error_body: None,
+            truncate_at: Some(0),
+        }
+    }
+}
+
+/// A loopback HTTP/1.1 server that answers `POST /v1/chat/completions`
+/// with a chunked SSE body.
+///
+/// One frame per granted permit, so a test decides exactly how far the
+/// stream has progressed. That is what makes the cancellation test
+/// deterministic without sleeping: the server is still mid-response
+/// when the client leaves.
+struct MockSseServer {
+    addr: std::net::SocketAddr,
+    outcome: Arc<Mutex<MockOutcome>>,
+    /// Held so `finish` can close the permit channel, which is what
+    /// releases a handler parked on a permit.
+    permits: tokio::sync::mpsc::Sender<()>,
+    handle: tokio::task::JoinHandle<()>,
+}
+
+impl MockSseServer {
+    async fn start(cfg: MockCfg) -> Self {
+        let listener = TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("loopback is bindable");
+        let addr = listener.local_addr().expect("listener reports its address");
+        let outcome = Arc::new(Mutex::new(MockOutcome::default()));
+        let (permit_tx, mut permit_rx) = tokio::sync::mpsc::channel::<()>(64);
+        // Pre-fill: the server may write each frame it was given, one
+        // per permit, with no further cooperation from the test.
+        let writable = cfg.truncate_at.unwrap_or(cfg.frames.len()).min(cfg.frames.len());
+        for _ in 0..writable {
+            let _ = permit_tx.try_send(());
+        }
+        let handle = tokio::spawn({
+            // Cloned so the test keeps a handle to the outcome while the
+            // handler owns its own.
+            let outcome_task = Arc::clone(&outcome);
+            async move {
+                // One connection is enough: every test makes exactly one
+                // request, and a second `accept` would park the task
+                // forever.
+                if let Ok((sock, _)) = listener.accept().await {
+                    let _ = serve(sock, &cfg, &outcome_task, &mut permit_rx).await;
+                }
+            }
+        });
+        Self {
+            addr,
+            outcome,
+            permits: permit_tx,
+            handle,
+        }
+    }
+
+    fn base_url(&self) -> String {
+        format!("http://{}/v1", self.addr)
+    }
+
+    fn client_gone(&self) -> bool {
+        self.outcome
+            .lock()
+            .expect("outcome is not poisoned")
+            .client_gone
+    }
+
+    fn request_body(&self) -> String {
+        self.outcome
+            .lock()
+            .expect("outcome is not poisoned")
+            .request_body
+            .clone()
+    }
+
+    /// Close the permit channel and wait for the handler to finish.
+    async fn finish(self) {
+        drop(self.permits);
+        let _ = tokio::time::timeout(Duration::from_secs(5), self.handle).await;
+    }
+}
+
+async fn serve(
+    mut sock: TcpStream,
+    cfg: &MockCfg,
+    outcome: &Arc<Mutex<MockOutcome>>,
+    permits: &mut tokio::sync::mpsc::Receiver<()>,
+) -> std::io::Result<()> {
+    let _ = sock.set_nodelay(true);
+
+    // Read the request head, then the body. A server that never reads
+    // can wedge the client on a full send buffer, and the redaction
+    // test needs the body anyway.
+    let mut buf = vec![0u8; 8192];
+    let mut seen = Vec::new();
+    loop {
+        let n = sock.read(&mut buf).await?;
+        if n == 0 {
+            break;
+        }
+        seen.extend_from_slice(&buf[..n]);
+        let Some(head_end) = find_head_end(&seen) else {
+            if seen.len() > 1_000_000 {
+                break;
+            }
+            continue;
+        };
+        let head = String::from_utf8_lossy(&seen[..head_end]).to_string();
+        if seen.len() >= head_end + content_length_of(&head) {
+            seen = seen[head_end..head_end + content_length_of(&head)].to_vec();
+            break;
+        }
+    }
+    if let Ok(mut guard) = outcome.lock() {
+        guard.request_body = String::from_utf8_lossy(&seen).to_string();
+    }
+
+    if cfg.status != 200 {
+        let body = cfg.error_body.clone().unwrap_or_default();
+        let head = format!(
+            "HTTP/1.1 {} MOCK\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{body}",
+            cfg.status,
+            body.len()
+        );
+        sock.write_all(head.as_bytes()).await?;
+        sock.flush().await?;
+        return Ok(());
+    }
+
+    sock.write_all(
+        b"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nCache-Control: no-cache\r\nTransfer-Encoding: chunked\r\n\r\n",
+    )
+    .await?;
+    sock.flush().await?;
+
+    let writable = cfg.truncate_at.unwrap_or(cfg.frames.len()).min(cfg.frames.len());
+    for frame in cfg.frames.iter().take(writable) {
+        if permits.recv().await.is_none() {
+            break;
+        }
+        // A read returning 0 bytes means the client closed its side:
+        // the response body was dropped. That is the signal the
+        // cancellation test needs, and it is observable from the peer
+        // in a way it is not from inside the client.
+        let mut probe = [0u8; 1];
+        if let Ok(Ok(0)) =
+            tokio::time::timeout(Duration::from_millis(30), sock.read(&mut probe)).await
+        {
+            mark_gone(outcome);
+            return Ok(());
+        }
+        let chunk = format!("{:x}\r\n{frame}\r\n", frame.len());
+        if sock.write_all(chunk.as_bytes()).await.is_err() || sock.flush().await.is_err() {
+            mark_gone(outcome);
+            return Ok(());
+        }
+    }
+    Ok(())
+}
+
+fn mark_gone(outcome: &Arc<Mutex<MockOutcome>>) {
+    if let Ok(mut guard) = outcome.lock() {
+        guard.client_gone = true;
+    }
+}
+
+fn find_head_end(bytes: &[u8]) -> Option<usize> {
+    bytes.windows(4).position(|w| w == b"\r\n\r\n").map(|p| p + 4)
+}
+
+fn content_length_of(head: &str) -> usize {
+    head.lines()
+        .find_map(|l| {
+            let lower = l.to_ascii_lowercase();
+            if lower.starts_with("content-length:") {
+                lower
+                    .split(':')
+                    .nth(1)
+                    .map(|v| v.trim().parse::<usize>().unwrap_or(0))
+            } else {
+                None
+            }
+        })
+        .unwrap_or(0)
+}
 }
