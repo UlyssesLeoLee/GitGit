@@ -15,8 +15,11 @@ import type {
   AdminPasswordStatus,
   AppInfo,
   CommitEntry,
+  DiffTarget,
   RefEntry,
   RepoDetail,
+  RepoDiff,
+  RepoStatus,
   RepoSummary,
   ServerStatus,
   VaultDiagnostic,
@@ -58,6 +61,32 @@ export async function cloneUrl(name: string, bind: string | null): Promise<strin
 
 export async function openRepoInShell(name: string): Promise<void> {
   return await tauriInvoke('open_repo_in_shell', { name });
+}
+
+/**
+ * Working-tree status. `root` is the directory the repository name is
+ * resolved under; the Rust side defaults it to the app's own repos
+ * directory and validates `name` before touching the filesystem.
+ */
+export async function repoStatus(
+  name: string,
+  root: string | null
+): Promise<RepoStatus> {
+  return await tauriInvoke('repo_status', { name, root });
+}
+
+/**
+ * Diff text for one of the three comparisons. `target` is passed through
+ * verbatim and refused server-side if it is not one of the three, rather
+ * than being silently defaulted.
+ */
+export async function repoDiff(
+  name: string,
+  target: DiffTarget,
+  path: string | null,
+  root: string | null
+): Promise<RepoDiff> {
+  return await tauriInvoke('repo_diff', { name, target, path, root });
 }
 
 export async function vaultList(): Promise<string[]> {

@@ -38,6 +38,19 @@ pub enum AppError {
     #[error("invalid repository name: {0}")]
     InvalidRepoName(String),
 
+    /// The resolved path is a bare repository, so it has no working tree
+    /// and therefore no status or diff to report. This is a distinct
+    /// answer rather than a failure: `git status` in a bare repo exits
+    /// 128 with `fatal: this operation must be run in a work tree`, and
+    /// the UI is told to point at a checkout instead of being handed
+    /// git's raw stderr.
+    #[error("{0} is a bare repository: it has no working tree")]
+    NotAWorkTree(String),
+
+    /// The requested diff target was not one of staged / worktree / head.
+    #[error("unknown diff target: {0} (expected staged, worktree or head)")]
+    InvalidDiffTarget(String),
+
     /// A call into the gitgit library returned an error.
     #[error("gitgit library error: {0}")]
     Gitgit(String),
@@ -105,6 +118,8 @@ impl AppError {
             AppError::Bind(_) => "Bind",
             AppError::ServerManagerPoisoned => "ServerManagerPoisoned",
             AppError::InvalidRepoName(_) => "InvalidRepoName",
+            AppError::NotAWorkTree(_) => "NotAWorkTree",
+            AppError::InvalidDiffTarget(_) => "InvalidDiffTarget",
             AppError::Gitgit(_) => "Gitgit",
             AppError::Git(_) => "Git",
             AppError::Io(_) => "Io",

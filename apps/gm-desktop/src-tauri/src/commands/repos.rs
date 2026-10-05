@@ -55,6 +55,49 @@ pub struct CommitEntry {
     pub date_iso: String,
 }
 
+/// Working-tree status, as sent to the UI.
+///
+/// Mirrors `gitgit::repo::status::WorktreeStatus`; the desktop owns the
+/// wire shape, as it does for [`RepoSummary`] and [`RepoDetail`].
+#[derive(Debug, Clone, Serialize)]
+pub struct RepoStatus {
+    pub branch: Option<String>,
+    pub head: Option<String>,
+    pub upstream: Option<String>,
+    pub ahead: u32,
+    pub behind: u32,
+    pub entries: Vec<StatusEntry>,
+    /// `entries` is empty. A clean tree is an answer, not an error.
+    pub is_clean: bool,
+}
+
+/// One changed path in the status list.
+#[derive(Debug, Clone, Serialize)]
+pub struct StatusEntry {
+    pub path: String,
+    pub orig_path: Option<String>,
+    /// `"M"`, `"A"`, … or `null` when the column is blank.
+    pub index_status: Option<String>,
+    pub worktree_status: Option<String>,
+    pub staged: bool,
+    pub unstaged: bool,
+    pub untracked: bool,
+}
+
+/// Diff text plus the metadata the UI needs to label it honestly.
+#[derive(Debug, Clone, Serialize)]
+pub struct RepoDiff {
+    /// `"staged"`, `"worktree"` or `"head"`.
+    pub target: String,
+    pub path: Option<String>,
+    pub text: String,
+    pub truncated: bool,
+    /// True when the path is untracked and the text was synthesized,
+    /// because `git diff` reports nothing for such a file.
+    pub untracked: bool,
+    pub files: usize,
+}
+
 /// List the bare repos under `state.repos_dir`. Delegates to
 /// `gitgit::repo::list_repos` so we share the discovery code with the
 /// CLI's `gitgit list`.
@@ -135,6 +178,126 @@ pub async fn open_repo_in_shell(state: State<'_, DesktopState>, name: String) ->
         return Err(AppError::InvalidRepoName(name));
     }
     open_in_file_manager(&path).await
+}
+
+// --- working-tree status and diff ---------------------------------------
+
+/// Resolve a repository name to a working-tree directory.
+///
+/// The name goes through `gitgit::config::validate_repo_name` — the same
+/// rule the HTTP layer applies, and the one its `..%2Fescape` case
+/// tests — *before* any filesystem access or subprocess spawn, so a
+/// traversal attempt never becomes a `git -C <path>` argument. This is
+/// the first statement of both status commands for that reason.
+///
+/// `root` defaults to the app's own `repos` directory. A caller may pass
+/// a different root to inspect a checkout elsewhere; the name is still
+/// validated identically, and the join can only ever produce a direct
+/// child of `root` because `..`, `/`, `\`, a leading `.` and whitespace
+/// are all rejected upstream.
+fn resolve_worktree_dir(repos_dir: &Path, name: &str, root: Option<String>) -> AppResult<PathBuf> {
+    let base = match root {
+        Some(r) if !r.trim().is_empty() => PathBuf::from(r),
+        _ => repos_dir.to_path_buf(),
+    };
+    let path = gitgit::repo::resolve_worktree(&base, name)
+        .map_err(|e| AppError::InvalidRepoName(e.to_string()))?;
+
+    // The desktop's own repositories are bare, stored as `<name>.git` by
+    // `create_bare_repo`. A bare repository is a real answer with a
+    // different shape rather than a git failure — `git status` there
+    // exits 128 — so it gets its own message instead of being passed up
+    // as a confusing raw stderr.
+    if !path.is_dir() {
+        let mut bare = path.clone();
+        if let Some(file_name) = path.file_name().and_then(|f| f.to_str()) {
+            bare.set_file_name(format!("{file_name}.git"));
+        }
+        if gitgit::repo::is_bare_repo(&bare) {
+            return Err(AppError::NotAWorkTree(bare.to_string_lossy().into_owned()));
+        }
+        return Err(AppError::InvalidRepoName(name.to_string()));
+    }
+    if gitgit::repo::is_bare_repo(&path) {
+        return Err(AppError::NotAWorkTree(path.to_string_lossy().into_owned()));
+    }
+    Ok(path)
+}
+
+/// Working-tree status for `name`.
+///
+/// A repository with no changes returns `is_clean: true` with an empty
+/// `entries` list, which the UI renders as "clean" rather than as an
+/// error.
+#[tauri::command]
+pub async fn repo_status(
+    state: State<'_, DesktopState>,
+    name: String,
+    root: Option<String>,
+) -> AppResult<RepoStatus> {
+    let dir = resolve_worktree_dir(&state.repos_dir, &name, root)?;
+    let status = gitgit::repo::worktree_status(&dir)
+        .await
+        .map_err(|e| AppError::Git(e.to_string()))?;
+    Ok(RepoStatus {
+        branch: status.branch,
+        head: status.head,
+        upstream: status.upstream,
+        ahead: status.ahead,
+        behind: status.behind,
+        is_clean: status.is_clean,
+        entries: status
+            .entries
+            .into_iter()
+            .map(|e| {
+                // Derived before the fields are moved out: `is_staged`
+                // and `is_unstaged` borrow `e`.
+                let (staged, unstaged) = (e.is_staged(), e.is_unstaged());
+                let untracked = e.untracked;
+                StatusEntry {
+                    path: e.path,
+                    orig_path: e.orig_path,
+                    index_status: e.index_status.map(|c| c.to_string()),
+                    worktree_status: e.worktree_status.map(|c| c.to_string()),
+                    staged,
+                    unstaged,
+                    untracked,
+                }
+            })
+            .collect(),
+    })
+}
+
+/// Diff text for `name`.
+///
+/// `target` selects which of the three different questions is being asked
+/// (`staged` = index vs HEAD, `worktree` = work tree vs index, `head` =
+/// work tree vs HEAD) and an unknown value is refused rather than being
+/// silently treated as one of them. `path` scopes the diff to one
+/// repository-relative path.
+#[tauri::command]
+pub async fn repo_diff(
+    state: State<'_, DesktopState>,
+    name: String,
+    target: String,
+    path: Option<String>,
+    root: Option<String>,
+) -> AppResult<RepoDiff> {
+    let target = gitgit::repo::DiffTarget::parse(&target)
+        .map_err(|_| AppError::InvalidDiffTarget(target.clone()))?;
+    let dir = resolve_worktree_dir(&state.repos_dir, &name, root)?;
+    let payload =
+        gitgit::repo::worktree_diff(&dir, target, path.as_deref(), gitgit::repo::MAX_DIFF_BYTES)
+            .await
+            .map_err(|e| AppError::Git(e.to_string()))?;
+    Ok(RepoDiff {
+        target: payload.target.as_str().to_string(),
+        path: payload.path,
+        text: payload.text,
+        truncated: payload.truncated,
+        untracked: payload.untracked,
+        files: payload.files,
+    })
 }
 
 // --- pure helpers ------------------------------------------------------

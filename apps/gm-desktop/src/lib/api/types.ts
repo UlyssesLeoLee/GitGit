@@ -45,6 +45,58 @@ export interface RepoDetail {
   commits: CommitEntry[];
 }
 
+/* ---------- Working-tree status and diff (T4) ----------
+ *
+ * Shapes mirror `commands/repos.rs` (`RepoStatus` / `StatusEntry` /
+ * `RepoDiff`), which in turn serializes the plain values returned by the
+ * `gitgit::repo::status` library module.
+ *
+ * `target` is the question being asked and is never inferred by the
+ * frontend: 'staged' is index vs HEAD, 'worktree' is work tree vs index,
+ * 'head' is work tree vs HEAD. They are three different diffs.
+ */
+
+/** One changed path in the status list. */
+export interface StatusEntry {
+  path: string;
+  /** Source path of a rename or copy, otherwise null. */
+  orig_path: string | null;
+  /** 'M' | 'A' | 'D' | 'R' | … or null when the porcelain column is blank. */
+  index_status: string | null;
+  worktree_status: string | null;
+  staged: boolean;
+  unstaged: boolean;
+  untracked: boolean;
+}
+
+export interface RepoStatus {
+  branch: string | null;
+  head: string | null;
+  upstream: string | null;
+  ahead: number;
+  behind: number;
+  entries: StatusEntry[];
+  /** `entries` is empty. A clean tree is an answer, not an error. */
+  is_clean: boolean;
+}
+
+export type DiffTarget = 'staged' | 'worktree' | 'head';
+
+export interface RepoDiff {
+  target: DiffTarget;
+  /** The repo-relative path the diff was scoped to, if any. */
+  path: string | null;
+  text: string;
+  /** True when `text` was cut at the byte cap. */
+  truncated: boolean;
+  /**
+   * True when the scoped path is untracked and the text was synthesized,
+   * because `git diff` reports nothing for a file git has never seen.
+   */
+  untracked: boolean;
+  files: number;
+}
+
 export interface VersionEntryDto {
   version: number;
   bytes_sha256: string;

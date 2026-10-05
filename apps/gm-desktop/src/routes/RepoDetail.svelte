@@ -11,6 +11,7 @@
   import { shortSha } from '$lib/utils/format';
   import type { RepoDetail, RefEntry } from '$lib/api/types';
   import { catalog } from '$lib/i18n';
+  import RepoWorktree from '$lib/components/RepoWorktree.svelte';
 
   interface Props { params?: { name?: string } }
   let { params }: Props = $props();
@@ -71,7 +72,7 @@
   {:else if notFound}
     <div class="card border-red-300 bg-red-50 dark:border-red-800 dark:bg-red-900/30">
       <p class="text-sm text-red-700 dark:text-red-200">
-        {$catalog['repos.notFound']}.replace('{name}', params?.name ?? '')}
+        {$catalog['repos.notFound'].replace('{name}', params?.name ?? '')}}
       </p>
     </div>
   {:else if detail}
@@ -141,5 +142,10 @@
         {/if}
       </div>
     </div>
+
+    <!-- Working-tree status and diff. It is allowed to fail on its own:
+         a bare repository has refs and commits but no working tree, and
+         the refs/commits half of this page is still useful. -->
+    <RepoWorktree name={detail.name} />
   {/if}
 </section>

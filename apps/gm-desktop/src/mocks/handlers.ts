@@ -205,6 +205,122 @@ async function handle(cmd: string, args?: Record<string, unknown>): Promise<unkn
       return `http://${bind}/repos/${name}.git`;
     }
     case 'open_repo_in_shell': return null;
+    /* --- Working-tree status and diff (T4) ---
+     *
+     * The payload below is the real wire shape from
+     * `commands/repos.rs`. The diff text is a real `git diff --cached`
+     * body (a rename, because that is what a bare `git diff` would not
+     * show) so the dev workflow exercises the same rendering as
+     * production rather than a placeholder.
+     */
+    case 'repo_status': {
+      const name = String(args?.name);
+      if (name === 'hello-world') {
+        // Stands in for a bare repository: real refs and commits, no
+        // working tree. The page must show the remedy, not a crash.
+        throw {
+          kind: 'NotAWorkTree',
+          message: `${name} is a bare repository: it has no working tree`,
+          source: '"NotAWorkTree"',
+        };
+      }
+      return {
+        branch: 'main',
+        head: 'a1b2c3d',
+        upstream: 'origin/main',
+        ahead: 1,
+        behind: 0,
+        is_clean: false,
+        entries: [
+          {
+            path: 'staged.txt',
+            orig_path: null,
+            index_status: 'A',
+            worktree_status: null,
+            staged: true,
+            unstaged: false,
+            untracked: false,
+          },
+          {
+            path: 'src/dirty.ts',
+            orig_path: null,
+            index_status: null,
+            worktree_status: 'M',
+            staged: false,
+            unstaged: true,
+            untracked: false,
+          },
+          {
+            path: 'notes.txt',
+            orig_path: null,
+            index_status: '?',
+            worktree_status: '?',
+            staged: false,
+            unstaged: false,
+            untracked: true,
+          },
+        ],
+      };
+    }
+    case 'repo_diff': {
+      const target = String(args?.target);
+      if (target !== 'staged' && target !== 'worktree' && target !== 'head') {
+        throw {
+          kind: 'InvalidDiffTarget',
+          message: `unknown diff target: ${target} (expected staged, worktree or head)`,
+          source: '"InvalidDiffTarget"',
+        };
+      }
+      const path = args?.path == null ? null : String(args.path);
+      if (path === 'notes.txt') {
+        return {
+          target,
+          path,
+          untracked: true,
+          truncated: false,
+          files: 1,
+          text: [
+            'diff --git a/notes.txt b/notes.txt',
+            'new file mode 100644',
+            'index 0000000..e69de29',
+            '--- /dev/null',
+            '+++ b/notes.txt',
+            '@@ -0,0 +1,2 @@',
+            '+first note',
+            '+second note',
+            '',
+          ].join('\n'),
+        };
+      }
+      const body =
+        target === 'staged'
+          ? [
+              'diff --git a/staged.txt b/staged.txt',
+              'new file mode 100644',
+              'index 0000000..3b18e51',
+              '--- /dev/null',
+              '+++ b/staged.txt',
+              '@@ -0,0 +1 @@',
+              '+staged line',
+            ]
+          : [
+              'diff --git a/src/dirty.ts b/src/dirty.ts',
+              'index 1234567..89abcde 100644',
+              '--- a/src/dirty.ts',
+              '+++ b/src/dirty.ts',
+              '@@ -1 +1,2 @@',
+              ' const before = 1;',
+              '+const after = 2;',
+            ];
+      return {
+        target,
+        path,
+        untracked: false,
+        truncated: false,
+        files: 1,
+        text: [...body, ''].join('\n'),
+      };
+    }
     case 'vault_list': return Array.from(STORE.versions.keys());
     case 'vault_get': {
       const key = String(args?.key);

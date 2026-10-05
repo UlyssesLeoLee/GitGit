@@ -76,6 +76,8 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
             commands::server::clear_logs,
             commands::repos::list_repos,
             commands::repos::repo_detail,
+            commands::repos::repo_status,
+            commands::repos::repo_diff,
             commands::repos::clone_url,
             commands::repos::open_repo_in_shell,
             commands::vault::vault_list,
