@@ -231,15 +231,40 @@ base64 而非加密，**无 TLS**；桌面端生成的密码只出现在日志�
 
 4 个 MSI 变体全部未签名，触发 SmartScreen 告警。需要购买代码签名证书，不在技术范围内。
 
-### P1 — 覆盖率门禁是声明而非门禁
+### ~~P1 — 覆盖率门禁是声明而非门禁~~ 已关闭
 
-`apps/gm-desktop` 声明的覆盖率阈值没有任何 CI job 求值。详见上文「质量门禁」。
+`apps/gm-desktop` 的覆盖率阈值曾经**没有任何 CI job 求值**：`Unit tests` 步骤
+调用的是 `pnpm test`（即不带 `--coverage` 的 `vitest run`），`vite.config.ts` 里
+的 `thresholds` 块从未被读取。配置文件里一道没人求值的阈值，读起来像门禁，实际不是。
 
-### P1 — AI 链路未对真实 provider 端到端验证
+`[FACT]` 2026-10-05 已关闭。`gm-desktop.yml` 现在有独立的 `Coverage gate` 步骤
+执行 `pnpm test:coverage`，实测 95.03% lines / 94.4% statements / 94.59% functions /
+78.99% branches，对应阈值 70/70/60/55。
+
+该步骤的失败判定不只看 vitest 的退出码，还有四道 guard：确认确实有通过的测试、
+没有 forks worker 崩溃、磁盘上的测试文件数与 vitest 报告的 `Test Files (N)` 一致、
+汇总行不含 failed。另有 `set -o pipefail` —— GitHub 用 `bash -e` 执行 `run:`
+块而**不含** `pipefail`，`pnpm test:coverage | tee` 会返回 `tee` 的 0，把测试失败
+吞掉。实测：
+
+```
+bash -e -c 'false | tee /dev/null'            -> exit 0
+bash -e -o pipefail -c 'false | tee /dev/null' -> exit 1
+```
+
+### P1 — AI 链路未对**真实云端 provider** 端到端验证
 
 `src/ai/` 的 provider 实现有完整单元测试（mock SSE server 实测 token 序列
 `["Hel","lo","wo","rld","!"]`），但仓内没有 `GITGIT_AI_API_KEY`，
-**从未真正调用过 OpenAI 或 Anthropic**。`TauriEmitter` 的事件是否真正抵达 webview 同样未验证。
+**从未真正调用过 OpenAI 或 Anthropic 的线上端点**。
+
+`[FACT]` 事件链路本身**已在真机验证**（2026-10-05）：对本地流式端点
+（`127.0.0.1:38999`，SSE 逐帧吐 7 个 token）实跑 `pnpm tauri:dev`，7 个 token
+逐个穿过 Tauri IPC 抵达 webview 并按序拼接；首帧携带的 `model` 值也被页面显示。
+Mock 日志确认 Rust 侧确实发出了 `Authorization: Bearer`，且未泄漏到事件里。
+
+所以「AI 评审能否流式出字」已经不再是未知项；仍然未知的是**真实厂商端点**的
+行为：鉴权失败形态、限流响应、以及各家 SSE 方言与本仓解析器的差异。
 
 ### P2 — 跨平台产物已在 CI 构建，但仍未签名、未在真机安装验证
 
