@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { render, waitFor, within } from '@testing-library/react';
+import { act, render, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -42,6 +42,16 @@ function Harness({
       <MemoryRouter initialEntries={[path]}>
         <Routes>
           <Route path={pattern} element={ui} />
+          {/*
+            `[FACT]` These routes navigate away when an action succeeds —
+            `/vault` after a delete, `/vault/:key` after a restore. A
+            `<Routes>` that does not match the new location logs
+            `No routes matched location`, so without a catch-all the
+            success path of every one of those cases was unverifiable
+            except through the noise it printed. The destination is not
+            what these tests are about; that the action completed is.
+          */}
+          <Route path="*" element={null} />
         </Routes>
       </MemoryRouter>
     </QueryClientProvider>,
@@ -92,7 +102,11 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  useToastsStore.getState().clear();
+  // `[FACT]` Same reason as the other suites: `cleanup()` lives in
+  // `vitest.setup.ts` and vitest runs this later-registered hook first,
+  // so the tree is still mounted and a bare `clear()` re-renders outside
+  // React's act environment.
+  act(() => useToastsStore.getState().clear());
 });
 
 describe('VaultKeyDetail', () => {
@@ -242,7 +256,14 @@ describe('VaultDiff', () => {
     Harness({ ui: <VaultDiff />, path: '/vault/openai/diff', pattern: '/vault/:key/diff' });
     // Let the versions query settle, then confirm the diff stayed disabled.
     await waitFor(() => expect(api.vault.getVersions).toHaveBeenCalled());
-    await new Promise((r) => setTimeout(r, 20));
+    // `[FACT]` The sleep is a negative-assertion guard — it gives the
+    // versions query time to resolve so that "not called" means "never
+    // called" rather than "not called yet". It runs inside `act` because
+    // that resolution re-renders `VaultDiff`, and a bare timer leaves
+    // those updates outside React's act environment.
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 20));
+    });
     expect(api.vault.diffVersions).not.toHaveBeenCalled();
   });
 
@@ -250,7 +271,14 @@ describe('VaultDiff', () => {
     setUrl('?base=2&head=1');
     Harness({ ui: <VaultDiff />, path: '/vault/openai/diff', pattern: '/vault/:key/diff' });
     await waitFor(() => expect(api.vault.getVersions).toHaveBeenCalled());
-    await new Promise((r) => setTimeout(r, 20));
+    // `[FACT]` The sleep is a negative-assertion guard — it gives the
+    // versions query time to resolve so that "not called" means "never
+    // called" rather than "not called yet". It runs inside `act` because
+    // that resolution re-renders `VaultDiff`, and a bare timer leaves
+    // those updates outside React's act environment.
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 20));
+    });
     expect(api.vault.diffVersions).not.toHaveBeenCalled();
   });
 
@@ -258,7 +286,14 @@ describe('VaultDiff', () => {
     setUrl('?base=0&head=2');
     Harness({ ui: <VaultDiff />, path: '/vault/openai/diff', pattern: '/vault/:key/diff' });
     await waitFor(() => expect(api.vault.getVersions).toHaveBeenCalled());
-    await new Promise((r) => setTimeout(r, 20));
+    // `[FACT]` The sleep is a negative-assertion guard — it gives the
+    // versions query time to resolve so that "not called" means "never
+    // called" rather than "not called yet". It runs inside `act` because
+    // that resolution re-renders `VaultDiff`, and a bare timer leaves
+    // those updates outside React's act environment.
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 20));
+    });
     expect(api.vault.diffVersions).not.toHaveBeenCalled();
   });
 

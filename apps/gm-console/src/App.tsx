@@ -54,6 +54,17 @@ export function App() {
                 <Route path="/vault/:key/diff" element={<Topbar title="Diff" />} />
                 <Route path="/vault/:key/restore" element={<Topbar title="Restore" />} />
                 <Route path="/settings" element={<Topbar title="Settings" />} />
+                {/*
+                  `[FACT]` The content `<Routes>` below carries `/404` and
+                  `*`; this one did not, so every unmatched path left the
+                  topbar with no route to match and React Router logged
+                  `No routes matched location` on each render — including
+                  the one the 404 page itself triggers. A `<Routes>` with
+                  no match renders nothing, so the visible symptom was an
+                  empty topbar above the 404 page rather than a crash.
+                */}
+                <Route path="/404" element={<Topbar title="Not found" />} />
+                <Route path="*" element={<Topbar title="Not found" />} />
               </Routes>
             }
           >
