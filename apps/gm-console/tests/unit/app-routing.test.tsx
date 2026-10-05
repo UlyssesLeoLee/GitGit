@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { App } from '@/App';
 import { useToastsStore } from '@/stores/toasts';
@@ -71,8 +71,19 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  useToastsStore.getState().clear();
-  useCredentialsStore.getState().signOut();
+  // `[FACT]` These two writes reach a **mounted** tree. `cleanup()` is
+  // registered in `vitest.setup.ts`, which loads before this file, and
+  // vitest's default `sequence.hooks: 'stack'` runs the later-registered
+  // hook first — so the components are still on the tree here, and
+  // `signOut()` re-renders `LoginGate` while `clear()` re-renders the
+  // toast viewport. Both land outside React's act environment and emit
+  // "An update to X inside a test was not wrapped in act(...)".
+  //
+  // Wrapping the writes is the fix rather than `cleanup()`-first, because
+  // tearing the tree down first would mean each case no longer asserts
+  // against a mounted app — the coverage this file exists to provide.
+  act(() => useToastsStore.getState().clear());
+  act(() => useCredentialsStore.getState().signOut());
   window.history.pushState({}, '', '/');
 });
 

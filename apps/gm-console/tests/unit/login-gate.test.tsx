@@ -18,7 +18,7 @@
  *    which is the case a naive `btoa` gets wrong.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { InternalAxiosRequestConfig } from 'axios';
 import { AxiosError } from 'axios';
@@ -86,7 +86,11 @@ beforeEach(() => {
 
 afterEach(() => {
   __resetClientForTests();
-  useCredentialsStore.getState().signOut();
+  // `[FACT]` `<LoginGate>` is still mounted — `cleanup()` is registered
+  // in `vitest.setup.ts`, which loads first, and vitest runs this
+  // later-registered hook first. Signing the store out here therefore
+  // re-renders a live gate outside React's act environment.
+  act(() => useCredentialsStore.getState().signOut());
 });
 
 describe('LoginGate', () => {
@@ -111,6 +115,12 @@ describe('LoginGate', () => {
 
     await user.type(screen.getByLabelText(MESSAGES.en.login.user), 'admin');
     await user.type(screen.getByLabelText(MESSAGES.en.login.password), 's3cret');
+    // `[FACT]` Deliberately *not* wrapped in `act`. `userEvent` runs its
+    // events inside Testing Library's `asyncWrapper`, which owns the act
+    // environment; nesting an outer `act` around it makes the wrapper's
+    // restore land on the wrong value and React reports "The current
+    // testing environment is not configured to support act(...)" instead
+    // of the warning being fixed.
     await user.click(screen.getByRole('button', { name: MESSAGES.en.login.submit }));
 
     expect(await screen.findByText('console content')).toBeInTheDocument();
@@ -153,9 +163,18 @@ describe('LoginGate', () => {
     // caller must see, not a payload. What is asserted here is the
     // *side effect* on the credential, so the rejection is caught and
     // only its type checked.
-    const err = await getClient().get('/vault/keys').then(
-      () => null,
-      (e: unknown) => e,
+    //
+    // `[FACT]` It runs inside `act` because the response interceptor
+    // calls `signOut()` on the way out, which re-renders the mounted
+    // gate. Awaiting the request outside act is what produced
+    // `An update to LoginGate inside a test was not wrapped in act(...)`.
+    const err = await act(async () =>
+      getClient()
+        .get('/vault/keys')
+        .then(
+          () => null,
+          (e: unknown) => e,
+        ),
     );
     expect(err).toBeInstanceOf(ApiError);
     expect((err as ApiError).isUnauthenticated).toBe(true);
@@ -187,6 +206,7 @@ describe('credential handling', () => {
 
     await user.type(screen.getByLabelText(MESSAGES.en.login.user), 'admin');
     await user.type(screen.getByLabelText(MESSAGES.en.login.password), 's3cret');
+    // Not wrapped in `act` — see the note in the probe case above.
     await user.click(screen.getByRole('button', { name: MESSAGES.en.login.submit }));
     await screen.findByText('console content');
 

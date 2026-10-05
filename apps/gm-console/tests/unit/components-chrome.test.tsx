@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { act, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { Sidebar } from '@/components/Sidebar';
@@ -21,7 +21,12 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  useToastsStore.getState().clear();
+  // `[FACT]` `<Toasts>` is still mounted here — `cleanup()` is registered
+  // in `vitest.setup.ts`, which loads first, and vitest's default
+  // `sequence.hooks: 'stack'` runs this later-registered hook first. A
+  // bare `clear()` therefore re-renders a live component outside React's
+  // act environment.
+  act(() => useToastsStore.getState().clear());
 });
 
 describe('Sidebar', () => {
