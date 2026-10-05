@@ -236,6 +236,29 @@ is left as found. **This needs an owner**: until it is refreshed, the MSIs are
 not built from the committed lock, and the existing `cargo clippy --locked` step
 in the `build` job is worth re-checking.
 
+> **Resolved (verified 2026-10-05, later the same day).** The owner call this
+> asked for has been made and the lock was refreshed in commit `ab632ae`; the
+> committed lock is now newer than both `src-tauri/Cargo.toml` and the root
+> `Cargo.toml`. Re-measured, the "not built from the committed lock" claim is
+> **no longer true**, by three independent commands, all from
+> `apps/gm-desktop/src-tauri`:
+>
+> ```
+> cargo metadata --locked   -> exit 0
+> cargo tree --locked       -> exit 0, no "needs to be updated"
+> cargo check --locked      -> exit 0
+> git status --porcelain apps/gm-desktop/src-tauri/Cargo.lock -> (clean)
+> ```
+>
+> The finding above is kept because the measurement and its evidence were real
+> at the time. What changed is the state, not the record. The consequence for
+> this repo is that `cargo clippy --locked` in the `build` job is sound again,
+> and `--locked` is a guard that can be added rather than one that would fail.
+> `build-msi.ps1` still does not pass it — `tauri build` gives no way to — so the
+> post-build rewrite warning there remains the only detector, and it is now a
+> belt-and-braces check rather than the thing standing between CI and a
+> silently re-resolved lock.
+
 `[FACT]` `.github/CI.md` 已知限制 item 2 states that full Tauri packaging
 (`.msi` / `tauri-action` / multi-OS matrix) is still not in CI, and suggests
 adding a `needs: build` job later. `[FACT]` This change partially supersedes

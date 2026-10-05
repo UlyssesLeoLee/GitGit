@@ -114,13 +114,24 @@
         `$LASTEXITCODE` explicitly.
 
     Cargo.lock
-        `apps/gm-desktop/src-tauri/Cargo.lock` is currently out of date with
-        the workspace crate it depends on by path, so cargo re-resolves it on
-        a Windows build and the build succeeds while rewriting the file. This
-        script does not pass `--locked` (that would fail outright) and does not
-        commit the result; it prints a warning naming the file and the change
-        so the modification is never silent. See
-        docs/reports/2026-10-05-bundle-ci/README.md.
+        This comment used to say `src-tauri/Cargo.lock` was out of date with the
+        crate it depends on by path, that cargo therefore re-resolved it on a
+        Windows build, and that `--locked` "would fail outright". That was true
+        when written and is no longer. The lock was refreshed in `ab632ae` and
+        is now newer than both `src-tauri/Cargo.toml` and the root `Cargo.toml`;
+        re-measured on 2026-10-05, `cargo metadata --locked`, `cargo tree
+        --locked` and `cargo check --locked` all exit 0 from `src-tauri`, and
+        the file is unmodified against HEAD. See the resolution note in
+        docs/reports/2026-10-05-bundle-ci/README.md section 7.
+
+        The stale comment was worse than wrong: it told a reader that `--locked`
+        is not available here, which is the opposite of the current truth and
+        would have discouraged adding the guard.
+
+        `tauri build` exposes no way to pass `--locked` to the cargo
+        invocation underneath it, so this script still does not pass it. The
+        rewrite check at the end of the build is what stands in for it, and
+        with a consistent lock it should never fire.
 #>
 
 [CmdletBinding()]
