@@ -1,6 +1,7 @@
 import axios, { type AxiosError, type AxiosInstance, type AxiosRequestConfig } from 'axios';
 import { ApiError, NetworkError } from './errors';
 import type { ApiErrorBody } from './types';
+import { currentAuthHeader, useCredentialsStore } from '@/stores/credentials';
 
 /**
  * Build the absolute base URL the axios client should hit.
@@ -64,13 +65,43 @@ export function getClient(): AxiosInstance {
     baseURL: resolveApiBaseUrl(),
     timeout: 15000,
     headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-    // Don't auto-throw on non-2xx; we want to surface every error envelope
-    // through `toApiError` consistently.
-    validateStatus: () => true,
+    // `[FACT]` `validateStatus: () => true` used to sit here, with the
+    // comment "don't auto-throw on non-2xx". It meant the opposite of
+    // what it said: every non-2xx arrived on the *fulfilled* path, and
+    // the twelve `return resp.data` statements in `api/*.ts` handed the
+    // error envelope back to the caller **as if it were the payload**.
+    // `listRepos()` on a 401 resolved to `{error, code}` typed as
+    // `RepoSummary[]`, and `ApiError.isUnauthenticated` — which
+    // `ErrorState` branches on to say "please sign in" — could never
+    // fire, because nothing ever threw. Leaving the default in place
+    // routes non-2xx to the rejected arm below, where `toApiError`
+    // builds the typed envelope every caller already expects.
+  });
+  // The credential is read from the store on *every* request rather than
+  // captured once, so `signIn` / `signOut` take effect on the next call
+  // without rebuilding the client.
+  instance.interceptors.request.use((config) => {
+    const header = currentAuthHeader();
+    if (header) {
+      config.headers.set('Authorization', header);
+    }
+    return config;
   });
   instance.interceptors.response.use(
     (resp) => resp,
-    (err) => Promise.reject(toApiError(err)),
+    (err) => {
+      const apiErr = toApiError(err);
+      // A rejected credential is a *state* change, not just a failed
+      // call: keeping it means every subsequent request repeats the 401
+      // and the UI shows the same error on every screen. Dropping it
+      // brings the login gate back on the next render, so a password
+      // rotated on the server does not leave a console full of dead
+      // screens with no way back to the form.
+      if (apiErr instanceof ApiError && apiErr.isUnauthenticated) {
+        useCredentialsStore.getState().signOut();
+      }
+      return Promise.reject(apiErr);
+    },
   );
   return instance;
 }

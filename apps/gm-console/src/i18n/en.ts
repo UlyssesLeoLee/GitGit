@@ -117,4 +117,15 @@ export const en: Messages = {
     goHome: 'back to home',
     unauthenticated: 'please sign in',
   },
+  login: {
+    title: 'Sign in',
+    description:
+      "gitgit's /api endpoints require the admin account. The password comes from the GITGIT_ADMIN_PASS environment variable, the server vault, or a random value generated at start-up.",
+    user: 'Username',
+    password: 'Password',
+    submit: 'Sign in',
+    failed: 'Sign-in failed: the username or password is not correct.',
+    checking: 'Checking…',
+    signOut: 'Sign out',
+  },
 };

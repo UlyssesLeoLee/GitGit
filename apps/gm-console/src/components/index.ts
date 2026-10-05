@@ -9,3 +9,4 @@ export { CopyButton } from './CopyButton';
 export { StatusDot } from './StatusDot';
 export { Sidebar } from './Sidebar';
 export { AppShell } from './AppShell';
+export { LoginGate } from './LoginGate';

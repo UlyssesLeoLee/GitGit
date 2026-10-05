@@ -129,11 +129,35 @@ describe('getClient', () => {
     expect(client.defaults.headers.Accept).toBe('application/json');
   });
 
-  it('does not throw on non-2xx so every error can flow through toApiError', () => {
+  it('does not widen validateStatus to accept non-2xx', () => {
+    // The assertion this replaces was
+    //   it('does not throw on non-2xx so every error can flow through
+    //       toApiError', () => {
+    //     const validate = getClient().defaults.validateStatus;
+    //     expect(validate?.(404)).toBe(true);   // and 500, and 200
+    //   });
+    // on a client built with `validateStatus: () => true`.
+    //
+    // The stated intent was that every error reaches `toApiError`. The
+    // effect was the opposite, and the name described neither: axios
+    // *resolved* non-2xx, so the twelve `return resp.data` statements in
+    // `api/*.ts` handed the error envelope back typed as the success
+    // shape — `listRepos()` on a 404 resolved to `{error, code}` typed
+    // as `RepoSummary[]` — and `toApiError` was never called at all.
+    // `ApiError.isUnauthenticated`, the branch `ErrorState` uses to say
+    // "please sign in", could not fire for any input whatsoever.
+    //
+    // `undefined` is the correct value here: it means axios applies its
+    // own default, which accepts 2xx only. What must not be present is
+    // an override that accepts everything.
+    //
+    // The end-to-end consequence is pinned in `login-gate.test.tsx`,
+    // which drives a real request through a 401 and observes the typed
+    // `ApiError` reaching the caller.
     const validate = getClient().defaults.validateStatus;
-    expect(validate?.(404)).toBe(true);
-    expect(validate?.(500)).toBe(true);
-    expect(validate?.(200)).toBe(true);
+    expect(validate?.(404) ?? false).toBe(false);
+    expect(validate?.(500) ?? false).toBe(false);
+    expect(validate?.(200) ?? true).toBe(true);
   });
 
   it('is a singleton across calls', () => {
