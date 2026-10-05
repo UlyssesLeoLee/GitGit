@@ -68,7 +68,45 @@ async fn run_serve(config: Config) -> anyhow::Result<()> {
     config.ensure_vault_root()?;
     let bind = config.bind.clone();
     let vault = build_vault(&config);
-    let state = AppState::new(config, vault);
+
+    // Resolve the admin credential before binding. Order (env →
+    // vault → generated) is documented in `server::auth`; the only part
+    // that needs a decision here is the exposure policy: a non-loopback
+    // bind with a password nobody chose is refused rather than served.
+    let resolved = gitgit::server::auth::resolve_admin_credential(vault.as_ref()).await?;
+    gitgit::server::auth::enforce_exposure_policy(&bind, resolved.source)
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+
+    if resolved.source == gitgit::server::auth::CredentialSource::Generated {
+        // Printed exactly once, and only when the password was generated
+        // — i.e. only when the operator has no other way to learn it.
+        // This is a deliberate exception to the standing "never print a
+        // credential" rule: an unlearnable password is a locked server,
+        // and the alternative (not printing it) is worse than a secret
+        // appearing once in the terminal that started the process.
+        // It is never logged, never traced, and never written to disk.
+        // Plain ASCII only: a box-drawing banner mangles in some
+        // terminals, and a mangled credential is a wrong credential.
+        println!("--- gitgit: generated admin password (one time) ---");
+        println!(
+            "  no {PASS_ENV} was set and the vault had no stored password.",
+            PASS_ENV = gitgit::config::ADMIN_PASS_ENV
+        );
+        println!("  It is NOT stored anywhere. Write it down now.");
+        println!("  user: {}", resolved.credential.user);
+        println!("  pass: {}", resolved.credential.password());
+        println!("--- end of credential ---");
+    } else {
+        tracing::info!(
+            source = resolved.source.as_str(),
+            "admin password loaded from a configured source"
+        );
+    }
+
+    let admin = std::sync::Arc::new(gitgit::server::auth::AdminCredentialStore::from_shared(
+        resolved.credential,
+    ));
+    let state = AppState::with_admin(config, vault, admin);
     let router = server::build_router(state);
     let listener = tokio::net::TcpListener::bind(&bind)
         .await

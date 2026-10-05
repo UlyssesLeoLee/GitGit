@@ -5,6 +5,7 @@ import { App } from '@/App';
 import { useToastsStore } from '@/stores/toasts';
 import { useLocaleStore } from '@/stores/locale';
 import { useThemeStore } from '@/stores/theme';
+import { useCredentialsStore } from '@/stores/credentials';
 
 const api = vi.hoisted(() => ({
   repos: {
@@ -47,6 +48,16 @@ beforeEach(() => {
   useToastsStore.getState().clear();
   useLocaleStore.setState({ locale: 'en' });
   useThemeStore.setState({ theme: 'system', effective: 'light' });
+  // `[FACT]` `App` renders behind `LoginGate`, which shows the sign-in
+  // form until a credential is held. These cases are about *routing*, so
+  // they start from the signed-in state an operator is normally in;
+  // without this they would all fail on "Repositories" not being
+  // rendered, which says nothing about routing.
+  //
+  // The gate's own behaviour — refused credential, 401 handling, the
+  // probe endpoint — is pinned in `login-gate.test.tsx`, which does not
+  // mock `@/api` and therefore exercises the real client.
+  useCredentialsStore.getState().signIn({ user: 'admin', password: 'test-password' });
   Object.values(api.repos).forEach((f) => {
     f.mockReset();
     f.mockResolvedValue([]);
@@ -61,6 +72,7 @@ beforeEach(() => {
 
 afterEach(() => {
   useToastsStore.getState().clear();
+  useCredentialsStore.getState().signOut();
   window.history.pushState({}, '', '/');
 });
 

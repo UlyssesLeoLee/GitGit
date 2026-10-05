@@ -9,7 +9,7 @@
        with -Bind). The port is deliberately different from the default
        8080 so the smoke test can run side-by-side with a long-lived
        dev server.
-    3. `git clone http://admin:admin@127.0.0.1:8088/repos/demo.git` to
+    3. `git clone http://<user>:<pass>@127.0.0.1:8088/repos/demo.git` to
        a temp directory.
     4. Create a file, commit, push to `main`.
     5. Create a `feature` branch, push.
@@ -39,7 +39,23 @@
 param(
     [string]$Bind = '127.0.0.1:8088',
     [string]$RepoName = 'demo',
-    [switch]$SkipBuild
+    [switch]$SkipBuild,
+    # `[FACT]` The admin credential the server under test is started with.
+    #
+    # This existed as a literal `admin:admin` in the clone URLs until
+    # 2026-10-05, when the compiled-in `config::ADMIN_USER` /
+    # `ADMIN_PASS` pair was deleted. With no `GITGIT_ADMIN_PASS` in the
+    # environment the server now generates a random 128-bit password, so
+    # the literal in the URL no longer matched anything and `git push`
+    # failed with 401 -- which is exactly what the `ST + IT regression`
+    # CI job reported.
+    #
+    # The password is URL-safe (no `:`, `@`, `/` or `%`), so it is
+    # embedded directly rather than percent-encoded. A value needing
+    # encoding would have to be escaped here too, or the smoke test
+    # would fail for a reason that has nothing to do with the server.
+    [string]$AdminUser = 'admin',
+    [string]$AdminPass = 'smoke-admin-pass'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -127,12 +143,39 @@ New-Item -ItemType Directory -Path $reposDir -Force | Out-Null
 
 # 3. Start server --------------------------------------------------------
 Write-Status "starting server on $Bind (log: $LogFile)"
-$ServerProc = Start-Process -FilePath $bin `
-    -ArgumentList @('serve', '--bind', $Bind, '--repos-dir', $reposDir) `
-    -PassThru `
-    -NoNewWindow `
-    -RedirectStandardOutput $LogFile `
-    -RedirectStandardError "$LogFile.err"
+# `[FACT]` The credential reaches the server through the environment,
+# which `Start-Process` snapshots at spawn time. It is set immediately
+# before the spawn and the previous value restored immediately after, so
+# it does not leak into the `git` invocations later in this script -- a
+# stray GITGIT_ADMIN_PASS in the caller's shell is exactly the kind of
+# thing that makes a test pass for the wrong reason. The *previous* value
+# is saved rather than just its presence: restoring "was set" by writing
+# back the new value would silently re-point the caller's shell at a
+# password only this test knew.
+$prevAdminPass = $env:GITGIT_ADMIN_PASS
+$prevAdminUser = $env:GITGIT_ADMIN_USER
+$env:GITGIT_ADMIN_PASS = $AdminPass
+$env:GITGIT_ADMIN_USER = $AdminUser
+try {
+    $ServerProc = Start-Process -FilePath $bin `
+        -ArgumentList @('serve', '--bind', $Bind, '--repos-dir', $reposDir) `
+        -PassThru `
+        -NoNewWindow `
+        -RedirectStandardOutput $LogFile `
+        -RedirectStandardError "$LogFile.err"
+}
+finally {
+    if ($null -eq $prevAdminPass) { Remove-Item Env:GITGIT_ADMIN_PASS -ErrorAction SilentlyContinue }
+    else { $env:GITGIT_ADMIN_PASS = $prevAdminPass }
+    if ($null -eq $prevAdminUser) { Remove-Item Env:GITGIT_ADMIN_USER -ErrorAction SilentlyContinue }
+    else { $env:GITGIT_ADMIN_USER = $prevAdminUser }
+}
+
+# The credential as git sees it in a URL. Only `POST
+# /git-receive-pack` is authenticated -- clone and `info/refs` are open
+# by design -- so this is what the push in steps 4 and 5 authenticates
+# with, and it is the reason the anonymous clone in step 8 still works.
+$Credential = '{0}:{1}' -f $AdminUser, $AdminPass
 
 # 4. init-repo via the CLI BEFORE the readiness probe. The probe hits
 #    /repos/<name>.git/info/refs, which 404s if the bare repo doesn't
@@ -158,7 +201,7 @@ Write-Status "server ready"
 $cloneDir = Join-Path $TmpRoot 'clone1'
 Write-Status "git clone (first)"
 # Embed Basic auth in the URL so `git push` later can authenticate.
-Invoke-Git clone "http://admin:admin@$Bind/repos/$RepoName.git" $cloneDir | ForEach-Object { Write-Status "  $_" }
+Invoke-Git clone "http://$Credential@$Bind/repos/$RepoName.git" $cloneDir | ForEach-Object { Write-Status "  $_" }
 if ($LASTEXITCODE -ne 0) { Fail "first clone failed" }
 
 Push-Location $cloneDir
@@ -199,7 +242,7 @@ finally {
 # 7. Second clone + merge -----------------------------------------------
 $cloneDir2 = Join-Path $TmpRoot 'clone2'
 Write-Status "git clone (second) for merge verification"
-Invoke-Git clone "http://admin:admin@$Bind/repos/$RepoName.git" $cloneDir2 | ForEach-Object { Write-Status "  $_" }
+Invoke-Git clone "http://$Credential@$Bind/repos/$RepoName.git" $cloneDir2 | ForEach-Object { Write-Status "  $_" }
 if ($LASTEXITCODE -ne 0) { Fail "second clone failed" }
 
 Push-Location $cloneDir2

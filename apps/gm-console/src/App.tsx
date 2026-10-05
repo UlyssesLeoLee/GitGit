@@ -1,6 +1,6 @@
 import { lazy, Suspense } from 'react';
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
-import { AppShell, ErrorBoundary, Loading, Toasts } from '@/components';
+import { AppShell, ErrorBoundary, Loading, LoginGate, Toasts } from '@/components';
 
 const Home = lazy(() => import('./routes/Home').then((m) => ({ default: m.Home })));
 const RepoDetail = lazy(() =>
@@ -32,88 +32,96 @@ function Topbar({ title }: { title: string }) {
  * error boundary. Route components are code-split for fast first
  * paint; each route also wraps its content in its own ErrorBoundary
  * for granular failure isolation.
+ *
+ * `[FACT]` `LoginGate` sits *outside* `AppShell`, not inside it. Every
+ * route below it talks to `/api/*`, which requires the admin credential,
+ * so gating only the content area would render a working sidebar over a
+ * body full of failed queries. The gate wraps the whole tree so the
+ * first thing an unauthenticated operator sees is the sign-in form.
  */
 export function App() {
   return (
     <BrowserRouter>
       <ErrorBoundary scope="App">
-        <AppShell
-          topbar={
-            <Routes>
-              <Route path="/" element={<Topbar title="Repositories" />} />
-              <Route path="/repos/:name" element={<Topbar title="Repository" />} />
-              <Route path="/vault" element={<Topbar title="Vault" />} />
-              <Route path="/vault/:key" element={<Topbar title="Vault key" />} />
-              <Route path="/vault/:key/diff" element={<Topbar title="Diff" />} />
-              <Route path="/vault/:key/restore" element={<Topbar title="Restore" />} />
-              <Route path="/settings" element={<Topbar title="Settings" />} />
-            </Routes>
-          }
-        >
-          <Suspense fallback={LAZY_FALLBACK}>
-            <Routes>
-              <Route
-                path="/"
-                element={
-                  <ErrorBoundary scope="route:home">
-                    <Home />
-                  </ErrorBoundary>
-                }
-              />
-              <Route
-                path="/repos/:name"
-                element={
-                  <ErrorBoundary scope="route:repo-detail">
-                    <RepoDetail />
-                  </ErrorBoundary>
-                }
-              />
-              <Route
-                path="/vault"
-                element={
-                  <ErrorBoundary scope="route:vault">
-                    <Vault />
-                  </ErrorBoundary>
-                }
-              />
-              <Route
-                path="/vault/:key/diff"
-                element={
-                  <ErrorBoundary scope="route:vault-diff">
-                    <VaultDiff />
-                  </ErrorBoundary>
-                }
-              />
-              <Route
-                path="/vault/:key/restore"
-                element={
-                  <ErrorBoundary scope="route:vault-restore">
-                    <VaultRestore />
-                  </ErrorBoundary>
-                }
-              />
-              <Route
-                path="/vault/:key"
-                element={
-                  <ErrorBoundary scope="route:vault-key">
-                    <VaultKeyDetail />
-                  </ErrorBoundary>
-                }
-              />
-              <Route
-                path="/settings"
-                element={
-                  <ErrorBoundary scope="route:settings">
-                    <Settings />
-                  </ErrorBoundary>
-                }
-              />
-              <Route path="/404" element={<NotFound />} />
-              <Route path="*" element={<Navigate to="/404" replace />} />
-            </Routes>
-          </Suspense>
-        </AppShell>
-        <Toasts />
+        <LoginGate>
+          <AppShell
+            topbar={
+              <Routes>
+                <Route path="/" element={<Topbar title="Repositories" />} />
+                <Route path="/repos/:name" element={<Topbar title="Repository" />} />
+                <Route path="/vault" element={<Topbar title="Vault" />} />
+                <Route path="/vault/:key" element={<Topbar title="Vault key" />} />
+                <Route path="/vault/:key/diff" element={<Topbar title="Diff" />} />
+                <Route path="/vault/:key/restore" element={<Topbar title="Restore" />} />
+                <Route path="/settings" element={<Topbar title="Settings" />} />
+              </Routes>
+            }
+          >
+            <Suspense fallback={LAZY_FALLBACK}>
+              <Routes>
+                <Route
+                  path="/"
+                  element={
+                    <ErrorBoundary scope="route:home">
+                      <Home />
+                    </ErrorBoundary>
+                  }
+                />
+                <Route
+                  path="/repos/:name"
+                  element={
+                    <ErrorBoundary scope="route:repo-detail">
+                      <RepoDetail />
+                    </ErrorBoundary>
+                  }
+                />
+                <Route
+                  path="/vault"
+                  element={
+                    <ErrorBoundary scope="route:vault">
+                      <Vault />
+                    </ErrorBoundary>
+                  }
+                />
+                <Route
+                  path="/vault/:key/diff"
+                  element={
+                    <ErrorBoundary scope="route:vault-diff">
+                      <VaultDiff />
+                    </ErrorBoundary>
+                  }
+                />
+                <Route
+                  path="/vault/:key/restore"
+                  element={
+                    <ErrorBoundary scope="route:vault-restore">
+                      <VaultRestore />
+                    </ErrorBoundary>
+                  }
+                />
+                <Route
+                  path="/vault/:key"
+                  element={
+                    <ErrorBoundary scope="route:vault-key">
+                      <VaultKeyDetail />
+                    </ErrorBoundary>
+                  }
+                />
+                <Route
+                  path="/settings"
+                  element={
+                    <ErrorBoundary scope="route:settings">
+                      <Settings />
+                    </ErrorBoundary>
+                  }
+                />
+                <Route path="/404" element={<NotFound />} />
+                <Route path="*" element={<Navigate to="/404" replace />} />
+              </Routes>
+            </Suspense>
+          </AppShell>
+          <Toasts />
+        </LoginGate>
       </ErrorBoundary>
     </BrowserRouter>
   );

@@ -117,4 +117,15 @@ export const zhCN: Messages = {
     goHome: '返回首页',
     unauthenticated: '请先登录',
   },
+  login: {
+    title: '登录',
+    description:
+      'gitgit 的 /api 接口需要管理员账号。密码由 GITGIT_ADMIN_PASS 环境变量、服务器保险柜,或启动时随机生成。',
+    user: '用户名',
+    password: '密码',
+    submit: '登录',
+    failed: '登录失败,用户名或密码不正确。',
+    checking: '正在验证……',
+    signOut: '退出登录',
+  },
 };

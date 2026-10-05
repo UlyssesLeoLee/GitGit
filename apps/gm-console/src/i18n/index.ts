@@ -133,6 +133,16 @@ export interface Messages {
     goHome: string;
     unauthenticated: string;
   };
+  login: {
+    title: string;
+    description: string;
+    user: string;
+    password: string;
+    submit: string;
+    failed: string;
+    checking: string;
+    signOut: string;
+  };
 }
 
 export type MessagesByLocale = Record<Locale, Messages>;

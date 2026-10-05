@@ -216,6 +216,12 @@ pub use gitgit as gitgit_lib;
 /// Convenience: spawn the embedded axum server. Used by integration
 /// tests; the production `start_server` command shells through the
 /// [`crate::state::ServerManager`].
+///
+/// Resolves the admin credential from the same `vault_root` the caller
+/// passes, so this path enforces `/api` auth exactly as production does.
+/// Resolving it anywhere else would hand a test a server whose auth
+/// surface differs from the shipped one, which is the whole class of bug
+/// this change is about.
 pub async fn run_embedded_router(
     bind: String,
     vault_root: PathBuf,
@@ -223,7 +229,16 @@ pub async fn run_embedded_router(
 ) -> AppResult<tokio::task::JoinHandle<()>> {
     let cfg = Config::new(bind.clone(), repos_dir, vault_root.clone());
     let file_vault = FileVault::new(&cfg.vault_file_root);
-    let state = AppState::new(cfg.clone(), Arc::new(file_vault));
+    // `resolve_admin_credential` takes `&V where V: Vault`, and
+    // `FileVault::new` hands back an owned `FileVault` — not an `Arc` — so
+    // the argument is a plain borrow. The borrow ends before the vault is
+    // moved into the `Arc` on the next line.
+    let resolved = gitgit::server::auth::resolve_admin_credential(&file_vault).await?;
+    gitgit::server::auth::enforce_exposure_policy(&bind, resolved.source)?;
+    let admin = Arc::new(gitgit::server::auth::AdminCredentialStore::from_shared(
+        resolved.credential,
+    ));
+    let state = AppState::with_admin(cfg.clone(), Arc::new(file_vault), admin);
     let router = build_router(state);
     let listener = tokio::net::TcpListener::bind(&cfg.bind)
         .await

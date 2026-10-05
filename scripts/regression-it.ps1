@@ -33,12 +33,24 @@
 
 .PARAMETER Bind
     Override the bind address (default 127.0.0.1:18099).
+
+.PARAMETER AdminPass
+    The password the server under test is started with, via
+    GITGIT_ADMIN_PASS. Defaults to a fixed test value because every
+    request in the baseline has to authenticate with the same one, and a
+    random value would have to be threaded through the baseline file for
+    no additional coverage. `[FACT]` Until 2026-10-05 this script sent
+    no credentials at all, because `/api/*` had no auth layer to satisfy;
+    every baseline entry now answers 401 without `-u`.
 #>
 
 [CmdletBinding()]
 param(
     [switch]$SkipBuild,
-    [string]$Bind
+    [string]$Bind,
+    # URL-safe: it is handed to curl's `-u` and never percent-encoded.
+    [string]$AdminUser = 'admin',
+    [string]$AdminPass = 'it-admin-pass'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -157,11 +169,28 @@ $serverProc = $null
 try {
     Write-Step "starting server on $Bind (log: $logFile)"
     $serverArgs = @('serve','--bind',$Bind,'--repos-dir',$reposDir,'--vault-file-root',$vaultDir)
-    $serverProc = Start-Process -FilePath $bin `
-        -ArgumentList $serverArgs `
-        -NoNewWindow -PassThru `
-        -RedirectStandardOutput $logFile `
-        -RedirectStandardError "$logFile.err"
+    # `[FACT]` `/api/*` requires HTTP Basic auth (2026-10-05). Every
+    # baseline entry below therefore has to authenticate, and the server
+    # has to be told which password to expect. The previous value is
+    # saved and restored rather than merely unset, because this script
+    # may run inside a developer's shell that already exports one.
+    $prevAdminPass = $env:GITGIT_ADMIN_PASS
+    $prevAdminUser = $env:GITGIT_ADMIN_USER
+    $env:GITGIT_ADMIN_PASS = $AdminPass
+    $env:GITGIT_ADMIN_USER = $AdminUser
+    try {
+        $serverProc = Start-Process -FilePath $bin `
+            -ArgumentList $serverArgs `
+            -NoNewWindow -PassThru `
+            -RedirectStandardOutput $logFile `
+            -RedirectStandardError "$logFile.err"
+    }
+    finally {
+        if ($null -eq $prevAdminPass) { Remove-Item Env:GITGIT_ADMIN_PASS -ErrorAction SilentlyContinue }
+        else { $env:GITGIT_ADMIN_PASS = $prevAdminPass }
+        if ($null -eq $prevAdminUser) { Remove-Item Env:GITGIT_ADMIN_USER -ErrorAction SilentlyContinue }
+        else { $env:GITGIT_ADMIN_USER = $prevAdminUser }
+    }
 
     $ready = Wait-HttpReady -Url "$baseUrl/api/health"
     if (-not $ready) {
@@ -170,6 +199,55 @@ try {
         throw 'server not ready'
     }
     Write-Step "server ready"
+
+    # ── The auth layer itself, before the baseline ──────────────────────────
+    #
+    # `[FACT]` Everything below this point now sends `-u`, so every
+    # baseline assertion would pass identically whether or not the server
+    # checked the credential at all. Without this block the IT tier would
+    # be, after 2026-10-05, a test suite that cannot detect the auth layer
+    # being deleted — the same way the in-process tests are what catch it
+    # today, except this one crosses a real socket and the real middleware
+    # stack.
+    #
+    # Three facts are pinned, because each can be broken independently:
+    #   1. no credentials            -> 401
+    #   2. wrong credentials         -> 401 (not 403, not a silent pass)
+    #   3. `GET /api/health`          -> 200, deliberately outside the
+    #      layer, so a liveness probe keeps working when the password is
+    #      the thing that is wrong.
+    Write-Step "auth layer: anonymous / wrong credential / health"
+
+    $anonBody = Join-Path $scratch 'anon.json'
+    $wrongBody = Join-Path $scratch 'wrong.json'
+    $healthBody = Join-Path $scratch 'health.json'
+
+    function Invoke-Status([string] $outFile, [string[]] $extraArgs, [string] $url) {
+        $args = @('--noproxy','*','--silent','--show-error','-o',$outFile,'-w','%{http_code}','--max-time','15')
+        $args += $extraArgs
+        $args += $url
+        $r = Invoke-External -FilePath $curl -ArgumentList $args
+        $text = if (Test-Path $outFile) { Get-Content -Raw $outFile } else { '' }
+        return @{ Code = $r.StdOut.Trim(); Body = $text }
+    }
+
+    $anon = Invoke-Status $anonBody @() "$baseUrl/api/repos"
+    Assert-StatusCode -Run $run -Name 'it.auth.anon.repos.status' `
+        -Expected 401 -Actual ([int]$anon.Code) `
+        -Detail "an unauthenticated GET /api/repos must be refused; the auth layer is not being applied"
+    Assert-True -Run $run -Name 'it.auth.anon.repos.bodyContains(unauthenticated)' `
+        -Condition $anon.Body.Contains('unauthenticated') `
+        -Detail "body first 200 chars: $($anon.Body.Substring(0, [Math]::Min(200, $anon.Body.Length)))"
+
+    $wrong = Invoke-Status $wrongBody @('-u', ('{0}:definitely-not-the-password' -f $AdminUser)) "$baseUrl/api/repos"
+    Assert-StatusCode -Run $run -Name 'it.auth.wrong.repos.status' `
+        -Expected 401 -Actual ([int]$wrong.Code) `
+        -Detail "a wrong password must be refused, not treated as anonymous-but-allowed"
+
+    $health = Invoke-Status $healthBody @() "$baseUrl/api/health"
+    Assert-StatusCode -Run $run -Name 'it.auth.health.status' `
+        -Expected 200 -Actual ([int]$health.Code) `
+        -Detail '/api/health is deliberately outside the auth layer; a liveness probe that needs the password cannot report that the server is up when the password is the problem'
 
     # ── Run each baseline endpoint ──────────────────────────────────────────
     foreach ($ep in $baseline.it.endpoints) {
@@ -193,7 +271,13 @@ try {
             '--noproxy', '*', '--silent', '--show-error',
             '-o', $bodyPath,
             '-w', '%{http_code}',
-            '--max-time', '15'
+            '--max-time', '15',
+            # `[FACT]` `-u` rather than a header built by hand: curl
+            # base64s `user:password` into `Authorization: Basic`, which
+            # is the only encoding the server accepts, and it does so
+            # identically on Windows and Linux. A hand-built header would
+            # have to reimplement the same encoding in PowerShell.
+            '-u', ('{0}:{1}' -f $AdminUser, $AdminPass)
         )
         if ($ep.method -in @('POST','PUT','DELETE')) {
             $curlArgs += @('-X', $ep.method)

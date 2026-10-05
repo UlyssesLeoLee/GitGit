@@ -2,7 +2,7 @@
 
 | 字段 | 值 |
 |---|---|
-| **Status** | Accepted (2026-08-26) / Revised (2026-08-30 — Credential Vault → minIO) / Amended (2026-10-05 — bind 默认值，见 §1 修订注记) |
+| **Status** | Accepted (2026-08-26) / Revised (2026-08-30 — Credential Vault → minIO) / Amended (2026-10-05 — bind 默认值，见 §1 修订注记) / Amended (2026-10-05 — `/api/*` 鉴权，见 §1 修订注记二) |
 | **Supersedes** | (无) |
 | **Superseded by** | (无) |
 | **Authors** | Ulysses（一人公司 12 角色 per DEC-008）— Mavis 接手 agent |
@@ -34,9 +34,28 @@ HTTP server：
 >    `GET /api/vault/keys/:key` 明文返回凭据，通配地址不应是默认。
 >    显式 `--bind 0.0.0.0:8080` 仍可暴露到网络。
 >
-> 本条「HTTP Basic auth（admin/admin）」在 `/api/*` 上**至今未实现**：
-> `auth_optional` 是 no-op，从未被调用。详见 `SECURITY.md` 与 `README.md`
-> 的已知未决问题。
+> **修订注记二（2026-10-05，`/api/*` 鉴权）**：上面「HTTP Basic auth
+> （admin/admin）在 `/api/*` 上**至今未实现**」这一句，在同一天之后不再成立。
+> 本 ADR 不改写它，只记录它已过期：
+>
+> 1. `auth_optional` 这个 no-op 已删除，`src/config.rs` 的 `ADMIN_USER` /
+>    `ADMIN_PASS` 编译期常量也已删除。`cargo metadata` 读到的 `license` 与
+>    二进制中不再存在这对常量。
+> 2. `/api/*` 现由 `build_api_router` 在子路由上施加
+>    `route_layer(require_api_auth)`，未认证返回 401。逐 handler 加检查的写法
+>    被否决：那是「下一个端点被忘记加检查」的形成方式。
+> 3. 凭据改为外置，解析顺序为 `GITGIT_ADMIN_PASS` / `GITGIT_ADMIN_USER` →
+>    保险库 `gitgit.password`（桌面端 Settings 写入的那一项）→ 启动时生成的
+>    128-bit 随机密码。
+> 4. 非回环绑定 + 随机密码 → **拒绝启动**（`enforce_exposure_policy`，CLI 与
+>    桌面内嵌服务器都调用）。理由：通配地址配一个没人知道的随机密码，比
+>    拒绝启动更糟。
+> 5. `GET /api/health` 刻意留在鉴权层之外。
+>
+> 仍为真的部分、以及本轮明确未解决的残留风险（Basic 凭据明文传输、无
+> TLS、桌面端生成的密码只出现在日志里），写在 `SECURITY.md` 的
+> 「The HTTP API is authenticated, but the credential travels in cleartext」
+> 一节里，不在此重复。
 
 需求（用户 8/26 17:00 拍板）：
 

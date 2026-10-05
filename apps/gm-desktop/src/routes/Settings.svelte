@@ -17,6 +17,16 @@
   import type { AdminPasswordStatus, AppInfo } from '$lib/api/types';
   import { catalog } from '$lib/i18n';
 
+  // `[FACT]` Where section 0's fourth "Appropriate Legal Notices"
+  // requirement ("how to view a copy of this License") actually resolves to.
+  // `bundle.resources` in `src-tauri/tauri.conf.json` is `[]`, so the
+  // LICENSE file is NOT shipped inside the installed application. Pointing
+  // at `LICENSE` in the source tree would therefore be an answer that works
+  // for whoever built the app and for nobody who installed it. The canonical
+  // FSF text is the one location that is both stable and reachable from a
+  // machine that only has the installer.
+  const AGPL_TEXT_URL = 'https://www.gnu.org/licenses/agpl-3.0.html';
+
   let info = $state<AppInfo | null>(null);
   let pwStatus = $state<AdminPasswordStatus | null>(null);
   let newPassword = $state('');
@@ -46,7 +56,13 @@
       await tauri.setAdminPassword(newPassword);
       newPassword = '';
       await refreshAdmin();
-      pushToast('success', 'updated');
+      // `[FACT]` The server resolves the admin credential once, when it
+      // starts, and caches it. This toast used to say just "updated",
+      // which is what made the page actively misleading: a user saved a
+      // password, saw a success toast and a "Set (length N)" line, and
+      // the running server went on accepting the old one. The message
+      // now states the one true thing about when it takes effect.
+      pushToast('success', 'saved — the server uses it from its next start');
     } finally {
       updating = false;
     }
@@ -55,7 +71,9 @@
   async function onClearPassword(): Promise<void> {
     await tauri.clearAdminPassword();
     await refreshAdmin();
-    pushToast('info', 'cleared');
+    // Clearing removes the stored password, so the next start has
+    // nothing configured and generates a fresh random one.
+    pushToast('info', 'cleared — a new password is generated at the next start');
   }
 </script>
 
@@ -136,5 +154,30 @@
         <dd class="break-all font-mono">{info.vault_dir}</dd>
       </dl>
     {/if}
+  </div>
+
+  <!--
+    AGPL-3.0 section 5(d): "If the work has interactive user interfaces,
+    each must display Appropriate Legal Notices". Section 0 defines those
+    as a conveniently and prominently visible feature that does four
+    things, and the four `<li>` elements below are one each -- collapsing
+    them into a single "Licensed under AGPL-3.0" line is the shape that
+    technically mentions the license while satisfying none of them.
+
+    Placement: Settings is a top-level entry in the primary nav
+    (`Sidebar.svelte`, `href: '/settings'`), so this is one click from any
+    screen, which is what section 0 asks for when the interface "presents
+    a list of user commands or options, such as a menu".
+  -->
+  <div class="card" data-testid="license-card">
+    <h2 class="mb-2 text-sm font-semibold">{$catalog['settings.license.title']}</h2>
+    <ul class="space-y-1 text-xs text-slate-600">
+      <li data-testid="license-copyright">{$catalog['settings.license.copyright']}</li>
+      <li data-testid="license-warranty">{$catalog['settings.license.warranty']}</li>
+      <li data-testid="license-convey">{$catalog['settings.license.convey']}</li>
+      <li class="break-all font-mono" data-testid="license-view">
+        {$catalog['settings.license.view'].replace('{url}', AGPL_TEXT_URL)}
+      </li>
+    </ul>
   </div>
 </section>

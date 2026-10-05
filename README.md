@@ -6,8 +6,9 @@
 >
 > 本仓库有真实实现、真实测试和真实 CI 门禁，并且能产出可安装的安装包
 > （Windows `.msi`，以及 macOS `.dmg` / Linux `.deb` / `.AppImage`）。
-> 但 **HTTP API 鉴权** 仍未关闭，Windows 安装包也未做代码签名，
-> 详见 [已知未决问题](#已知未决问题)。在这些关闭之前，本项目**不应**被当作可商售产品分发。
+> **HTTP API 鉴权已于 2026-10-05 关闭**（P0），Windows 安装包仍未做代码签名，
+> 详见 [已知未决问题](#已知未决问题)。在签名问题关闭之前，本项目**不应**被当作
+> 可商售产品分发。
 
 本文件只陈述**实测**状态。凡本文出现数字，均为在指定 commit 上跑出来的，不是估计值。
 未能验证的一律写在「已知未决问题」里，不写在正文里。
@@ -109,7 +110,8 @@ gitgit gitremote add <name> <url>
 | POST | `/api/vault/keys/:key/restore` |
 
 Git 自身的 smart-HTTP 路由由 `src/server/http.rs` 的 `build_router()` 提供。
-**注意：这些 `/api` 路由目前没有任何鉴权层**，详见已知未决问题。
+`/api/*` 自 2026-10-05 起强制 HTTP Basic 鉴权（`GET /api/health` 除外），
+凭据来源见 [P0 一节](#p0--http-api-鉴权已关闭)。
 
 ### 桌面端
 
@@ -143,27 +145,38 @@ pnpm test
 `audit` 做成独立 job 而不是 `test` 里的一个 step：CVE 应该在秒级失败，而不是等完整个 release 构建。
 该 job 同时区分「扫描到公告」与「公告库不可达」这两种不同的失败。
 
-### 实测快照（`6d24b21`）
+### 实测快照
+
+> 本表分两段。**2026-10-05 复核行**是本轮（`/api/*` 鉴权 + 凭据外置 +
+> AGPL §5(d) 合规）亲自重跑出来的数字。**历史行**是更早快照，保留是为了
+> 能看出数字是怎么变过来的，不是当前状态。
 
 | 项 | 数值 | 怎么来的 |
 | --- | --- | --- |
-| 根 crate 测试 | **186 passed / 0 failed / 2 ignored** | CI 实测于 `f690486`；`f690486 → 6d24b21` 之间 `src/`、`Cargo.toml`、`Cargo.lock` 零改动，故结论延续，并已本地重跑复核 |
-| 根 crate fmt / clippy | 0 / 0 | 本地重跑复核 |
-| RUSTSEC 公告 | 0（扫描 240 个依赖） | CI `audit` job |
-| `apps/gm-desktop` 测试 | **378 passed / 25 files / 0 skipped** | 本地实测，CI 复核 |
-| `apps/gm-desktop` 覆盖率 | lines 94.78% / branches 78.43% / functions 95.17% / statements 94.23% | 本地实测，`pnpm test:coverage` **exit 0** |
-| `apps/gm-console` 测试 | **194 passed / 15 files** | 本地实测 |
-| `apps/gm-console` 覆盖率 | **lines 93.63%** | 本地实测，门槛 lines 70 / branches 60 |
-| i18n 键一致性 | `en` 184 / `zh-CN` 184，键集完全一致 | 本地实测 |
+| 根 crate 测试 | **214 passed / 0 failed / 2 ignored** | 2026-10-05 本地重跑 `cargo test --locked` |
+| 根 crate fmt / clippy | 0 / 0 | 2026-10-05 本地重跑（`--all-targets --locked -D warnings`） |
+| `src-tauri` 测试 | **28 passed / 0 failed** | 2026-10-05 本地重跑 `cargo test --locked --lib` |
+| `src-tauri` fmt / clippy | 0 / 0 | 2026-10-05 本地重跑 |
+| `apps/gm-desktop` 测试 | **407 passed / 27 files / 0 skipped** | 2026-10-05 本地实测，CI 复核 |
+| `apps/gm-desktop` 覆盖率 | lines 95.01% / branches 78.79% / functions 94.59% / statements 94.34% | 2026-10-05 本地实测，`pnpm test:coverage` **exit 0** |
+| `apps/gm-console` 测试 | **201 passed / 16 files** | 2026-10-05 本地实测 |
+| `apps/gm-console` 覆盖率 | statements 94.1% / branches 87.72% / functions 82.39% / lines 94.1% | 2026-10-05 本地实测，门槛 70 / 70 / 60 / 55 |
+| i18n 键一致性（`gm-desktop`） | `en` 190 / `zh-CN` 190，键集完全一致 | 2026-10-05 本地实测 |
+| i18n 键一致性（`gm-console`） | `en` 7 组 / `zh-CN` 7 组，结构一致 | 2026-10-05 本地实测 |
+| RUSTSEC 公告 | 0（扫描 240 个依赖） | CI `audit` job，**本轮未重跑**，沿用历史值 |
+| 根 crate 测试（历史，`6d24b21`） | 186 passed / 0 failed / 2 ignored | CI 实测于 `f690486` |
+| `apps/gm-desktop` 测试（历史，`6d24b21`） | 378 passed / 25 files / 0 skipped | 本地实测，CI 复核 |
+| `apps/gm-console` 测试（历史，`6d24b21`） | 194 passed / 15 files | 本地实测 |
 
 `apps/gm-desktop` 的覆盖率阈值（lines/statements 70、functions 60、branches 55）声明在
 `vite.config.ts`，CI 的 `Coverage gate` step 现在**真的会求值它们**。
 这一度曾经只是"看起来像门禁"：CI 跑的是 `pnpm test`（不带 `--coverage`），
 而当时 `test:coverage` 是 exit 非零的。2026-10-05 补齐路由组件与 stores/api 层的测试后，
 `All files` 从 42.55% 提到 94.78%，门禁才真正成立。阈值未作任何下调。
+`apps/gm-console` 的四个阈值同样**未下调**（70 / 70 / 60 / 55）。
 
 MSI 产物（CI 实测于 `d81f285`）：perUser 15,194,299 B / perMachine 15,193,981 B /
-manifest 640 B / dist 271,164 B，共四个 artifact 并存。
+manifest 640 B / dist 271,164 B，共四个 artifact 并存。**本轮未重建，未复核。**
 
 ## 已知未决问题
 
@@ -183,29 +196,36 @@ manifest 640 B / dist 271,164 B，共四个 artifact 并存。
 [许可证](#许可证) 章节写明选择 AGPL 的实际约束（尤其是第 13 条的
 网络交互源码义务）。分发前请先读该章节。
 
-### P0 — HTTP API 无鉴权（默认监听所有网卡的部分已修复）
+### P0 — HTTP API 鉴权（已关闭）
 
-**已修复（默认绑定）**：`src/config.rs` 的 `DEFAULT_BIND` 原为 `0.0.0.0:8080`，
-即默认把服务暴露到本机所在的所有网卡。现已改为 `127.0.0.1:8080`，仅本机可达。
-需要局域网访问时显式 `--bind 0.0.0.0:8080`。这与桌面端一直使用的
-`127.0.0.1:38080`（`src-tauri/src/state.rs`）以及仓内架构文档自述的
-「默认仅本机」原则一致。`src/cli.rs` 新增 3 条测试钉住该默认值，
-其中一条专门断言显式通配地址仍然可用——收紧默认不等于移除能力。
+**已关闭**。`/api/*` 现强制 HTTP Basic 鉴权，编译期硬编码的 `admin` / `admin`
+已从二进制移除。
 
-**仍未修复（无鉴权）**：完整链路已逐行核实：
+- `src/server/api.rs` 的 `build_api_router()` 在**子路由**上施加
+  `route_layer(require_api_auth)`，未认证返回 401。逐 handler 加检查的写法被
+  明确否决：那是「下一个端点被忘记加检查」的形成方式。`GET /api/health`
+  刻意留在层外——需要管理员密码才能探活的探针，在密码正是问题所在时无法
+  告诉你服务是否正常。
+- `auth_optional` 这个 no-op 与 `src/config.rs` 的 `ADMIN_USER` / `ADMIN_PASS`
+  常量已删除。
+- 凭据外置，解析顺序：`GITGIT_ADMIN_PASS` / `GITGIT_ADMIN_USER` → 保险库
+  `gitgit.password`（桌面端 Settings 写入的那一项）→ 启动时生成的 128-bit
+  随机密码（CLI 打印一次到控制台）。
+- **非回环绑定 + 随机密码 → 拒绝启动**（`enforce_exposure_policy`），CLI 与
+  桌面内嵌服务器都调用。通配地址配一个没人知道的随机密码，比拒绝启动更糟。
+- 桌面侧此前「`bind` 由前端传入且零校验」的路径，现在同样受该策略约束。
+- Web 控制台 `apps/gm-console` 新增登录门（`src/components/LoginGate.tsx`），
+  凭据只存内存：刻意不做 `localStorage`，也不用 `VITE_*` 变量——后者会被
+  内联进发给每个浏览器的 JS 包。
 
-- `src/server/api.rs` 中的 `auth_optional` 是 no-op，**从未被调用**，且挂着 `#[allow(dead_code)]`
-- `build_api_router()` 与 `build_router()` 都不加任何鉴权层
-- `GET /api/vault/keys/:key` 会把凭据明文放进 JSON 响应；`DELETE` 与 `POST .../restore` 同样无鉴权
-- 全仓唯一的鉴权 `require_basic` 只在 git push 路径上，且凭据硬编码为 `admin` / `admin`
-  （`src/config.rs`）
-- 桌面侧的 `bind` 由前端传入且零校验（`state.rs` → `commands/server.rs`）
+**反向验证**：删掉 `.route_layer(require_api_auth)` 会让 7 条鉴权测试变红，
+其中包含一张覆盖全部 `/api` 路由的路由矩阵，诊断信息指名道姓地说明是哪条
+路由没被鉴权层覆盖。恢复后全绿。
 
-把默认绑定收回本机，收窄了**默认**暴露面，但只要显式传 `--bind 0.0.0.0:8080`，
-`/api` 依旧是零鉴权且明文返回凭据。剩余部分需要 `/api` 强制鉴权 + 凭据外置，
-会改变现有本地无凭据流程，属于需要人类拍板的产品决策，尚未实施。
-
-细节见 [`SECURITY.md`](SECURITY.md)。
+**本轮明确未解决的残留风险**（不是缺陷，是尚未提供的能力）：Basic 凭据是
+base64 而非加密，**无 TLS**；桌面端生成的密码只出现在日志里（无控制台），
+这会 fail closed，但意味着在 Settings 里设密码之前，Web 控制台无法对接加宽
+后的绑定。完整清单见 [`SECURITY.md`](SECURITY.md)。
 
 ### P1 — Windows 安装包未做代码签名
 

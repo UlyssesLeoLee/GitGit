@@ -24,7 +24,7 @@ use url::form_urlencoded;
 
 use crate::config::Config;
 use crate::error::GitGitError;
-use crate::server::auth::require_basic;
+use crate::server::auth::{require_basic, AdminCredentialStore};
 use crate::server::smart::announce_frame;
 use crate::server::subprocess::{await_success, git_stateless_rpc};
 use crate::server::vault_versioned::VersionedVault;
@@ -40,13 +40,38 @@ pub struct AppState {
     /// Callers that only need the 5 KV operations of the super-trait
     /// `Vault` continue to work because `VersionedVault: Vault`.
     pub vault: Arc<dyn VersionedVault>,
+    /// The admin basic-auth credential, resolved once at startup and
+    /// cached here so the *synchronous* auth check never has to await a
+    /// vault read. See [`crate::server::auth`] for the resolution order
+    /// and for why it is cached.
+    pub admin: Arc<AdminCredentialStore>,
 }
 
 impl AppState {
+    /// Build state with a **generated** admin password.
+    ///
+    /// Nothing is compiled in, and nothing is guessed: a caller that has
+    /// not resolved a credential gets a random one that nobody knows, so
+    /// every protected route answers 401 until
+    /// [`Self::with_admin`] is used. Tests use this and then call
+    /// `state.admin.rotate_password(..)` to say which credential they
+    /// are exercising; production start-up paths call
+    /// [`crate::server::auth::resolve_admin_credential`] and
+    /// [`Self::with_admin`].
     pub fn new(config: Config, vault: Arc<dyn VersionedVault>) -> Self {
+        Self::with_admin(config, vault, Arc::new(AdminCredentialStore::generated()))
+    }
+
+    /// Build state with a caller-resolved admin credential.
+    pub fn with_admin(
+        config: Config,
+        vault: Arc<dyn VersionedVault>,
+        admin: Arc<AdminCredentialStore>,
+    ) -> Self {
         Self {
             config: Arc::new(config),
             vault,
+            admin,
         }
     }
 }
@@ -58,7 +83,7 @@ impl AppState {
 /// [`crate::server::api`]). The two sub-routers share the same
 /// [`AppState`] so API handlers can reach the versioned vault.
 pub fn build_router(state: AppState) -> Router {
-    let api = crate::server::api::build_api_router();
+    let api = crate::server::api::build_api_router(state.clone());
     Router::new()
         .route("/repos/*key", get(handle_repo_any).post(handle_repo_any))
         .nest("/api", api)
@@ -151,7 +176,7 @@ async fn handle_repo_any(
             .await
         }
         ("POST", "git-receive-pack") => {
-            if let Err(e) = require_basic(request.headers()) {
+            if let Err(e) = require_basic(request.headers(), &state.admin.current()) {
                 return match e {
                     GitGitError::Unauthenticated => unauthorized(),
                     other => internal_error(other),
@@ -320,7 +345,6 @@ mod tests {
     use crate::repo::create_bare_repo;
     use axum::body::to_bytes;
     use axum::http::{Request as HttpRequest, StatusCode as AxStatusCode};
-    use base64::Engine;
     use std::sync::atomic::{AtomicU64, Ordering};
     use tower::ServiceExt;
 
@@ -339,6 +363,27 @@ mod tests {
         dir
     }
 
+    /// Password these tests authenticate with.
+    ///
+    /// Not `admin`: the compiled-in default is gone, and a test that
+    /// used it would pass against code that still had the old constant.
+    const TEST_PASSWORD: &str = "test-password";
+
+    fn auth_header(user: &str, pass: &str) -> header::HeaderValue {
+        use base64::Engine;
+        // `[FACT]` The `Basic ` prefix is part of the wire format, not
+        // decoration: `check_basic` does `strip_prefix("Basic ")` and
+        // answers `false` for anything else. Omitting it made every
+        // *valid*-credential case in this file report 401 — the
+        // malformed-header answer, which is indistinguishable from a real
+        // rejection unless you read the header builder.
+        let raw = format!(
+            "Basic {}",
+            base64::engine::general_purpose::STANDARD.encode(format!("{user}:{pass}"))
+        );
+        header::HeaderValue::from_str(&raw).unwrap()
+    }
+
     /// Set up a `Config` whose `repos_dir` is a unique temp dir, and
     /// pre-create a real bare repo named `name` so that the GET
     /// `/info/refs?service=...` path can spawn a real `git
@@ -349,7 +394,11 @@ mod tests {
         let cfg = Config::new("127.0.0.1:0", repos.clone(), vault_root);
         create_bare_repo(&cfg, name).await.unwrap();
         let vault = std::sync::Arc::new(crate::server::vault::FileVault::new(&cfg.vault_file_root));
-        (AppState::new(cfg, vault), repos)
+        let state = AppState::new(cfg, vault);
+        // `AppState::new` starts with a random password nobody knows, so
+        // every auth case here names the credential it is exercising.
+        state.admin.rotate_password(TEST_PASSWORD);
+        (state, repos)
     }
 
     #[tokio::test]
@@ -442,16 +491,57 @@ mod tests {
     async fn receive_pack_with_wrong_password_returns_401() {
         let (state, _repos) = app_with_repo("wrongpw", "demo").await;
         let app = build_router(state);
-        // Send a Basic header that decodes to "admin:nope".
-        let bad = base64::engine::general_purpose::STANDARD.encode(b"admin:nope");
+        // A well-formed Basic header carrying the right username and the
+        // wrong password.
         let req = HttpRequest::builder()
             .method("POST")
             .uri("/repos/demo.git/git-receive-pack")
-            .header(header::AUTHORIZATION, format!("Basic {bad}"))
+            .header(
+                header::AUTHORIZATION,
+                auth_header("admin", "not-the-password"),
+            )
             .body(Body::empty())
             .unwrap();
         let resp = app.oneshot(req).await.unwrap();
         assert_eq!(resp.status(), AxStatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn receive_pack_with_the_historical_default_credential_returns_401() {
+        // `admin` / `admin` was a `const` in `config`, so it shipped in
+        // every binary. It must not authenticate a push now.
+        let (state, _repos) = app_with_repo("olddefault", "demo").await;
+        let app = build_router(state);
+        let req = HttpRequest::builder()
+            .method("POST")
+            .uri("/repos/demo.git/git-receive-pack")
+            .header(header::AUTHORIZATION, auth_header("admin", "admin"))
+            .body(Body::empty())
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), AxStatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn receive_pack_accepts_the_configured_credential() {
+        // Asserted as "not 401" against a missing repo rather than as a
+        // successful push: a real push needs a real packfile, and
+        // spawning `git receive-pack` with an empty body would test git,
+        // not our auth. Reaching the 404 is proof the auth gate opened.
+        let (state, _repos) = app_with_repo("goodpw", "demo").await;
+        let app = build_router(state);
+        let req = HttpRequest::builder()
+            .method("POST")
+            .uri("/repos/does-not-exist.git/git-receive-pack")
+            .header(header::AUTHORIZATION, auth_header("admin", TEST_PASSWORD))
+            .body(Body::empty())
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(
+            resp.status(),
+            AxStatusCode::NOT_FOUND,
+            "valid credentials must get past the auth gate"
+        );
     }
 
     #[tokio::test]
