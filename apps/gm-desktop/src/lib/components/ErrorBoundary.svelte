@@ -24,6 +24,7 @@
 <script lang="ts">
   import type { Snippet } from 'svelte';
   import { catalog } from '$lib/i18n';
+  import { friendlyError } from '$lib/utils/errors';
 
   interface Props {
     children?: Snippet;
@@ -36,8 +37,25 @@
   let lastError = $state<string | null>(null);
 
   function toMessage(e: unknown): string {
-    if (e instanceof Error) return e.message;
-    return typeof e === 'string' ? e : String(e);
+    // `[FACT]` This was `e instanceof Error ? e.message : String(e)`,
+    // which had no `AppError` awareness at all. A Tauri rejection is a
+    // plain `{ kind, message, source }` object, so the `instanceof` arm
+    // never matched and the card rendered the literal `[object Object]`
+    // — for a component whose entire purpose is catching render
+    // failures, which is exactly when a command is most likely to have
+    // rejected underneath it.
+    //
+    // `[FACT]` `friendlyError` rather than `normalizeError(...).message`:
+    // the `<p>` is rendered unconditionally, and `normalizeError` returns
+    // `''` for a payload carrying only a `kind`, which would leave a
+    // blank line under the heading. `friendlyError` never returns empty
+    // — its floor is the localized `errors.kind.Internal` label. It also
+    // matches the four sites already routed through this module
+    // (`App.svelte`, `Repos.svelte`, `stores/graph.ts`), all of which
+    // show a friendly one-liner rather than a raw detail line, and the
+    // card's existing `errors.routeTitle` heading is page-generic, so
+    // the kind headline adds the cause instead of repeating it.
+    return friendlyError(e);
   }
 </script>
 

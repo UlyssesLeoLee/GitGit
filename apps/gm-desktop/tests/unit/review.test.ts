@@ -237,6 +237,38 @@ describe('store / review — failure and refusal', () => {
     expect(get(review).status).toBe('error');
     expect(get(review).errorKind).toBe('AiReviewInvalid');
   });
+
+  it('reports no detail rather than "[object Object]" for a kindless message', async () => {
+    // `[FACT]` The defect this pins, in the store's own `asAppError`:
+    // when a payload carried a `kind` but no usable `message`, it fell
+    // back to `String(e)` — and a Tauri rejection is a plain object, not
+    // an `Error`, so the detail line rendered the literal
+    // `[object Object]`. `normalizeError` returns `''` instead, which is
+    // the correct "there is nothing to show" signal and what the review
+    // page already handles. The kind is kept either way, so the page can
+    // still localize the failure.
+    invokeRejectsWith({ kind: 'AiReviewNoKey', source: '"AiReviewNoKey"' });
+    await startReview('diff', { provider: 'openai', subscribe: fakeSubscribe().subscribe });
+
+    const s = get(review);
+    expect(s.status).toBe('error');
+    expect(s.errorKind).toBe('AiReviewNoKey');
+    expect(s.errorMessage).toBe('');
+    expect(s.errorMessage).not.toBe('[object Object]');
+  });
+
+  it('keeps the message of a payload that carries no kind', async () => {
+    // `[FACT]` The mirror case: no `kind` at all. `asAppError` also
+    // reached for `String(e)` here, so a mock-layer rejection with a
+    // usable message still lost it.
+    invokeRejectsWith({ message: 'the backend said this, with no kind' });
+    await startReview('diff', { provider: 'openai', subscribe: fakeSubscribe().subscribe });
+
+    const s = get(review);
+    expect(s.errorKind).toBe('Internal');
+    expect(s.errorMessage).toBe('the backend said this, with no kind');
+    expect(s.errorMessage).not.toBe('[object Object]');
+  });
 });
 
 /**

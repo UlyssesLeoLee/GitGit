@@ -12,9 +12,16 @@
  * Before this module the codebase had three partial answers: two
  * near-identical normalisers in the review and worktree stores with
  * *different* fallbacks, and a third translated-message helper inlined
- * into `Home.svelte`. Four other call sites had none at all. This is the
+ * into `Home.svelte`. Four other call sites had none at all.
+ *
+ * `[FACT]` The previous version of this comment ended "This is the
  * single implementation; the stores and the components all route through
- * it.
+ * it", and that was false when it was written: `worktree.ts`'s
+ * `readError`, `review.ts`'s `asAppError` and `ErrorBoundary.svelte`'s
+ * `toMessage` each still had their own normalizer, and each could render
+ * `[object Object]`. All three now call the functions below, and the two
+ * store-local helpers are deleted rather than delegated, so this module
+ * is the only place a rejection is turned into text.
  */
 import { t } from '$lib/i18n';
 

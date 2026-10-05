@@ -117,10 +117,41 @@ describe('store / worktree — status', () => {
   });
 
   it('survives a rejection that is not an AppError payload', async () => {
+    // `[FACT]` This used to assert `errorKind` was `'Unknown'`. That was
+    // the fallback kind in the store's own `readError`, and it is now
+    // `Internal`, because the store calls `normalizeError` and
+    // `Internal` is the one fallback kind with a catalogue entry
+    // (`errors.kind.Internal`). The old value was not a rendering bug —
+    // `RepoWorktree.svelte`'s `errorHeadline()` falls through to
+    // `repos.error.generic` for any unrecognised kind, so the page
+    // degraded gracefully either way. This is a consistency change, and
+    // the message is the part that was actually broken; see below.
     rejectsWith(new Error('bridge is gone'));
     await loadStatus('demo');
     expect(get(worktree).status).toBe('error');
-    expect(get(worktree).errorKind).toBe('Unknown');
+    expect(get(worktree).errorKind).toBe('Internal');
+    // The thrown `Error`'s own words survive, which the old fallback
+    // also managed — but only for this arm. See the next case.
+    expect(get(worktree).errorMessage).toBe('bridge is gone');
+  });
+
+  it('keeps the message of a payload that carries no kind', async () => {
+    // `[FACT]` The defect this pins: `readError` guarded on
+    // `'kind' in err`, so a rejection with a `message` and no `kind`
+    // fell through to `String(err)` and the detail line rendered the
+    // literal `[object Object]`. That shape is not hypothetical — it is
+    // what the mock layer and any non-Tauri caller produce, per
+    // `utils/errors.ts`. `normalizeError` reads `kind` and `message`
+    // independently, so the backend's own words now reach the page.
+    rejectsWith({ message: 'the backend said this, with no kind' });
+    await loadStatus('demo');
+
+    const s = get(worktree);
+    expect(s.status).toBe('error');
+    expect(s.errorMessage).toBe('the backend said this, with no kind');
+    expect(s.errorMessage).not.toBe('[object Object]');
+    // No kind in the payload, so the catalogue-backed fallback is used.
+    expect(s.errorKind).toBe('Internal');
   });
 
   it('reports an empty diff as empty rather than as an error', async () => {

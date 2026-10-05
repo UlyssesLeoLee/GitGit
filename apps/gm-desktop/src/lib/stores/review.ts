@@ -22,6 +22,7 @@
 
 import { get, writable } from 'svelte/store';
 import * as tauri from '$lib/api/ai';
+import { normalizeError } from '$lib/utils/errors';
 import type { ReviewEventDto } from '$lib/api/types';
 
 /**
@@ -111,19 +112,15 @@ export function resetReview(): void {
   review.set({ ...INITIAL });
 }
 
-/** Normalize whatever Tauri rejected with into kind + message. */
-function asAppError(e: unknown): { kind: string; message: string } {
-  if (typeof e === 'object' && e !== null) {
-    const o = e as Record<string, unknown>;
-    if (typeof o.kind === 'string' && o.kind.length > 0) {
-      return {
-        kind: o.kind,
-        message: typeof o.message === 'string' ? o.message : String(e),
-      };
-    }
-  }
-  return { kind: 'Internal', message: typeof e === 'string' ? e : String(e) };
-}
+/*
+ * `[FACT]` This store used to carry its own `asAppError`, a near-duplicate
+ * of `normalizeError` with a different fallback order. The difference was
+ * user-visible: when a payload had a `kind` but no usable `message`, that
+ * function fell back to `String(e)`, so the detail line rendered
+ * `[object Object]`. `normalizeError` returns `''` in that case, which is
+ * the correct "there is no detail to show" signal and is what the review
+ * page already handles.
+ */
 
 /** Apply one event. Private: tests drive it through the subscription. */
 function applyReviewEvent(e: ReviewEventDto): void {
@@ -188,7 +185,7 @@ export async function startReview(diff: string, opts: StartOptions = {}): Promis
   try {
     detach = await subscribe(applyReviewEvent);
   } catch (e) {
-    review.set({ ...get(review), status: 'error', ...asAppError(e) });
+    review.set({ ...get(review), status: 'error', ...normalizeError(e) });
     return;
   }
 
@@ -201,7 +198,7 @@ export async function startReview(diff: string, opts: StartOptions = {}): Promis
       baseUrl: opts.baseUrl ?? null,
     });
   } catch (e) {
-    const err = asAppError(e);
+    const err = normalizeError(e);
     releaseSubscription();
     if (err.kind === 'AiReviewUnsupported') {
       review.set({
@@ -247,7 +244,7 @@ export async function stopReview(): Promise<void> {
   try {
     await tauri.aiReviewCancel();
   } catch (e) {
-    const err = asAppError(e);
+    const err = normalizeError(e);
     if (err.kind !== 'AiReviewNotRunning') {
       review.set({
         ...get(review),
