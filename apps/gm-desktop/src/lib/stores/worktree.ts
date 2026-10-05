@@ -18,6 +18,7 @@
  */
 
 import { writable, get } from 'svelte/store';
+import { normalizeError } from '$lib/utils/errors';
 import * as tauri from '$lib/api/tauri';
 import type { DiffTarget, RepoDiff, RepoStatus, StatusEntry } from '$lib/api/types';
 
@@ -84,24 +85,25 @@ export function resetWorktree(): void {
   diff.set({ ...EMPTY_DIFF });
 }
 
-/**
- * Read the typed `AppError` payload off whatever `invoke` rejected with.
+/*
+ * `[FACT]` This store used to carry its own `readError`, guarded on
+ * `'kind' in err` and falling back to a kind of `'Unknown'`. Two
+ * consequences, both measured:
  *
- * The Rust side serializes `AppError` as `{ kind, message, source }`; a
- * non-object rejection (a thrown `Error`, or a missing bridge) is
- * reported as an unknown kind rather than swallowed, so the page still
- * shows something the user can act on.
+ *  - A rejection carrying a `message` but no `kind` — which the mock
+ *    layer and any non-Tauri caller produce, per `utils/errors.ts` —
+ *    missed the guard entirely and was rendered through `String(err)`,
+ *    i.e. the user saw the literal text `[object Object]` as the detail
+ *    line. `normalizeError` reads `kind` and `message` independently, so
+ *    that payload now yields the backend's own words.
+ *  - The `'Unknown'` fallback became `Internal`. This is a
+ *    consistency change, not a rendering fix: `RepoWorktree.svelte`'s
+ *    `errorHeadline()` falls through to `repos.error.generic` for any
+ *    unrecognised kind, so `'Unknown'` degraded gracefully and the page
+ *    was never broken by it. `Internal` is chosen instead because it is
+ *    the one fallback kind with a catalogue entry, so a caller that
+ *    localizes from the kind has something to show.
  */
-function readError(err: unknown): { kind: string; message: string } {
-  if (err && typeof err === 'object' && 'kind' in err) {
-    const e = err as { kind?: unknown; message?: unknown };
-    return {
-      kind: typeof e.kind === 'string' ? e.kind : 'Unknown',
-      message: typeof e.message === 'string' ? e.message : '',
-    };
-  }
-  return { kind: 'Unknown', message: err instanceof Error ? err.message : String(err) };
-}
 
 /** Fetch the working-tree status for `name`. */
 export async function loadStatus(name: string, root?: string | null): Promise<void> {
@@ -121,7 +123,7 @@ export async function loadStatus(name: string, root?: string | null): Promise<vo
       errorMessage: '',
     });
   } catch (err) {
-    const { kind, message } = readError(err);
+    const { kind, message } = normalizeError(err);
     worktree.set({ ...EMPTY_STATUS, status: 'error', errorKind: kind, errorMessage: message });
   }
 }
@@ -151,7 +153,7 @@ export async function loadDiff(
       errorMessage: '',
     });
   } catch (err) {
-    const { kind, message } = readError(err);
+    const { kind, message } = normalizeError(err);
     diff.set({ ...EMPTY_DIFF, status: 'error', target, errorKind: kind, errorMessage: message });
   }
 }

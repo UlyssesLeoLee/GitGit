@@ -196,6 +196,53 @@ describe('component / ErrorBoundary', () => {
       expect(screen.getByTestId('error-boundary').getAttribute('data-eb-key')).toBe('1')
     );
   });
+
+  it('does not render "[object Object]" when a child throws an AppError payload', () => {
+    // `[FACT]` The defect this pins: `toMessage` was
+    // `e instanceof Error ? e.message : String(e)`, with no `AppError`
+    // awareness. Tauri rejects with the serialized `AppError` from
+    // `src-tauri/src/error.rs` — a plain `{ kind, message, source }`
+    // object, not an `Error` — so the `instanceof` arm never matched and
+    // `String(e)` rendered the literal `[object Object]`. A render
+    // failure is precisely when a command underneath is most likely to
+    // have rejected, so this was the worst possible place to be blind to
+    // the payload shape. This is the same defect class that was already
+    // fixed in four other files; the boundary was missed.
+    //
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const throwing = (() => {
+      throw { kind: 'NotAWorkTree', message: 'demo is a bare repository', source: '"NotAWorkTree"' };
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    }) as any;
+
+    render(ErrorBoundary, { props: { children: throwing } });
+
+    expect(screen.getByTestId('error-boundary-failed')).toBeTruthy();
+    // The kind wins, so the user is told what to do about it in their
+    // own language rather than shown raw git output.
+    expect(document.body.textContent).toContain(
+      tFor(get(locale), 'errors.kind.NotAWorkTree')
+    );
+    expect(document.body.textContent).not.toContain('[object Object]');
+  });
+
+  it('shows the localized Internal label when the throw carries nothing usable', () => {
+    // `[FACT]` A payload with neither a usable kind nor a message leaves
+    // nothing to say. `friendlyError`'s floor is the localized
+    // `errors.kind.Internal` label, which is why the boundary uses it
+    // rather than `normalizeError(...).message` — the latter returns
+    // `''` here and the card would render a blank line under its heading.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const throwing = (() => {
+      throw { kind: '' };
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    }) as any;
+
+    render(ErrorBoundary, { props: { children: throwing } });
+
+    expect(document.body.textContent).toContain(tFor(get(locale), 'errors.kind.Internal'));
+    expect(document.body.textContent).not.toContain('[object Object]');
+  });
 });
 
 /* ---------- ThemeToggle ---------- */
