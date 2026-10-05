@@ -305,19 +305,44 @@ ${INFO}"
     ok "Package: ${PKG}  Version: ${CTRL_VERSION}  Architecture: ${ARCH_FIELD}"
 
     # `Depends:` is emitted only when the list is non-empty
-    # (debian.rs: `if !dependencies.is_empty()`), and
-    # `bundle.linux.deb.depends` is `[]` in tauri.conf.json. So the package
-    # is expected to carry no Depends field at all, which means `dpkg -i` will
-    # not pull in webkit2gtk and the app will not start on a clean machine.
-    # That is a tauri.conf.json concern, not a workflow one, and it is
-    # reported rather than hidden and rather than failed here — failing it
-    # would make this script a gate on a config the workflow does not own.
+    # (debian.rs: `if !dependencies.is_empty()`), and `DebianSettings`
+    # derives `Default`, so Tauri supplies no fallback list at all: an
+    # empty or absent `bundle.linux.deb.depends` means the package
+    # declares no runtime dependencies.
+    #
+    # `[FACT]` This was a `note` until 2026-10-05, on the reasoning that
+    # "failing it would make this script a gate on a config the workflow
+    # does not own". The config is in this repository, and what was being
+    # noted was that the shipped .deb installs on a machine with no
+    # webkit2gtk and then fails to launch. A note is the right weight for
+    # "this might matter" and the wrong weight for "a real install pulls
+    # nothing in".
+    #
+    # It asserts that the list reached the control file rather than
+    # comparing against a hardcoded expected string. A fixed string would
+    # only ever re-assert what the sibling config already says; reading
+    # the declared list back out of `tauri.conf.json` catches the failure
+    # that actually happens -- someone empties the list again, or the
+    # bundler stops writing the field, and the package silently ships
+    # under-declared with the note nobody reads.
     DEPENDS=$(control_field Depends)
-    if [ -n "$DEPENDS" ]; then
-      note "the package declares Depends: ${DEPENDS}"
-    else
-      note "the package declares NO Depends field (bundle.linux.deb.depends is [] in tauri.conf.json). A real install would not pull in webkit2gtk. See .github/CI.md."
-    fi
+    [ -n "$DEPENDS" ] \
+      || die "${ARTIFACT_NAME} declares no Depends field, so 'dpkg -i' pulls in nothing and the app will not start on a machine without webkit2gtk. Set bundle.linux.deb.depends in tauri.conf.json."
+
+    # Read the declared list with jq rather than a regex over the file.
+    # `$CONFIG` is already required to exist and jq is already required
+    # for `.version` a few lines above, so this adds no new dependency --
+    # and a hand-rolled pattern over JSON is exactly the kind of thing
+    # that silently matches nothing, which is the failure mode the
+    # emptiness check below exists to catch.
+    DECLARED=$(jq -r '.bundle.linux.deb.depends // [] | .[]' "$CONFIG")
+    [ -n "$DECLARED" ] \
+      || die "bundle.linux.deb.depends in ${CONFIG} is empty or missing, so there is nothing to assert the control file against."
+    for dep in $DECLARED; do
+      printf '%s' "$DEPENDS" | grep -q -- "${dep}" \
+        || die "${ARTIFACT_NAME} Depends does not mention '${dep}', which ${CONFIG} declares. The control file and the config have diverged."
+    done
+    ok "every declared dependency reached the control file: $(printf '%s' "$DECLARED" | tr '\n' ' ')"
 
     if ! CONTENTS=$(dpkg-deb --contents "$ARTIFACT" 2>&1); then
       die "dpkg-deb --contents could not list ${ARTIFACT_NAME}:
