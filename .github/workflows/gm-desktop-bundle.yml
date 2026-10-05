@@ -1,0 +1,505 @@
+# gm-desktop-bundle CI — the macOS and Linux bundles.
+#
+# WHAT THIS FILE IS FOR
+# =====================
+# `apps/gm-desktop/src-tauri/tauri.conf.json` declares
+#
+#     "targets": ["msi", "dmg", "appimage", "deb"]
+#
+# but until now only `msi` had ever been built. `.github/workflows/gm-desktop.yml`
+# has a `build` job (the fast Linux lint/test gate, which never bundles) and an
+# `msi` job (windows-latest, the installer gate). No `.dmg`, `.appimage` or
+# `.deb` had ever been produced, on any machine, by any run. For a product
+# sold as a desktop application that was the largest untested surface in the
+# repo, and `tauri.conf.json` was asserting three platforms that CI had never
+# exercised.
+#
+# It is a SEPARATE FILE, not a third job in `gm-desktop.yml`, for two reasons:
+#   * that file is owned and being changed by another lane, and a conflict
+#     there loses both changes;
+#   * the msi lane's own report argues that a slow installer gate should not
+#     live in the same workflow-level `concurrency` group as the fast gate,
+#     because `cancel-in-progress: true` on a ~15-minute job cancels a run for
+#     every subsequent push (docs/reports/2026-10-05-bundle-ci/README.md §6).
+#     These jobs are slower still, so they get their own group.
+#
+# WHAT IS DELIBERATELY NOT HERE
+# =============================
+# No signing, no notarization, no release, no updater artifacts, no
+# `tauri-action`. This is a build-and-prove gate, not a publishing pipeline.
+#
+# EVERY CLAIM IS TAGGED
+# =====================
+# `[FACT]`        established by reading the repo or a document cited inline.
+# `[INFERENCE]`   a conclusion drawn from a fact, which a run could refute.
+# `[PROPOSAL]`    a suggestion for the owner of a file this lane does not own.
+# `[UNVERIFIED-FACT]` documented behaviour relied on here that no run has yet
+#                 confirmed. [TBD] is used where the answer is not known.
+#
+# THE HONEST SUMMARY OF THIS FILE
+# ===============================
+# [UNVERIFIED-FACT] Nothing in this workflow has ever run. The maintainer
+# machine is Windows-only and Tauri cannot cross-compile desktop bundles, so a
+# `.dmg` and an `.AppImage` cannot be produced locally at all. What can be
+# verified without a runner was verified: the YAML parses, the verify script
+# passes `bash -n`, and its argument parsing, size floor, version assertion
+# and format-magic rejection were exercised against deliberately broken
+# fixtures. What a first run settles is listed in `.github/CI.md` and in the
+# commit message. A red first run is a finding, not a defect in the reasoning.
+name: gm-desktop-bundle
+
+on:
+  push:
+    branches: [dev, main]
+    paths:
+      - 'apps/gm-desktop/**'
+      - '.github/workflows/gm-desktop-bundle.yml'
+      # The sibling desktop workflow is listed because a change to it can
+      # change the toolchain or the prerequisite set these jobs assume. A
+      # workflow that builds the same crate must react to a change in how that
+      # crate is built.
+      - '.github/workflows/gm-desktop.yml'
+      # The desktop crate consumes the root crate BY PATH
+      # (`gitgit = { path = "../../.." }` in src-tauri/Cargo.toml), so a change
+      # to the root manifest or lockfile can break the cargo build these jobs
+      # run. gm-desktop.yml already lists both for exactly this reason, and
+      # the reason that omission cost this repo a full day of undetected
+      # breakage: the offending commit touched only root `Cargo.toml` and
+      # `Cargo.lock`, so the workflow never ran and nothing noticed.
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      # `src/**` is a deliberate difference from gm-desktop.yml, which does not
+      # list it. The reason is the same path dependency: the desktop binary
+      # links the root crate's library, so a change to `src/**` can break
+      # `tauri build` on macOS and Linux exactly as it can on Windows. A
+      # bundle rebuilt only when `apps/gm-desktop/**` changes proves nothing
+      # about the current `dev`. [PROPOSAL] gm-desktop.yml has the same gap and
+      # could adopt this; that file is not owned by this lane.
+      - 'src/**'
+  pull_request:
+    branches: [dev, main]
+    paths:
+      - 'apps/gm-desktop/**'
+      - '.github/workflows/gm-desktop-bundle.yml'
+      - '.github/workflows/gm-desktop.yml'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'src/**'
+  # A first run on a pull request from this branch is the intended way to
+  # exercise it, but a manual trigger costs nothing and does not need a branch.
+  workflow_dispatch:
+
+# Own group, and NOT cancel-in-progress. A push to the same ref must not kill
+# a macOS release build that is eight minutes in; the fast gate in
+# gm-desktop.yml keeps that behaviour because a 25-second lint step is cheap to
+# redo and a 15-minute installer is not.
+concurrency:
+  group: gm-desktop-bundle-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # macOS
+  # ---------------------------------------------------------------------------
+  dmg:
+    name: dmg (unsigned, ad-hoc app)
+    runs-on: macos-latest
+    # Longer than the msi job's 45: the hosted macOS image is the slowest of
+    # the three, and this job additionally mounts the produced image to verify
+    # it. [UNVERIFIED-FACT] That ranking is an expectation, not a measurement.
+    timeout-minutes: 60
+    env:
+      # No Apple certificate exists for this project and none is configured, so
+      # there is nothing to sign with. Tauri's docs state the identity can be
+      # given as `APPLE_SIGNING_IDENTITY` or `bundle.macOS.signingIdentity`, and
+      # that the pseudo-identity `-` produces an AD-HOC signature
+      # (https://v2.tauri.app/distribute/sign/macos/, "Ad-Hoc Signing"). The
+      # same page says this matters on Apple Silicon, where apps from the
+      # Internet must be code-signed at all.
+      #
+      # [FACT] With no identity set at all, tauri-bundler does not sign:
+      # `macos/sign.rs::keychain()` returns `Ok(None)` when neither
+      # `APPLE_CERTIFICATE` nor an identity is present
+      # (crates/tauri-bundler/src/bundle/macos/sign.rs). So this is not
+      # cosmetic — it is what makes the artifact a runnable one rather than an
+      # unsigned arm64 binary.
+      #
+      # [FACT] `-` also stops the bundler trying to sign the DMG itself:
+      # `macos/dmg/mod.rs` guards the DMG signing step with
+      # `identity != Some("-")`.
+      #
+      # NOTARIZATION IS NOT DONE AND IS NOT POSSIBLE HERE.
+      # [FACT] `macos/sign.rs::notarize_auth()` can only produce credentials
+      # from `APPLE_ID` + `APPLE_PASSWORD` + `APPLE_TEAM_ID` or from an App
+      # Store Connect API key, and this project has none. [FACT] Tauri's docs
+      # also state that notarization is required when using a Developer ID
+      # Application certificate, and that ad-hoc signing does not stop macOS
+      # from requiring the user to whitelist the app in Privacy & Security.
+      # The consequence, stated plainly: this .dmg is a build artefact for CI,
+      # not something a user can install without friction.
+      APPLE_SIGNING_IDENTITY: '-'
+    steps:
+      - uses: actions/checkout@v4
+
+      # Same ordering constraint as every other job in this repo: pnpm BEFORE
+      # setup-node, because setup-node shells out to `pnpm store path` to
+      # resolve the cache directory when `cache: 'pnpm'` is set. Install pnpm
+      # afterwards and setup-node fails with "Unable to locate executable
+      # file: pnpm", skipping every later step.
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'pnpm'
+          cache-dependency-path: apps/gm-desktop/pnpm-lock.yaml
+
+      # `--frozen-lockfile` is not negotiable. `package.json` and
+      # `pnpm-lock.yaml` are untouched by this lane, so the lock must satisfy
+      # the manifest exactly; if it does not, this fails here instead of
+      # silently resolving something new and skipping every later gate.
+      - name: Install dependencies
+        working-directory: apps/gm-desktop
+        run: pnpm install --frozen-lockfile
+
+      # `rust-toolchain.toml` at the repo root pins 1.98.1 and rustup honours
+      # it from this directory downwards, so `@stable` installs a toolchain
+      # that is then overridden by the pin. Same shape as the other jobs.
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      # No `pnpm build` step: `tauri.conf.json > build.beforeBuildCommand` is
+      # `pnpm build`, so `tauri build` runs the Vite production build itself.
+      # The msi job relies on the same mechanism.
+      #
+      # `--ci` matches build-msi.ps1's invocation. Note there is no `--locked`
+      # and that is not an oversight: `src-tauri/Cargo.lock` is stale against
+      # the root crate it takes by path, so a `--locked` build fails outright
+      # (docs/reports/2026-10-05-bundle-ci/README.md §7). `tauri build` runs
+      # cargo without `--locked`, so the runner re-resolves and rewrites the
+      # lock. That works, it needs network on the runner, and it means the
+      # artifact is not built from the committed lock.
+      - name: Build the .dmg
+        working-directory: apps/gm-desktop
+        run: pnpm tauri build --bundles dmg --ci
+
+      # Opens the image read-only and checks the .app inside it, which is the
+      # macOS counterpart of the MSI job's `msiexec /a` administrative install:
+      # read the package, install nothing, need no privileges. Fails closed —
+      # if the image cannot be mounted, the job is red, because an artifact we
+      # could not open is not evidence that the bundler worked.
+      - name: Verify the .dmg
+        run: |
+          bash apps/gm-desktop/scripts/verify-bundle.sh \
+            --target dmg \
+            --dir apps/gm-desktop/src-tauri/target/release/bundle/dmg
+
+      # The artifact name comes from the manifest the verify step wrote, so it
+      # cannot drift from what was actually built. A missing or versionless
+      # manifest fails here rather than producing an artifact named
+      # `gm-desktop-dmg-`.
+      - name: Read bundle metadata
+        id: meta
+        run: |
+          set -euo pipefail
+          manifest="apps/gm-desktop/src-tauri/target/release/bundle/dmg/manifest.json"
+          if [ ! -f "$manifest" ]; then
+            echo "::error::no bundle manifest at $manifest"
+            exit 1
+          fi
+          version=$(jq -r '.version // empty' "$manifest")
+          if [ -z "$version" ]; then
+            echo "::error::$manifest records no version"
+            cat "$manifest"
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "signing=$(jq -r '.signing // "unknown"' "$manifest")" >> "$GITHUB_OUTPUT"
+          echo "dmg built, unsigned=${version}" >> "$GITHUB_STEP_SUMMARY"
+
+      # `if-no-files-found: error` on every upload, for the reason the msi job
+      # already states: with the default `warn`, a glob that matches nothing
+      # leaves a GREEN job with no installer at all. A packaging gate that
+      # cannot fail when it produces nothing is not a gate.
+      - name: Upload the .dmg
+        uses: actions/upload-artifact@v4
+        with:
+          name: gm-desktop-dmg-${{ steps.meta.outputs.version }}
+          path: apps/gm-desktop/src-tauri/target/release/bundle/dmg/*.dmg
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload bundle manifest
+        uses: actions/upload-artifact@v4
+        with:
+          name: gm-desktop-dmg-${{ steps.meta.outputs.version }}-manifest
+          path: apps/gm-desktop/src-tauri/target/release/bundle/dmg/manifest.json
+          if-no-files-found: error
+          retention-days: 14
+
+      # Uploaded on failure so a red run is diagnosable without re-running it.
+      # `ignore` is correct here and only here: the job is already red, and
+      # this step exists precisely for the case where the bundle is missing.
+      - name: Upload bundle directory on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gm-desktop-dmg-build-log
+          path: apps/gm-desktop/src-tauri/target/release/bundle/
+          if-no-files-found: ignore
+          retention-days: 7
+
+  # ---------------------------------------------------------------------------
+  # Linux — .deb
+  # ---------------------------------------------------------------------------
+  deb:
+    name: deb (unsigned)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'pnpm'
+          cache-dependency-path: apps/gm-desktop/pnpm-lock.yaml
+
+      - name: Install dependencies
+        working-directory: apps/gm-desktop
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      # The same package set the `build` job in gm-desktop.yml already
+      # installs, verbatim, plus `file`.
+      #
+      # Reusing that list is the point: it has been reviewed in this repo and
+      # a full `tauri build` on Linux is the first thing to exercise it, so
+      # inventing a second list would be guessing. `libwebkit2gtk-4.1-dev`,
+      # `libappindicator3-dev` and `librsvg2-dev` are Tauri's documented Linux
+      # prerequisites (https://v2.tauri.app/start/prerequisites/, Debian tab),
+      # and `patchelf` is required by the bundler.
+      #
+      # `file` is the one addition and it is not a Tauri prerequisite: the
+      # AppImage check calls `file(1)`. It is in the same documented Debian list
+      # above, so adding it here is still following the document rather than
+      # guessing. `dpkg-deb`, needed by the .deb check, comes from `dpkg`, which
+      # is part of the base image; if it were ever absent the verify script
+      # fails with a message saying so rather than skipping the check.
+      - name: Install Tauri Linux prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            file
+
+      - name: Build the .deb
+        working-directory: apps/gm-desktop
+        run: pnpm tauri build --bundles deb --ci
+
+      # `dpkg-deb --info` parses the control fields and `Version:` is asserted
+      # against `tauri.conf.json`; `--contents` must list the real binary above
+      # a size floor plus a freedesktop `.desktop` entry. The Linux bundler
+      # makes no network calls, so this job has no download step and no
+      # upstream rate limit to hit.
+      - name: Verify the .deb
+        run: |
+          bash apps/gm-desktop/scripts/verify-bundle.sh \
+            --target deb \
+            --dir apps/gm-desktop/src-tauri/target/release/bundle/deb
+
+      - name: Read bundle metadata
+        id: meta
+        run: |
+          set -euo pipefail
+          manifest="apps/gm-desktop/src-tauri/target/release/bundle/deb/manifest.json"
+          if [ ! -f "$manifest" ]; then
+            echo "::error::no bundle manifest at $manifest"
+            exit 1
+          fi
+          version=$(jq -r '.version // empty' "$manifest")
+          if [ -z "$version" ]; then
+            echo "::error::$manifest records no version"
+            cat "$manifest"
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "deb built, version=${version}" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload the .deb
+        uses: actions/upload-artifact@v4
+        with:
+          name: gm-desktop-deb-${{ steps.meta.outputs.version }}
+          path: apps/gm-desktop/src-tauri/target/release/bundle/deb/*.deb
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload bundle manifest
+        uses: actions/upload-artifact@v4
+        with:
+          name: gm-desktop-deb-${{ steps.meta.outputs.version }}-manifest
+          path: apps/gm-desktop/src-tauri/target/release/bundle/deb/manifest.json
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload bundle directory on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gm-desktop-deb-build-log
+          path: apps/gm-desktop/src-tauri/target/release/bundle/
+          if-no-files-found: ignore
+          retention-days: 7
+
+  # ---------------------------------------------------------------------------
+  # Linux — AppImage
+  # ---------------------------------------------------------------------------
+  #
+  # WHY THIS IS A SEPARATE JOB AND NOT A SECOND TARGET IN `deb`
+  # =========================================================
+  # [FACT] The AppImage bundler downloads, at build time and on every cold
+  # runner, from crates/tauri-bundler/src/bundle/linux/appimage/linuxdeploy.rs:
+  #   * `AppRun-{arch}` from github.com/tauri-apps/binary-releases — a hard
+  #     failure if the download fails, the error is propagated with `?`;
+  #   * `linuxdeploy-{arch}.AppImage`, pinned to linuxdeploy commit 07333c6 —
+  #     also a hard failure;
+  #   * `linuxdeploy-plugin-appimage-{arch}.AppImage` from the linuxdeploy
+  #     `continuous` release — this one is NOT fatal: the code catches the
+  #     error, logs it, and falls back to a built-in version.
+  # So two mandatory GitHub downloads and one optional one, on a build that has
+  # to be fast, with no retry and no cache in this workflow.
+  #
+  # [FACT] One real flake risk is already designed out: the bundler runs
+  # linuxdeploy with `APPIMAGE_EXTRACT_AND_RUN=1` and passes
+  # `--appimage-extract-and-run`, so the AppImage tooling does not need FUSE.
+  #
+  # [INFERENCE] Rate-limiting or a transient 5xx on either mandatory download
+  # turns this job red with a build error that says nothing about the repo.
+  # Keeping it in its own job means that failure is attributable to `appimage`
+  # alone: `dmg` and `deb` still report independently and neither can hide the
+  # other's result. That is the same reasoning the msi lane used to justify
+  # not chaining `msi` behind `build` with `needs`
+  # (docs/reports/2026-10-05-bundle-ci/README.md §6), and it is why no job
+  # here has a `needs:`. The cost is a second cold release build of the same
+  # crate tree on ubuntu-latest.
+  #
+  # [PROPOSAL] The cheaper shape is one Linux job building
+  # `--bundles deb,appimage` (one compile, two checks, and the .deb uploaded
+  # before the AppImage check runs). It trades the attribution above for
+  # roughly one release build's worth of runner minutes. Not taken here
+  # because a network flake in the AppImage download would then also redden the
+  # .deb gate, which is the outcome this file exists to avoid. If the runtime
+  # cost turns out to matter, that is the change to make — and it is a
+  # two-line edit.
+  appimage:
+    name: appimage (unsigned)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'pnpm'
+          cache-dependency-path: apps/gm-desktop/pnpm-lock.yaml
+
+      - name: Install dependencies
+        working-directory: apps/gm-desktop
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      # Identical to the `deb` job above, and identical to the `build` job in
+      # gm-desktop.yml, for the same reasons. Repeated rather than extracted
+      # into a composite action on purpose: a composite would be a new
+      # indirection in a file whose whole value is being readable, and the
+      # drift risk is nil while the two lists sit eleven lines apart.
+      - name: Install Tauri Linux prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            file
+
+      - name: Build the .AppImage
+        working-directory: apps/gm-desktop
+        run: pnpm tauri build --bundles appimage --ci
+
+      # ELF magic + `file` reporting a 64-bit ELF executable + a size floor.
+      # The magic is what fails an "AppImage" that is really the Vite web
+      # bundle, and the tightened `file` match is what fails a file whose only
+      # correct property is four magic bytes.
+      - name: Verify the .AppImage
+        run: |
+          bash apps/gm-desktop/scripts/verify-bundle.sh \
+            --target appimage \
+            --dir apps/gm-desktop/src-tauri/target/release/bundle/appimage
+
+      - name: Read bundle metadata
+        id: meta
+        run: |
+          set -euo pipefail
+          manifest="apps/gm-desktop/src-tauri/target/release/bundle/appimage/manifest.json"
+          if [ ! -f "$manifest" ]; then
+            echo "::error::no bundle manifest at $manifest"
+            exit 1
+          fi
+          version=$(jq -r '.version // empty' "$manifest")
+          if [ -z "$version" ]; then
+            echo "::error::$manifest records no version"
+            cat "$manifest"
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "appimage built, version=${version}" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload the .AppImage
+        uses: actions/upload-artifact@v4
+        with:
+          name: gm-desktop-appimage-${{ steps.meta.outputs.version }}
+          path: apps/gm-desktop/src-tauri/target/release/bundle/appimage/*.AppImage
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload bundle manifest
+        uses: actions/upload-artifact@v4
+        with:
+          name: gm-desktop-appimage-${{ steps.meta.outputs.version }}-manifest
+          path: apps/gm-desktop/src-tauri/target/release/bundle/appimage/manifest.json
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload bundle directory on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gm-desktop-appimage-build-log
+          path: apps/gm-desktop/src-tauri/target/release/bundle/
+          if-no-files-found: ignore
+          retention-days: 7
