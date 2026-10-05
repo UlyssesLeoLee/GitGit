@@ -106,13 +106,27 @@ jobs:
       # coverage reporter's own `text` output is not proof that tests ran,
       # because a filtered run matching zero files exits 0 and prints a
       # table. This asserts the run reported real work.
+      #
+      # `[FACT]` The ANSI stripping is not decoration, and the first
+      # version of this step failed on CI because of it. Vitest colours
+      # its output when `CI` is set, so the captured line is
+      #
+      #     ESC[2m      Tests ESC[22m ESC[1mESC[32m378 passedESC[39m...
+      #
+      # and a `Tests +[1-9][0-9]* passed` pattern cannot match across
+      # those escape sequences. It matched locally and failed on the
+      # runner, which is the whole argument for running a gate under the
+      # conditions it will actually run in. Measured locally by forcing
+      # `CI=true` and colour on.
       - name: Coverage gate
         run: |
           pnpm test:coverage 2>&1 | tee /tmp/gmd-coverage.txt
-          # `[FACT]` `grep -qE 'Tests +[1-9][0-9]* passed'` — vitest prints
-          # `Tests  378 passed (378)`. Zero-match runs print no such line.
-          if ! grep -qE 'Tests +[1-9][0-9]* passed' /tmp/gmd-coverage.txt; then
+          sed 's/\x1b\[[0-9;]*m//g' /tmp/gmd-coverage.txt > /tmp/gmd-coverage.plain.txt
+          # `[FACT]` vitest prints `Tests  378 passed (378)`. A run that
+          # matched zero test files prints no such line.
+          if ! grep -qE 'Tests +[1-9][0-9]* passed' /tmp/gmd-coverage.plain.txt; then
             echo "::error::the coverage run reported no passing tests, so its table proves nothing"
+            tail -40 /tmp/gmd-coverage.plain.txt
             exit 1
           fi
 
