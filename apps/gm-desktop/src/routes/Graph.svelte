@@ -21,7 +21,7 @@
     loadGraph,
     selectNode,
     setQuery,
-    getSelected,
+    selectFrom,
     neighbors,
   } from '$lib/stores/graph';
   import { catalog } from '$lib/i18n';
@@ -78,7 +78,13 @@
     }
   }
 
-  const selected = $derived(getSelected());
+  // `[FACT]` `selectFrom($graph)`, not `getSelected()`. `getSelected()`
+  // reads the store via `get()`, which tracks nothing, so wrapping it in
+  // `$derived` produced a derived with zero dependencies that Svelte
+  // evaluated once at mount and never invalidated — the detail pane was
+  // permanently stuck on its empty state. Passing `$graph` in is what
+  // makes this derived track the store. See `selectFrom` in the store.
+  const selected = $derived(selectFrom($graph));
   const nbh = $derived(neighbors($graph.selected, 'both'));
   const incoming = $derived(neighbors($graph.selected, 'in'));
   const outgoing = $derived(neighbors($graph.selected, 'out'));

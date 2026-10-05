@@ -78,10 +78,31 @@ export function setQuery(q: string): void {
   graph.update((g) => ({ ...g, query: q }));
 }
 
-export function getSelected(): GraphNode | null {
-  const g = get(graph);
+/**
+ * Resolve the currently selected node from a given graph state.
+ *
+ * `[FACT]` This exists as a separate export from `getSelected()` because
+ * of a measured bug, not for tidiness. `getSelected()` reads the store
+ * with `get(graph)`, which is a one-time read and establishes **no**
+ * reactive dependency. `Graph.svelte` was calling it as
+ * `$derived(getSelected())`; that derived had zero tracked dependencies,
+ * so Svelte evaluated it once at mount — when `selected` is `null` — and
+ * never invalidated it again. The detail pane was therefore stuck in its
+ * empty state for the lifetime of the component: clicking a node updated
+ * the store and the list highlighting, but never rendered the node's
+ * details.
+ *
+ * Taking the state as a parameter is what makes the caller's `$derived`
+ * track `$graph`. `getSelected()` delegates here so imperative callers
+ * keep working and there is only one copy of the lookup.
+ */
+export function selectFrom(g: GraphState): GraphNode | null {
   if (!g.selected) return null;
   return g.nodes.find((n) => n.id === g.selected) ?? null;
+}
+
+export function getSelected(): GraphNode | null {
+  return selectFrom(get(graph));
 }
 
 export interface Neighbors {
