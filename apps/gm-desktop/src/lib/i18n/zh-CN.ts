@@ -208,6 +208,8 @@ const zh: Readonly<Record<string, string>> = {
   'review.providerLabel': 'Provider',
   'review.modelLabel': '模型（可选）',
   'review.modelPlaceholder': '使用 provider 默认值',
+  'review.baseUrlLabel': 'Base URL（可选）',
+  'review.baseUrlPlaceholder': '使用 provider 默认值',
   'review.start': '开始评审',
   'review.stop': '停止',
   'review.starting': '启动中…',
@@ -223,6 +225,7 @@ const zh: Readonly<Record<string, string>> = {
   'review.noKey': '未找到 API key。请在启动应用的环境中设置 GITGIT_AI_API_KEY —— 本界面不接收 key。',
   'review.truncated': '内容过长，显示已截断。',
   'review.invalidDiff': '请先粘贴 diff。',
+  'review.invalidBaseUrl': '请输入 http(s) 开头的 URL，留空则使用 provider 默认值。',
 };
 
 export default zh;

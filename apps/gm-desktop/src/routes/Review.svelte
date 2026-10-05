@@ -22,20 +22,62 @@
   let diff = $state('');
   let provider = $state<string>('openai');
   let model = $state('');
+  let baseUrl = $state('');
   /** Local, pre-flight validation only. The Rust side validates again. */
   let localError = $state<string | null>(null);
 
   const busy = $derived(isBusy($review));
+
+  /**
+   * Reject a base URL that cannot be parsed as an http(s) URL, and any
+   * scheme that is not http(s).
+   *
+   * `[FACT]` `base_url` decides where the review diff — untrusted user
+   * content that may contain code, paths, and (despite the redaction
+   * pass) residual secrets — is transmitted. `ProviderSpec::with_base_url`
+   * accepts any string and the request goes to `{base_url}/chat/completions`,
+   * so a typo here sends it somewhere real rather than nowhere.
+   *
+   * `[FACT]` `file://` and `javascript:` are not merely useless: reqwest
+   * would fail on them, but only after the user waited for the round trip
+   * and read an error that names the scheme rather than the typo. The
+   * blank case is the common one and must stay valid — it means "use the
+   * preset's own base URL", which is what every provider without an
+   * override should do.
+   */
+  function validateBaseUrl(raw: string): string | null {
+    const trimmed = raw.trim();
+    if (trimmed === '') return null;
+    let parsed: URL;
+    try {
+      parsed = new URL(trimmed);
+    } catch {
+      return $catalog['review.invalidBaseUrl'];
+    }
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      return $catalog['review.invalidBaseUrl'];
+    }
+    return null;
+  }
 
   async function onStart(): Promise<void> {
     if (diff.trim().length === 0) {
       localError = $catalog['review.invalidDiff'];
       return;
     }
+    const baseUrlError = validateBaseUrl(baseUrl);
+    if (baseUrlError !== null) {
+      localError = baseUrlError;
+      return;
+    }
     localError = null;
+    const trimmedBase = baseUrl.trim();
     await startReview(diff, {
       provider,
       model: model.trim() === '' ? null : model.trim(),
+      // Blank means "the preset's own base URL", which is the Rust
+      // contract: `None` keeps `ProviderSpec` unmodified.
+      baseUrl: trimmedBase === '' ? null : trimmedBase,
     });
   }
 
@@ -95,6 +137,27 @@
           placeholder={$catalog['review.modelPlaceholder']}
           bind:value={model}
           data-testid="review-model"
+        />
+      </div>
+
+      <!-- Base URL override. Shown unconditionally rather than only for
+           the local presets: a self-hosted OpenAI-compatible gateway, a
+           corporate proxy, or a gateway on a non-default port is just as
+           real a deployment, and the registry has no notion of "which
+           providers might need this". The placeholder carries the
+           default so leaving it blank is the obvious path. -->
+      <div class="w-full">
+        <label class="block text-sm font-medium" for="review-base-url">
+          {$catalog['review.baseUrlLabel']}
+        </label>
+        <input
+          id="review-base-url"
+          type="url"
+          class="mt-1 w-full rounded-md border border-slate-300 px-2 py-1 text-sm dark:border-slate-600 dark:bg-slate-900"
+          placeholder={$catalog['review.baseUrlPlaceholder']}
+          bind:value={baseUrl}
+          disabled={busy}
+          data-testid="review-base-url"
         />
       </div>
     </div>
