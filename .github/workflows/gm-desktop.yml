@@ -5,7 +5,12 @@
 # changes were invisible to CI. That gap is what hid a long-standing
 # production build failure (see the note on the cargo step below).
 #
-# Two jobs, deliberately split by cost:
+# Three jobs, deliberately split by cost:
+#
+#   `audit` (ubuntu-latest) scans the *Tauri* crate's own lockfile. The root
+#   `audit` job in `rust-backend.yml` cannot: the root manifest is
+#   explicitly NOT a workspace, so the desktop app's 650 dependencies were
+#   never scanned. See the comment on that job.
 #
 #   `build` (ubuntu-latest) is the *lightweight* gate: lint, svelte-check,
 #   unit tests, the Vite production build, and the Rust fmt/clippy/test
@@ -53,6 +58,67 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Advisory scan for the *Tauri* crate's own dependency tree.
+  #
+  # [FACT] The root `audit` job in `rust-backend.yml` does not cover this.
+  # The root `Cargo.toml` says so itself: "This is intentionally a single
+  # crate, NOT a workspace", and `apps/gm-desktop/src-tauri/` has its own
+  # `Cargo.lock` (650 crate dependencies, measured). Running `cargo audit`
+  # at the repo root reads the root lockfile only, so every dependency
+  # reachable *only* through the desktop app was invisible to it.
+  #
+  # [FACT] Measured on the current lockfile: 0 vulnerabilities, 8
+  # unmaintained/unsound/yanked warnings. So this job is not closing a
+  # known hole — it is making "clean" an enforced property rather than a
+  # coincidence. The desktop app is the only thing most users install, so
+  # its tree is the one that matters commercially.
+  #
+  # Kept as its own job, mirroring the reasoning in `rust-backend.yml`: a
+  # one-off `cargo install cargo-audit` plus an advisory-DB fetch should
+  # fail in seconds, not after the full Rust and frontend gates, and a
+  # failure here must not cancel the test signal.
+  audit:
+    name: cargo audit (tauri crate)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@1.98.1
+
+      - name: Install cargo-audit
+        # Pinned to the same version `rust-backend.yml` pins, for the same
+        # reason: a floating cargo-audit silently changes the rule set, and
+        # a security gate whose verdicts drift with the tool's release is
+        # not a gate.
+        run: cargo install cargo-audit --locked --version 0.22.2
+
+      - name: Audit the Tauri crate's dependencies
+        # `--file` is the whole point of this job: without it, `cargo audit`
+        # in `src-tauri` would still be correct (it reads the nearest
+        # manifest), but stating it makes the scope explicit at the point
+        # where a reader might otherwise assume the root lock was checked.
+        #
+        # `set +e` around the pipeline is required: the runner's default
+        # `bash -e` would abort on the failure before PIPESTATUS could be
+        # read, and the pipe status is what tells us cargo-audit's own
+        # verdict rather than tee's.
+        working-directory: apps/gm-desktop/src-tauri
+        run: |
+          set +e
+          cargo audit --file Cargo.lock 2>&1 | tee /tmp/cargo-audit-desktop.txt
+          status=${PIPESTATUS[0]}
+          set -e
+          if [ "$status" -ne 0 ]; then
+            if grep -qE '^(Crate|ID):' /tmp/cargo-audit-desktop.txt; then
+              echo "::error::RUSTSEC advisories are present in apps/gm-desktop/src-tauri/Cargo.lock (cargo audit exit $status)"
+            else
+              echo "::error::cargo audit could not complete (exit $status) — the advisory database was likely unreachable, so this gate checked nothing"
+            fi
+            exit "$status"
+          fi
+
   build:
     name: lint + check + test + build + cargo check
     runs-on: ubuntu-latest
