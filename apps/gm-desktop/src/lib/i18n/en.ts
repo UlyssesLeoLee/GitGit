@@ -88,6 +88,19 @@ const en: Readonly<Record<string, string>> = {
   'repos.error.invalidName': 'That repository name is not valid, so nothing was opened.',
   'repos.error.invalidTarget': 'That diff comparison is not one of staged, work tree or HEAD.',
   'repos.error.generic': 'The working tree could not be read. Check that the path is a git checkout and try again.',
+  'repos.error.notWorkTree.noRoot': 'No working-tree folder is set, so the app is reading its own bare repository. Pick the checkout that has your working files.',
+  'repos.error.notWorkTree.withRoot': 'The folder you picked is not a git working tree. Pick a checkout, or clear the setting to go back to the default.',
+
+  // 工作区根目录选择器（T4 后续）
+  'repos.root.label': 'Working-tree folder',
+  'repos.root.hint': 'The folder your repository names are looked up in, for the status and diff views. gitgit creates its own repositories bare, so a bare one has no working tree to show — point this at a checkout.',
+  'repos.root.unset': 'Not set — the app uses its own repositories folder',
+  'repos.root.choose': 'Choose folder…',
+  'repos.root.clear': 'Clear',
+  'repos.root.chose': 'Working-tree folder set',
+  'repos.root.cleared': 'Working-tree folder cleared',
+  'repos.root.invalid': 'That folder could not be used; the previous setting was kept.',
+  'repos.root.pickerFailed': 'The folder picker could not be opened.',
 
   'vault.heading': 'Credential vault',
   'vault.subhead': 'FileVault backend · equivalent to gitai key CLI',

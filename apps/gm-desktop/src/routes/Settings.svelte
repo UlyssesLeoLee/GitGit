@@ -13,6 +13,7 @@
   import { setLocale } from '$lib/stores/locale';
   import ThemeToggle from '$lib/components/ThemeToggle.svelte';
   import LocaleSwitcher from '$lib/components/LocaleSwitcher.svelte';
+  import WorktreeRootPicker from '$lib/components/WorktreeRootPicker.svelte';
   import type { AdminPasswordStatus, AppInfo } from '$lib/api/types';
   import { catalog } from '$lib/i18n';
 
@@ -99,6 +100,14 @@
           {$catalog['settings.adminPasswordClear']}
         </button>
       </div>
+    </div>
+
+    <div class="card">
+      <!-- The persistent home for the working-tree root. The same
+           control also appears in the working-tree error panel, which
+           is where a user meets the problem in the first place. -->
+      <h2 class="mb-2 text-sm font-semibold">{$catalog['repos.root.label']}</h2>
+      <WorktreeRootPicker />
     </div>
 
     <div class="card">

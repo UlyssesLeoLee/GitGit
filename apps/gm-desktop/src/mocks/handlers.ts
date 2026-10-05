@@ -31,6 +31,12 @@ interface MockStore {
   session: string | null;
   /** Monotonic id source for mock review sessions. */
   sessionSeq: number;
+  /**
+   * What the directory picker returns in dev mode. A string is a
+   * picked folder; `null` is a cancelled dialog, which the UI must
+   * treat as "nothing happened" rather than as a failure.
+   */
+  dialogResult: string | string[] | null;
 }
 
 declare global {
@@ -92,6 +98,7 @@ function initStore(): MockStore {
     ]),
     session: null,
     sessionSeq: 0,
+    dialogResult: '/home/user/checkouts/demo',
   };
 }
 
@@ -215,7 +222,12 @@ async function handle(cmd: string, args?: Record<string, unknown>): Promise<unkn
      */
     case 'repo_status': {
       const name = String(args?.name);
-      if (name === 'hello-world') {
+      // A caller-supplied root means the user pointed the app at a
+      // checkout, so the bare-repo refusal no longer applies. This is
+      // the dev-mode shape of the real command, which takes the same
+      // `root` argument for the same reason.
+      const root = args?.root == null ? '' : String(args.root);
+      if (name === 'hello-world' && root === '') {
         // Stands in for a bare repository: real refs and commits, no
         // working tree. The page must show the remedy, not a crash.
         throw {
@@ -321,6 +333,21 @@ async function handle(cmd: string, args?: Record<string, unknown>): Promise<unkn
         text: [...body, ''].join('\n'),
       };
     }
+    /* --- Native dialogs (T4 worktree root picker) ---
+     *
+     * `open()` from `@tauri-apps/plugin-dialog` is one `invoke` away,
+     * so the dev-mode mock intercepts it here the same way. There is no
+     * folder to browse under a browser tab, so it returns the fixture
+     * below; a real `null` (cancel) is available by setting
+     * `STORE.dialogResult = null`.
+     */
+    case 'plugin:dialog|open':
+      return clone(STORE.dialogResult);
+    case 'plugin:dialog|message':
+    case 'plugin:dialog|ask':
+    case 'plugin:dialog|confirm':
+      return true;
+
     case 'vault_list': return Array.from(STORE.versions.keys());
     case 'vault_get': {
       const key = String(args?.key);

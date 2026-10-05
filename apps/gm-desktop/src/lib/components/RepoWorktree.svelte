@@ -13,11 +13,15 @@
      for a file git has never seen, so the backend synthesizes a
      new-file diff; the view labels that so the user is not misled into
      thinking git produced it.
+  4. The `root` it reads is not a prop-only value. gitgit's own
+     repositories are bare, so the persisted working-tree root is the
+     difference between a working panel and a dead end; the error
+     panel carries the picker that sets it.
 
   All user-visible strings come from the catalogue.
 -->
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { untrack } from 'svelte';
   import {
     worktree,
     diff,
@@ -28,6 +32,8 @@
     unstagedEntries,
     untrackedEntries,
   } from '$lib/stores/worktree';
+  import { worktreeRoot } from '$lib/stores/worktreeRoot';
+  import WorktreeRootPicker from '$lib/components/WorktreeRootPicker.svelte';
   import { catalog } from '$lib/i18n';
   import { pushToast } from '$lib/stores/toasts';
   import { copyText } from '$lib/utils/clipboard';
@@ -36,7 +42,11 @@
   interface Props {
     /** Repository name, as listed by `list_repos`. */
     name: string;
-    /** Directory the name resolves under. Defaults to the app's repos dir. */
+    /**
+     * Directory the name resolves under. An explicit prop wins; when
+     * absent the persisted working-tree root is used, and when that is
+     * unset the backend falls back to the app's own repos directory.
+     */
     root?: string | null;
   }
   let { name, root = null }: Props = $props();
@@ -47,25 +57,36 @@
 
   const TARGETS: DiffTarget[] = ['staged', 'worktree', 'head'];
 
-  onMount(() => {
+  // The effective root, with the persisted value as the fallback. Both
+  // status and diff go through this, so the two never disagree about
+  // which tree they are describing.
+  const effectiveRoot = $derived(root ?? $worktreeRoot);
+
+  // A `$effect` rather than `onMount`: the fetch has to re-run when the
+  // user picks a different folder, which is the whole point of the
+  // picker. The initial diff is fetched too, not left for the user to
+  // ask for — rendering "no changes for this comparison" before any
+  // request has run would be a claim the page has not earned.
+  $effect(() => {
+    const r = effectiveRoot;
     resetWorktree();
-    void loadStatus(name, root);
-    // The initial diff is fetched too, not left for the user to ask for.
-    // Rendering "no changes for this comparison" before any request has
-    // run would be a claim the page has not earned.
-    void loadDiff(name, target, null, root);
+    void loadStatus(name, r);
+    // `target` is read untracked: it is a choice the user refines with
+    // `chooseTarget`, which already fetches, so tracking it here would
+    // issue a second, unrequested fetch on every target click.
+    void loadDiff(name, untrack(() => target), null, r);
   });
 
   async function refresh(): Promise<void> {
-    await loadStatus(name, root);
-    await loadDiff(name, target, selected, root);
+    await loadStatus(name, effectiveRoot);
+    await loadDiff(name, target, selected, effectiveRoot);
   }
 
   async function chooseTarget(next: DiffTarget): Promise<void> {
     target = next;
     // A path scoped to one comparison is kept: the user is narrowing the
     // same question, not asking a new one.
-    await loadDiff(name, target, selected, root);
+    await loadDiff(name, target, selected, effectiveRoot);
   }
 
   async function openEntry(entry: StatusEntry): Promise<void> {
@@ -78,12 +99,12 @@
     } else if (entry.untracked) {
       target = 'worktree';
     }
-    await loadDiff(name, target, selected, root);
+    await loadDiff(name, target, selected, effectiveRoot);
   }
 
   async function viewAll(): Promise<void> {
     selected = null;
-    await loadDiff(name, target, null, root);
+    await loadDiff(name, target, null, effectiveRoot);
   }
 
   async function copyDiff(): Promise<void> {
@@ -135,6 +156,17 @@
         <p class="mt-1 break-all font-mono text-[11px] text-amber-700/80 dark:text-amber-200/70">
           {$worktree.errorMessage}
         </p>
+      {/if}
+      {#if $worktree.errorKind === 'NotAWorkTree'}
+        <!-- The remedy is the point: a bare repository cannot answer
+             `git status`, and only the user knows where their checkout
+             is, so the control that fixes it lives in this panel. -->
+        <p class="mt-2 text-xs text-amber-800/90 dark:text-amber-100/90" data-testid="wt-root-remedy">
+          {$worktreeRoot ? $catalog['repos.error.notWorkTree.withRoot'] : $catalog['repos.error.notWorkTree.noRoot']}
+        </p>
+        <div class="mt-2">
+          <WorktreeRootPicker compact />
+        </div>
       {/if}
       <button class="btn-secondary mt-2" type="button" onclick={refresh} data-testid="wt-retry">
         {$catalog['repos.error.retry']}

@@ -95,6 +95,19 @@ const zh: Readonly<Record<string, string>> = {
   'repos.error.invalidName': '仓库名不合法·未打开任何目录。',
   'repos.error.invalidTarget': '该差异比较不属于已暂存 / 工作区 / HEAD 之一。',
   'repos.error.generic': '无法读取工作区。请确认该路径是 git 检出目录后重试。',
+  'repos.error.notWorkTree.noRoot': '尚未设置工作区目录，因此当前读到的是应用自建的裸仓库。请选择含有工作文件的那个检出目录。',
+  'repos.error.notWorkTree.withRoot': '所选目录不是 git 工作区。请改选一个检出目录，或清除该设置以恢复默认。',
+
+  // 工作区根目录选择器（T4 后续）
+  'repos.root.label': '工作区目录',
+  'repos.root.hint': '状态与差异视图按仓库名查找时使用的目录。gitgit 自建的仓库是裸仓库，没有工作区可显示——请把它指向一个检出目录。',
+  'repos.root.unset': '未设置 — 使用应用自建的仓库目录',
+  'repos.root.choose': '选择目录…',
+  'repos.root.clear': '清除',
+  'repos.root.chose': '已设置工作区目录',
+  'repos.root.cleared': '已清除工作区目录',
+  'repos.root.invalid': '该目录无法使用，已保留原有设置。',
+  'repos.root.pickerFailed': '无法打开目录选择器。',
 
   // 凭证
   'vault.heading': '凭证管理',
