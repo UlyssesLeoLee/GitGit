@@ -6,6 +6,40 @@
 > **ADR**: [ADR-0020](../adr/0020-v0-gui-tauri-svelte.md)
 > **Started**: 2026-08-26 17:06 JST
 
+> ## 2026-10-05 核验补充（前端测试与启动路径）
+>
+> `[FACT]` **桌面端此前根本无法启动。** `App.svelte` 曾在 `<svelte:head>` 里放
+> `<html lang=... data-theme=...>`。Svelte 把 head 内容编译成 `$.from_html`，
+> 即赋给 `<template>` 的 `innerHTML`，而 HTML 解析器在 "in template" 插入模式下
+> **忽略嵌套的 `<html>` 开始标签**。实测：`t.innerHTML = '<html></html>'` 后
+> `childNodes.length === 0`、`firstChild === null`，Svelte 随即对 `null` 调
+> `.cloneNode()` → `TypeError: Cannot read properties of null (reading 'cloneNode')`，
+> 根组件挂载即抛。WebView2 用同一套规范解析器，所以不是 jsdom 的问题。
+>
+> `[FACT]` 之所以一直没人发现：MSI 能打包、能静默安装、报 exit 0，但**没有任何人启动过装出来的程序**。
+> 而 `App.svelte` 的覆盖率一直是 0%，"完全起不来"因此在测试里完全不可见。
+> 修法见 commit `0e354af`；`lang` 此前无人写入，现由 `stores/locale` 补上。
+>
+> `[FACT]` 另修：`tailwind.config.js` 的 `darkMode` 把 `[data-theme="auto"]`
+> 也列为深色选择器，而 `applyToDocument` 写的是原始模式串，
+> 导致 **auto 模式 + 亮色系统仍渲染深色**。现改为写入解析后的实际调色板。
+>
+> `[FACT]` **覆盖率门禁第一次成为真门禁。** `vite.config.ts` 声明的
+> lines/statements 70、functions 60、branches 55 长期无人求值（CI 跑的是
+> 不带 `--coverage` 的 `pnpm test`，而 `test:coverage` 当时 exit 非零）。
+> 补齐 routes / stores / api 测试后 `All files` 由 42.55% 升至 94.78% lines，
+> `test:coverage` 首次 exit 0，workflow 遂新增独立的 `Coverage gate` step
+> （不与单测 step 合并，避免跑两遍；且守卫 fail-closed，会先剥 ANSI 再校验
+> 确有测试通过）。**阈值未作任何下调。**
+>
+> `[FACT]` 已被测试钉住、尚未修复的产品缺陷（均有独立用例记录现状）：
+> `RepoDetail.svelte:75` 双花括号导致渲染出多余的 `}`；
+> `RepoDetail.svelte:41` clone URL 硬编码 `127.0.0.1:38080` 而未走 `clone_url`；
+> `stores/vault.ts:35` 版本列取的是键的列表下标而非最新版本号；
+> `Vault.svelte:79,86` restore/rotate 后经 `vaultVersions` 复读的仍是缓存，列表不刷新；
+> `Home.svelte:29-36` 多个日志读取共用一个 `refreshing` 标志，较早那次调用的
+> `finally` 会清掉较新那次的锁。
+
 ## 范围（in scope）
 
 V0 = Tauri 2 GUI 骨架 + 两套 API Key（AI provider + Git remote），
