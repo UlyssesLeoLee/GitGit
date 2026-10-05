@@ -421,9 +421,15 @@ $lockAfter = if (Test-Path -LiteralPath $lockFile) {
     (Get-FileHash -LiteralPath $lockFile -Algorithm SHA256).Hash
 } else { $null }
 if ($lockBefore -ne $lockAfter) {
+    # The -f operator belongs INSIDE the parentheses. Written as
+    # `Write-Warning ("...") -f $lockFile` it binds -f as a parameter of
+    # Write-Warning, which does not exist, and the run dies with
+    # "a parameter cannot be found that matches parameter name 'f'" - i.e.
+    # this warning would take down a fresh CI checkout, which is exactly
+    # when it fires.
     Write-Warning ("{0} was rewritten by dependency re-resolution during this build. " +
         "It is NOT committed by this script; commit the refresh deliberately, or the next " +
-        "`--locked` build will fail. See docs/reports/2026-10-05-bundle-ci/README.md.") -f $lockFile
+        "`--locked` build will fail. See docs/reports/2026-10-05-bundle-ci/README.md." -f $lockFile)
 }
 
 $manifest = [ordered]@{
