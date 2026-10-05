@@ -27,6 +27,10 @@ target-regression/
 # concurrent lanes each get their own; without this rule a bare `git add -A`
 # stages several GB of build output.
 target-*/
+# Same idea, dotted form. A lane told to isolate with
+# CARGO_TARGET_DIR=D:\GitGit\.cargo-target-<lane> picks the dotted name
+# naturally, and `target-*/` does not match it.
+.cargo-target-*/
 
 # Local overrides
 .env
