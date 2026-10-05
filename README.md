@@ -62,7 +62,7 @@ gitgit gitai review              # AI 代码评审
 gitgit gitremote add <name> <url>
 ```
 
-顶层参数：`--bind`（默认 `0.0.0.0:8080`，见已知未决问题）、`--repos-dir`、`--vault-file-root`。
+顶层参数：`--bind`（默认 `127.0.0.1:8080`，仅本机；需要局域网访问时显式传 `--bind 0.0.0.0:8080`）、`--repos-dir`、`--vault-file-root`。
 
 ### HTTP API
 
@@ -147,11 +147,17 @@ manifest 640 B / dist 271,164 B，共四个 artifact 并存。
 两者不可能同时为真，本文件因此**不**声明本项目采用何种许可证。
 在冲突解决之前，不应分发本项目。
 
-### P0 — HTTP API 无鉴权，且默认监听所有网卡
+### P0 — HTTP API 无鉴权（默认监听所有网卡的部分已修复）
 
-完整链路已逐行核实：
+**已修复（默认绑定）**：`src/config.rs` 的 `DEFAULT_BIND` 原为 `0.0.0.0:8080`，
+即默认把服务暴露到本机所在的所有网卡。现已改为 `127.0.0.1:8080`，仅本机可达。
+需要局域网访问时显式 `--bind 0.0.0.0:8080`。这与桌面端一直使用的
+`127.0.0.1:38080`（`src-tauri/src/state.rs`）以及仓内架构文档自述的
+「默认仅本机」原则一致。`src/cli.rs` 新增 3 条测试钉住该默认值，
+其中一条专门断言显式通配地址仍然可用——收紧默认不等于移除能力。
 
-- `src/config.rs` `DEFAULT_BIND = "0.0.0.0:8080"`
+**仍未修复（无鉴权）**：完整链路已逐行核实：
+
 - `src/server/api.rs` 中的 `auth_optional` 是 no-op，**从未被调用**，且挂着 `#[allow(dead_code)]`
 - `build_api_router()` 与 `build_router()` 都不加任何鉴权层
 - `GET /api/vault/keys/:key` 会把凭据明文放进 JSON 响应；`DELETE` 与 `POST .../restore` 同样无鉴权
@@ -159,8 +165,9 @@ manifest 640 B / dist 271,164 B，共四个 artifact 并存。
   （`src/config.rs`）
 - 桌面侧的 `bind` 由前端传入且零校验（`state.rs` → `commands/server.rs`）
 
-修复方向是回环默认 + `/api` 强制鉴权 + 凭据外置，但这会改变现有本地无凭据流程，
-属于需要人类拍板的产品决策，尚未实施。
+把默认绑定收回本机，收窄了**默认**暴露面，但只要显式传 `--bind 0.0.0.0:8080`，
+`/api` 依旧是零鉴权且明文返回凭据。剩余部分需要 `/api` 强制鉴权 + 凭据外置，
+会改变现有本地无凭据流程，属于需要人类拍板的产品决策，尚未实施。
 
 细节见 [`SECURITY.md`](SECURITY.md)。
 

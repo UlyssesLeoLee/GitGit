@@ -41,34 +41,48 @@ as permission to publish an unfixed exploit against unreleased software.
 ## Known issues in unreleased code
 
 These were found by reading the code and by running the test suites, and are
-recorded so the state is not misrepresented. None of them is fixed yet.
+recorded so the state is not misrepresented. Where a fix has since landed, the
+entry says so and describes only what is still true.
 
-### The HTTP API has no authentication, and the server binds all interfaces by
-### default
+### The HTTP API has no authentication
 
-`gitgit serve` defaults to `0.0.0.0:8080` (`src/config.rs`, `DEFAULT_BIND`). On
-that router, `/api/*` is mounted with no authentication layer at all
-(`src/server/api.rs`): the only auth helper in the crate, `auth_optional`, is a
-no-op that is never called and is kept alive with `#[allow(dead_code)]`. The
-single place real authentication is enforced is the git push path
-(`require_basic` in `src/server/http.rs`), and that one credential pair is
-hardcoded as `admin` / `admin` (`src/config.rs`).
+> **Partially fixed.** The default bind address was `0.0.0.0:8080` and is now
+> `127.0.0.1:8080`, so a default install is no longer reachable off the machine.
+> The missing authentication on `/api/*` is **unchanged and still open** — anyone
+> who passes `--bind 0.0.0.0:8080` deliberately still gets an unauthenticated API
+> that returns credentials in plaintext. Read the rest of this section as
+> describing what is still true.
+
+`gitgit serve` defaults to `127.0.0.1:8080` (`src/config.rs`, `DEFAULT_BIND`; it
+was `0.0.0.0:8080` until this was corrected, and network exposure remains
+available explicitly via `--bind 0.0.0.0:8080`). On that router, `/api/*` is
+mounted with no authentication layer at all (`src/server/api.rs`): the only auth
+helper in the crate, `auth_optional`, is a no-op that is never called and is kept
+alive with `#[allow(dead_code)]`. The single place real authentication is enforced
+is the git push path (`require_basic` in `src/server/http.rs`), and that one
+credential pair is hardcoded as `admin` / `admin` (`src/config.rs`).
 
 `GET /api/vault/keys/:key` returns the stored credential value in plaintext
 (`src/server/api.rs`, `get_vault_key`), and `DELETE /api/vault/keys/:key` plus
 `POST /api/vault/keys/:key/restore` are equally unauthenticated.
 
-**Impact:** on a default configuration, any host that can reach the machine on
-that port can read, delete, and roll back stored API credentials, and can clone
-any repository. The desktop shell adds a second path to the same outcome: the
-bind string reaches `TcpListener::bind` unvalidated from the frontend
+**Impact:** on a default configuration the server is reachable only from the
+machine itself, which is what the corrected default now guarantees. Once the bind
+is widened — deliberately, with `--bind 0.0.0.0:8080` — any host that can reach the
+machine on that port can read, delete, and roll back stored API credentials, and
+can clone any repository. The desktop shell adds a second path to the same
+outcome: the bind string reaches `TcpListener::bind` unvalidated from the frontend
 (`apps/gm-desktop/src-tauri/src/state.rs` and `commands/server.rs`), so the
 WebView can request a non-loopback bind.
 
-**Status: open, awaiting a decision on the fix shape.** The obvious fix — a
-loopback default, enforced auth on `/api/*`, and credentials sourced from the
-environment instead of compiled in — changes what local development and demos
-can do without credentials, so it is not being changed unilaterally.
+**Status: partially fixed; the authentication half is still open, awaiting a
+decision on the fix shape.** The loopback default has been applied because it is
+strictly more restrictive, is what the desktop shell has always used
+(`127.0.0.1:38080`), and is what this repository's own architecture notes already
+prescribe (`admin_listen: "127.0.0.1:3001"  # 默认仅本机`). What remains —
+enforced auth on `/api/*` and credentials sourced from the environment instead of
+compiled in — changes what local development and demos can do without
+credentials, so it is not being changed unilaterally.
 
 The MinIO backend is dev/test-only and is not part of any release.
 

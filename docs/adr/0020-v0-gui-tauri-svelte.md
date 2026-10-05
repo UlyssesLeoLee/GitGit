@@ -2,7 +2,7 @@
 
 | 字段 | 值 |
 |---|---|
-| **Status** | Accepted (2026-08-26) / Revised (2026-08-30 — Credential Vault → minIO) |
+| **Status** | Accepted (2026-08-26) / Revised (2026-08-30 — Credential Vault → minIO) / Amended (2026-10-05 — bind 默认值，见 §1 修订注记) |
 | **Supersedes** | (无) |
 | **Superseded by** | (无) |
 | **Authors** | Ulysses（一人公司 12 角色 per DEC-008）— Mavis 接手 agent |
@@ -22,6 +22,21 @@ HTTP server：
   无凭证拒绝
 - 走 shell `git` 子进程（ADR-0002 禁纯 Rust 复写）
 - 绑端口 `0.0.0.0:8080`，HTTP Basic auth（admin/admin）
+
+> **修订注记（2026-10-05）**：上一行是 8/25 MVP 的**历史状态**，描述当时
+> 交付的东西，本 ADR 不改写它。两处后来发生了变化，实现与本条已不一致：
+>
+> 1. GUI 从未按本条实现 `0.0.0.0:8080`，桌面端实际一直用
+>    `127.0.0.1:38080`（`apps/gm-desktop/src-tauri/src/state.rs` 的
+>    `DEFAULT_BIND`）。
+> 2. CLI 的 `0.0.0.0:8080` 默认值已于 2026-10-05 改为 `127.0.0.1:8080`
+>    （`src/config.rs` 的 `DEFAULT_BIND`），理由是 `/api/*` 零鉴权且
+>    `GET /api/vault/keys/:key` 明文返回凭据，通配地址不应是默认。
+>    显式 `--bind 0.0.0.0:8080` 仍可暴露到网络。
+>
+> 本条「HTTP Basic auth（admin/admin）」在 `/api/*` 上**至今未实现**：
+> `auth_optional` 是 no-op，从未被调用。详见 `SECURITY.md` 与 `README.md`
+> 的已知未决问题。
 
 需求（用户 8/26 17:00 拍板）：
 

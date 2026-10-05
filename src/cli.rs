@@ -15,7 +15,8 @@ use crate::config::{DEFAULT_BIND, DEFAULT_REPOS_DIR, DEFAULT_VAULT_FILE_ROOT};
     long_about = None
 )]
 pub struct Cli {
-    /// Bind address for `serve`. Default: 0.0.0.0:8080
+    /// Bind address for `serve`. Default: 127.0.0.1:8080 (loopback only;
+    /// pass `--bind 0.0.0.0:8080` to expose it on the network)
     #[arg(long, global = true, default_value = DEFAULT_BIND)]
     pub bind: String,
 
@@ -248,4 +249,49 @@ pub enum KeyCommand {
     /// List known keys (per super-trait `Vault::list`).
     #[command(name = "list-keys")]
     ListKeys,
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod tests {
+    use super::*;
+    use clap::Parser;
+
+    /// `[FACT]` The default bind was `0.0.0.0:8080`, which put every
+    /// interface of every attached network on the wire for a server
+    /// whose `/api/*` has no authentication layer and whose
+    /// `GET /api/vault/keys/:key` returns stored credentials. This
+    /// parses the real command line rather than reading the constant, so
+    /// it pins what a user actually gets when they omit `--bind` — a
+    /// constant-only assertion would still pass if the clap
+    /// `default_value` were changed to something else.
+    #[test]
+    fn serve_defaults_to_loopback_rather_than_every_interface() {
+        let cli = Cli::try_parse_from(["gitgit", "serve"]).unwrap();
+        assert_eq!(
+            cli.bind, "127.0.0.1:8080",
+            "omitting --bind must not expose the server beyond this machine"
+        );
+        assert!(
+            !cli.bind.starts_with("0.0.0.0"),
+            "a wildcard bind is the condition this test exists to prevent"
+        );
+    }
+
+    /// `[FACT]` Hardening the default must not remove the capability.
+    /// Network exposure stays available, one explicit flag away — the
+    /// point is that it stops being what you get by accident.
+    #[test]
+    fn an_explicit_wildcard_bind_is_still_accepted() {
+        let cli = Cli::try_parse_from(["gitgit", "--bind", "0.0.0.0:8080", "serve"]).unwrap();
+        assert_eq!(cli.bind, "0.0.0.0:8080");
+    }
+
+    /// `[FACT]` Any loopback address the caller types is honoured, so the
+    /// default is a starting point rather than a fixed port contract.
+    #[test]
+    fn an_explicit_loopback_bind_is_honoured() {
+        let cli = Cli::try_parse_from(["gitgit", "--bind", "127.0.0.1:9999", "serve"]).unwrap();
+        assert_eq!(cli.bind, "127.0.0.1:9999");
+    }
 }

@@ -5,7 +5,35 @@ use std::path::PathBuf;
 use crate::error::{GitGitError, Result};
 
 /// Bind address the server listens on.
-pub const DEFAULT_BIND: &str = "0.0.0.0:8080";
+///
+/// `[FACT]` Was `0.0.0.0:8080`, which made every interface of every
+/// network the machine was attached to reachable by default — with no
+/// authentication layer on `/api/*` (`src/server/api.rs`:
+/// `auth_optional` is a no-op, is never called, and carries
+/// `#[allow(dead_code)]`) and with `GET /api/vault/keys/:key` returning
+/// stored credentials in the clear. A default that exposes a
+/// credential store to the local network is not a default any product
+/// should ship.
+///
+/// Loopback is the safe default, and it is also what this repository's
+/// own architecture notes already prescribe
+/// (`docs_archive_rust_impl_2026_08_26/architecture/tech-selection.md`:
+/// `admin_listen: "127.0.0.1:3001"  # 默认仅本机`) and what the desktop
+/// shell has always used (`apps/gm-desktop/src-tauri/src/state.rs`:
+/// `127.0.0.1:38080`). Only the CLI disagreed.
+///
+/// Exposure is still one flag away, and deliberately explicit:
+/// `gitgit serve --bind 0.0.0.0:8080`. Opting in to network exposure is
+/// now something a person types on purpose rather than something they
+/// inherit by omitting an argument.
+///
+/// `[UNVERIFIED-FACT]` The default was changed on the grounds that no
+/// code in this repository depends on the wildcard address — the only
+/// occurrences were this constant and three prose references. Any
+/// existing deployment relying on LAN reachability without passing
+/// `--bind` will stop being reachable; that is the intended effect, not
+/// a regression, and `--bind 0.0.0.0:8080` restores it.
+pub const DEFAULT_BIND: &str = "127.0.0.1:8080";
 
 /// Subdirectory under the current working directory where bare repos live.
 pub const DEFAULT_REPOS_DIR: &str = "repos";
@@ -30,7 +58,7 @@ pub const ADMIN_PASS: &str = "admin";
 /// Resolved, validated configuration for one server invocation.
 #[derive(Debug, Clone)]
 pub struct Config {
-    /// Address to bind (e.g. `0.0.0.0:8080`).
+    /// Address to bind (e.g. `127.0.0.1:8080`).
     pub bind: String,
     /// Directory under which bare repos are stored (`<dir>/<name>.git/`).
     pub repos_dir: PathBuf,
