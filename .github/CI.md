@@ -1,10 +1,16 @@
 # CI 接入指南 (V0.1)
 
 本仓 GitHub Actions CI 由 `feature/gm-console-v0.1` merge 进 dev 后
-落地。两份 workflow 在 `.github/workflows/`:
+落地。**目前是三份 workflow**（`[FACT]` 2026-10-05 核验 `.github/workflows/` 目录）:
 
 - **`gm-console.yml`** — 网页版 CI (typecheck / lint / test / build)
-- **`rust-backend.yml`** — Rust 后端 CI (fmt / clippy / test / release build)
+- **`rust-backend.yml`** — Rust 后端 CI (fmt / clippy / test / release build / audit)
+- **`gm-desktop.yml`** — 桌面端 CI (`build` = lint / svelte-check / test / build / cargo check;
+  `msi` = Windows 上真实 release 打包并校验产物)
+
+> 下方「当前状态」一节记录的是 **2026-10-02 时点**的状态，当时只有前两份 workflow，
+> 且两者各 4 次 run 全红。该历史记录保留原样，未随本文修订而改写；
+> 其后的实测结论见「修复后状态」及更晚 commit 的报告。
 
 > `[FACT]` 注意用词：**workflow 文件"落地"了，但 CI 并没有"就位"。**
 > 落地的是 YAML 定义；实际门禁一次都没跑通（8 次 run 全红）。

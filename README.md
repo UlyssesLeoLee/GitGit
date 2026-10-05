@@ -1,152 +1,231 @@
 ﻿# GitGit
 
-> 山寨的 Git —— 但真正在做的是《AI-Native Engineering Platform 需求定义书》
+本地优先的 Git HTTP 服务器 + 版本化凭据保险库 + Tauri 桌面端。
 
-本仓库目前的主要内容不是代码，而是一份完整走完 **13 个主阶段 + 2 个补充阶段** 的产品需求调研与定义程序，产出对象是一个暂命名为 **AI-Native Engineering Platform** 的、Local-First / Cloud-Ready / Git-Native / AI-Native / Agent-Native / Graph-Native 的可自托管软件工程平台的正式需求定义书。
-
-> ## ⚠️ 文档状态说明（2026-10-02 核验）
+> **状态：可运行的 MVP，尚未达到可发布状态。**
 >
-> 下面列出的需求定义书与设计书，描述的是**早期 14-crate 架构设计**。项目已收敛为
-> **单一 crate**（`Cargo.toml` 中显式注明「intentionally a single crate, NOT a workspace」），
-> 14-crate 设计连同 187 个文件一起归档在 [`docs_archive_rust_impl_2026_08_26/`](docs_archive_rust_impl_2026_08_26/)。
->
-> 因此下文所有 `docs_archive_rust_impl_2026_08_26/...` 链接**指向历史设计，不是当前实现**。
-> 其中若干技术细节与现有代码**已经不一致** —— 最显著的是被归档的技术选型文档仍列出
-> `sqlx` 与 `gix`，而 `Cargo.toml` 中两者都不存在（实际用的是 shell `git` 子进程 + `rust-s3`）。
-> 阅读时请以代码为准。
->
-> **当前有效的文档**：
->
-> | 目录 | 内容 |
-> | --- | --- |
-> | [`docs/adr/`](docs/adr/) | 现行架构决策记录（ADR-0001 / 0020–0023） |
-> | [`docs/plan/v0-tasks.md`](docs/plan/v0-tasks.md) | V0 任务分解，**带证据标注的实测状态** |
-> | [`docs/reports/`](docs/reports/) | 各批次实现报告与回归测试记录 |
-> | [`.github/CI.md`](.github/CI.md) | 三个 CI workflow 的实测状态与已知限制 |
+> 本仓库有真实实现、真实测试和真实 CI 门禁，并且能在 Windows 上产出可安装的 MSI。
+> 但仍有 **两个 P0 阻断项未解决**（许可证声明冲突、HTTP API 无鉴权且默认监听所有网卡），
+> 详见 [已知未决问题](#已知未决问题)。在这些关闭之前，本项目**不应**被当作可商售产品分发。
+> 另有一条 P1：Windows 安装包未做代码签名。
 
-所有产出物位于 [`docs_archive_rust_impl_2026_08_26/requirements/`](docs_archive_rust_impl_2026_08_26/requirements/)。
+本文件只陈述**实测**状态。凡本文出现数字，均为在指定 commit 上跑出来的，不是估计值。
+未能验证的一律写在「已知未决问题」里，不写在正文里。
 
-设计阶段产出物位于 [`docs_archive_rust_impl_2026_08_26/design/`](docs_archive_rust_impl_2026_08_26/design/)。**严格按照日本 IPA 共通框架 2013（独立行政法人情报处理推进机构 / Information-technology Promotion Agency）编写，全部使用中文书写**。包含：
+## 仓库结构
 
-- **基本设计书**（外部设计）：[`docs_archive_rust_impl_2026_08_26/design/basic-design/`](docs_archive_rust_impl_2026_08_26/design/basic-design/) — 16 章正文 + 4 附录（共 20 个文件），依据 IPA 共通框架 2013 的 `系统方式设计过程` (P3)。含 [API 设计](docs_archive_rust_impl_2026_08_26/design/basic-design/11-api-design.md)、[App 群组信息互通设计](docs_archive_rust_impl_2026_08_26/design/basic-design/12-app-group-intercommunication.md)、[App 集群与可热插拔架构](docs_archive_rust_impl_2026_08_26/design/basic-design/13-app-cluster-and-plugins.md) 与 [管理员运维界面](docs_archive_rust_impl_2026_08_26/design/basic-design/14-admin-ops-ui.md) 四个独立专章，以及 [Appendix C — IPA 过程·交付物 对照表](docs_archive_rust_impl_2026_08_26/design/basic-design/appendix-c-ipa-mapping.md) 和 [Appendix D — 用语集](docs_archive_rust_impl_2026_08_26/design/basic-design/appendix-d-glossary.md) 两个 IPA 对齐附录。
-- **详细设计书**（内部设计）：[`docs_archive_rust_impl_2026_08_26/design/detailed-design/`](docs_archive_rust_impl_2026_08_26/design/detailed-design/) — 14 个分章节文件，把基本设计细化为可实现的模块、类、函数、SQL DDL、状态机、错误处理等规格，依据 IPA 共通框架 2013 的 `软件方式设计过程` (P4) + `软件详细设计过程` (P5)。含 [App Registry & Plugin Loader](docs_archive_rust_impl_2026_08_26/design/detailed-design/12-app-registry-and-plugin-loader.md) 与 [Admin API & Ops UI](docs_archive_rust_impl_2026_08_26/design/detailed-design/13-admin-api-and-ops-ui.md) 两个新增专章，覆盖 App 集群 + 中心事件总线 + Admin 运维界面的可实现规格。
-- **架构决策 / 技术选型**：[`docs_archive_rust_impl_2026_08_26/architecture/`](docs_archive_rust_impl_2026_08_26/architecture/) — ⚠️ **已归档**，[技术选型文档](docs_archive_rust_impl_2026_08_26/architecture/tech-selection.md) 描述的是 14-crate 设计时代的技术选型，与当前代码**不一致**：该文档列出 `sqlx` + `gix`（读路径），而 `Cargo.toml` 中**两者都不存在**。[实施前 QA 检查表](docs_archive_rust_impl_2026_08_26/architecture/qa-checklist.md) 列出 26 项顾虑与疑问（🔴 6 / 🟠 8 / 🟡 9 / 🟢 3）。
-- **工程过程模型**：[`docs_archive_rust_impl_2026_08_26/process/workflow.md`](docs_archive_rust_impl_2026_08_26/process/workflow.md) — 150 个任务 × 13 阶段的瀑布-迭代混合工程过程模型（基于日本 IPA 上流工程共通框架的 13 主阶段），明确每阶段产出物、与本书各章节的对应关系、阶段责任矩阵与判定规则。
+| 路径 | 是什么 |
+| --- | --- |
+| `src/` | 根 Rust crate —— CLI、Git HTTP server、版本化凭据保险库、AI provider |
+| `apps/gm-desktop/` | Tauri 2 + Svelte 5 桌面端 |
+| `apps/gm-console/` | React + Vite 网页管理端 |
+| `deploy/minio/` | 本地 minIO 夹具，供保险库 e2e 测试使用 |
+| `scripts/` | 回归测试与验证脚本（PowerShell） |
+| `.github/workflows/` | 三个 CI workflow |
+| `docs/adr/` | 现行架构决策记录（ADR-0001 / 0020–0023） |
+| `docs/plan/v0-tasks.md` | V0 任务台账，逐项带证据标注的实测状态 |
+| `docs/reports/` | 各批次实现与验证报告 |
+| `docs_archive_rust_impl_2026_08_26/` | **已归档**：早期 14-crate 架构与 15 阶段需求定义书，见文末 |
 
+根 crate 是**单一 crate，不是 workspace**（`Cargo.toml` 中显式注明）。
+`apps/gm-desktop/src-tauri/` 是独立 crate，通过 `path = "../../.."` 依赖根 crate，
+因此它有自己独立的 `Cargo.lock`。
 
----
+## 快速开始
 
-## 这是什么
+### 前置
 
-Git 管理代码版本；这个项目要调研并定义一个更进一步的平台——管理"软件工程状态"本身的版本。它管理的对象不止 Repository / Branch / Commit / Tag，还包括 Requirement、Issue、ADR、PR、Review、Test、CI、Artifact、Release、Deployment、Incident、Agent、AgentRun、Prompt、Skill、Policy 等，最终形成一个可查询的 **Engineering Knowledge Graph**。
+- Rust **1.98.1** —— `rust-toolchain.toml` 已钉版，不要用 `stable`
+- Node.js **22** + pnpm **9**
+- `git` 可执行文件在 `PATH` 中（本项目以 shell 调用 `git` 子进程，不使用 libgit2/gix）
 
-整个需求定义过程严格区分**事实与设计**，全文使用统一标记：
+### 根 crate：编译与测试
+
+```bash
+cargo build
+cargo test                       # 单元 + 集成测试
+cargo fmt --all -- --check
+cargo clippy --all-targets -- -D warnings
+```
+
+`Cargo.toml` 开启了 `unsafe_code = "forbid"` 与 `clippy::unwrap_used`/`expect_used`/`panic` 的 `deny`。
+
+### 根 crate：跑起来
+
+```bash
+gitgit init <name>               # 在 ./repos/ 下建一个裸仓库
+gitgit list                      # 列出仓库
+gitgit serve                     # 启动 HTTP server
+gitgit key set openai <secret>   # 写入凭据保险库
+gitgit key ls
+gitgit gitai review              # AI 代码评审
+gitgit gitremote add <name> <url>
+```
+
+顶层参数：`--bind`（默认 `0.0.0.0:8080`，见已知未决问题）、`--repos-dir`、`--vault-file-root`。
+
+### HTTP API
+
+`/api` 子路由由 `src/server/api.rs` 的 `build_api_router()` 构造：
+
+| 方法 | 路径 |
+| --- | --- |
+| GET | `/api/health` |
+| GET | `/api/repos` · `/api/repos/:name` · `/api/repos/:name/refs` · `/api/repos/:name/log` |
+| GET | `/api/vault/keys` |
+| GET / DELETE | `/api/vault/keys/:key` |
+| GET / POST | `/api/vault/keys/:key/versions` |
+| GET | `/api/vault/keys/:key/diff` |
+| POST | `/api/vault/keys/:key/restore` |
+
+Git 自身的 smart-HTTP 路由由 `src/server/http.rs` 的 `build_router()` 提供。
+**注意：这些 `/api` 路由目前没有任何鉴权层**，详见已知未决问题。
+
+### 桌面端
+
+```bash
+cd apps/gm-desktop
+pnpm install
+pnpm tauri:dev                   # 真实 Tauri 窗口
+pnpm test                        # vitest
+pnpm check                       # svelte-check
+```
+
+### 网页管理端
+
+```bash
+cd apps/gm-console
+pnpm install
+pnpm dev
+pnpm test
+```
+
+## 质量门禁
+
+三个 CI workflow，全部以 `dev` 为触发分支：
+
+| workflow | 跑什么 |
+| --- | --- |
+| `rust-backend.yml` | fmt、clippy `-D warnings`、单元测试、doc 测试、release build，以及**独立的 `audit` job** |
+| `gm-desktop.yml` | lint、svelte-check、vitest、Vite 生产构建、`src-tauri` 的 fmt/clippy/test；`msi` job 在 Windows 上真实打包并校验产物 |
+| `gm-console.yml` | typecheck、lint、vitest、coverage 门禁、format check、生产构建 |
+
+`audit` 做成独立 job 而不是 `test` 里的一个 step：CVE 应该在秒级失败，而不是等完整个 release 构建。
+该 job 同时区分「扫描到公告」与「公告库不可达」这两种不同的失败。
+
+### 实测快照（`d81f285`）
+
+| 项 | 数值 | 怎么来的 |
+| --- | --- | --- |
+| 根 crate 测试 | **186 passed / 0 failed / 2 ignored** | CI 实测于 `f690486`；`f690486 → d81f285` 之间 `src/`、`Cargo.toml`、`Cargo.lock` 零改动，故结论延续 |
+| 根 crate fmt / clippy | 0 / 0 | 本地重跑复核 |
+| RUSTSEC 公告 | 0（扫描 240 个依赖） | CI `audit` job |
+| `apps/gm-desktop` 测试 | **122 passed，0 skipped** | CI 实测于 `d81f285` |
+| `apps/gm-console` 测试 | **194 passed / 15 files** | 本地实测 |
+| `apps/gm-console` 覆盖率 | **lines 93.63%** | 本地实测，门槛 lines 70 / branches 60 |
+| i18n 键一致性 | `en` 184 / `zh-CN` 184，键集完全一致 | 本地实测 |
+
+`apps/gm-desktop` 的覆盖率阈值声明在 `apps/gm-desktop/vite.config.ts`，但 CI 跑的是
+`pnpm test`（不带 `--coverage`），**这些阈值目前没有被任何 job 求值**。实测覆盖率
+lines 42.55% / branches 42.06% / functions 31.96% / statements 36.95%。
+这是已知的测试债，不是已关闭的项。
+
+MSI 产物（CI 实测于 `d81f285`）：perUser 15,194,299 B / perMachine 15,193,981 B /
+manifest 640 B / dist 271,164 B，共四个 artifact 并存。
+
+## 已知未决问题
+
+以下条目**没有**被修复。列在这里是为了让任何评估者看到完整图景，而不是只看到绿 CI。
+
+### P0 — 许可证声明自相冲突
+
+顶层 `LICENSE` 是 **GNU AGPL-3.0 全文**（35,184 字节，首两行为
+`GNU AFFERO GENERAL PUBLIC LICENSE Version 3`），而 `Cargo.toml` 与
+`apps/gm-desktop/src-tauri/Cargo.toml` 都声明 `license = "Apache-2.0"`。
+两者不可能同时为真，本文件因此**不**声明本项目采用何种许可证。
+在冲突解决之前，不应分发本项目。
+
+### P0 — HTTP API 无鉴权，且默认监听所有网卡
+
+完整链路已逐行核实：
+
+- `src/config.rs` `DEFAULT_BIND = "0.0.0.0:8080"`
+- `src/server/api.rs` 中的 `auth_optional` 是 no-op，**从未被调用**，且挂着 `#[allow(dead_code)]`
+- `build_api_router()` 与 `build_router()` 都不加任何鉴权层
+- `GET /api/vault/keys/:key` 会把凭据明文放进 JSON 响应；`DELETE` 与 `POST .../restore` 同样无鉴权
+- 全仓唯一的鉴权 `require_basic` 只在 git push 路径上，且凭据硬编码为 `admin` / `admin`
+  （`src/config.rs`）
+- 桌面侧的 `bind` 由前端传入且零校验（`state.rs` → `commands/server.rs`）
+
+修复方向是回环默认 + `/api` 强制鉴权 + 凭据外置，但这会改变现有本地无凭据流程，
+属于需要人类拍板的产品决策，尚未实施。
+
+细节见 [`SECURITY.md`](SECURITY.md)。
+
+### P1 — Windows 安装包未做代码签名
+
+4 个 MSI 变体全部未签名，触发 SmartScreen 告警。需要购买代码签名证书，不在技术范围内。
+
+### P1 — 覆盖率门禁是声明而非门禁
+
+`apps/gm-desktop` 声明的覆盖率阈值没有任何 CI job 求值。详见上文「质量门禁」。
+
+### P1 — AI 链路未对真实 provider 端到端验证
+
+`src/ai/` 的 provider 实现有完整单元测试（mock SSE server 实测 token 序列
+`["Hel","lo","wo","rld","!"]`），但仓内没有 `GITGIT_AI_API_KEY`，
+**从未真正调用过 OpenAI 或 Anthropic**。`TauriEmitter` 的事件是否真正抵达 webview 同样未验证。
+
+### P2 — 跨平台产物未验证
+
+macOS `.dmg` 与 Linux `.appimage` / `.deb` 从未构建过。维护机是 Windows-only，
+而 Tauri 不支持交叉打包，因此需要对应平台的机器或 CI runner。
+
+### P2 — 工作区根目录选择器未在真实窗口验证
+
+对话框在 `invoke` 边界被 stub 掉，真实 Tauri 窗口下的行为未验证。
+
+## 文档索引
+
+| 目录 | 内容 |
+| --- | --- |
+| [`docs/adr/`](docs/adr/) | 现行架构决策记录 |
+| [`docs/plan/v0-tasks.md`](docs/plan/v0-tasks.md) | V0 任务分解 T1–T11，带证据标注的实测状态 |
+| [`docs/reports/`](docs/reports/) | 各批次实现报告与回归测试记录 |
+| [`.github/CI.md`](.github/CI.md) | 三个 CI workflow 的实测状态与历史失败根因 |
+| [`CONTRIBUTING.md`](CONTRIBUTING.md) | 贡献指南 |
+| [`SECURITY.md`](SECURITY.md) | 安全策略与未修复的已知问题 |
+
+## 事实标注约定
+
+本仓库对论断强制标注，实测与推断必须分开：
 
 | 标记 | 含义 |
-|---|---|
-| `[FACT]` | 有官方/一手来源支撑并标注访问日期的可验证事实 |
-| `[UNVERIFIED-FACT]` | 有来源但未经一手验证（如仅见于第三方聚合站），不可直接当作确证事实使用 |
+| --- | --- |
+| `[FACT]` | 有一手来源或实测支撑，并标注来源 |
+| `[UNVERIFIED-FACT]` | 有来源但未经一手验证，不可当作确证事实 |
 | `[INFERENCE]` | 基于已知事实的合理推论，未独立核实 |
-| `[PROPOSAL]` | 本项目自己的设计主张，明确不归因于任何竞品 |
-| `[TBD]` | 现阶段无法确认，留待后续调研/评审/决策 |
+| `[PROPOSAL]` | 本项目自己的设计主张，不归因于任何第三方 |
+| `[TBD]` | 现阶段无法确认 |
 
-禁止把自己的设计构想包装成竞品已有的事实，也禁止为了让文档"看起来完整"而编造未经证实的数字（例如性能指标一律标注 `TBD – Benchmark Required`，而不是凭空给出数字）。
-
----
-
-## 阶段全景
-
-```
-主程序（Phase 1-13）
-Phase 1-5   竞品调研 & Gap 分析     ──▶ phase1-5-research.md
-Phase 6     产品原语发现            ──▶ phase6-primitives.md
-Phase 7     需求草拟（带ID）        ──▶ phase7-elicitation.md
-Phase 8     55节正式需求定义书      ──▶ 00-requirements-definition.md
-Phase 9     MVP 精简（最小完整闭环）──▶ phase9-mvp-reduction.md
-Phase 10    架构设计（能删就删）    ──▶ phase10-architecture.md
-Phase 11    红队评审（自我攻击）    ──▶ phase11-red-team.md
-Phase 12    UX 红队评审             ──▶ phase12-ux-review.md
-Phase 13    最终基线 Baseline v1.0  ──▶ phase13-final-baseline.md
-
-补充阶段（在 Baseline v1.0 之上追加）
-Phase 14    日本 IPA 标准合规评审    ──▶ phase14-ipa-compliance-review.md
-Phase 15    终审验收（一致性核查）   ──▶ phase15-final-audit.md
-```
-
-每个阶段的产出都以独立文件保存、独立提交、经过 PR 走查后合入 `main`，任何阶段都可以单独回溯查阅推理过程，不是一次性生成的"完整幻觉"。
+把推断写成事实是被明确禁止的。本仓库已经因为「写入仓库的根因分析是推断而非实测」
+而误导过后来者，所以这条约定不是形式主义。
 
 ---
 
-## 文档索引（`docs_archive_rust_impl_2026_08_26/requirements/`）
+## 附录：已归档的研究档案
 
-| 文件 | 内容概要 |
-|---|---|
-| [`phase1-5-research.md`](docs_archive_rust_impl_2026_08_26/requirements/phase1-5-research.md) | 对 GitHub、GitLab、Gitea/Forgejo、Bitbucket、Sourcegraph、OpenAI Codex、Claude Code、Cursor、Linear 等的深度竞品调研；能力矩阵；Commodity/Differentiator/Emerging/Experimental 四象限 Gap 分析 |
-| [`phase6-primitives.md`](docs_archive_rust_impl_2026_08_26/requirements/phase6-primitives.md) | 从 Observation→Pattern→Constraint→Primitive→Interaction→Workflow→Capability 的涌现式推导；最终 MVP 原语集合为 **Node / Edge / Event / Policy / View**（Agent 作为 Node 子类型，Action/Evidence 延后，Intent/Context 被砍） |
-| [`phase7-elicitation.md`](docs_archive_rust_impl_2026_08_26/requirements/phase7-elicitation.md) | 按 GIT / GRF / AGT / AI / CTX / SEC / CI / UX / OPS / CLOUD 十个前缀分类、带唯一 ID、含验收标准的原子需求草稿 |
-| [`00-requirements-definition.md`](docs_archive_rust_impl_2026_08_26/requirements/00-requirements-definition.md) | **主文档**：55 节正式需求定义书 + ADR 待定清单附录（Baseline v1.0） |
-| [`phase9-mvp-reduction.md`](docs_archive_rust_impl_2026_08_26/requirements/phase9-mvp-reduction.md) | 用"最小完整闭环"（Repository→Issue→AI Context→Agent Branch→Code Change→CI→AI Review→Human Approval→Merge→Graph Update）作为唯一标准，严格砍需求而非堆功能数量 |
-| [`phase10-architecture.md`](docs_archive_rust_impl_2026_08_26/requirements/phase10-architecture.md) | Principal Architect 视角的架构评审：技术栈逐项评估、图存储方案决策、Git 存储实现方式决策、服务边界、Local→Cloud 迁移路径、"哪些组件被砍掉"清单 |
-| [`phase11-red-team.md`](docs_archive_rust_impl_2026_08_26/requirements/phase11-red-team.md) | 从 17 个角度对整个方案发起真实攻击（是否只是 GitHub Clone、是否 AI 包装、是否过度工程、Agent 执行安全面、本地部署是否过重等），17 条发现 |
-| [`phase12-ux-review.md`](docs_archive_rust_impl_2026_08_26/requirements/phase12-ux-review.md) | UX 红队评审："稳定骨架 + 涌现式上下文"是否真的可执行，Ambient AI 预算（80/15/5 目标）是否会退化成 Chat，9 条发现 |
-| [`phase13-final-baseline.md`](docs_archive_rust_impl_2026_08_26/requirements/phase13-final-baseline.md) | **收官文档**：对全部 26 条红队/UX 发现逐一处置并实际修订主文档；三大护城河（Moats）分析；正面回答"如果 GitHub/GitLab 明天 AI 提升十倍，我们为何还存在"；宣告 Baseline v1.0 |
-| [`phase14-ipa-compliance-review.md`](docs_archive_rust_impl_2026_08_26/requirements/phase14-ipa-compliance-review.md) | 按日本 IPA 标准（非功能要求等级 / 上流工程共通框架 / 信息安全指南）对 Baseline v1.0 做合规差距分析，9 条发现，新增 NFR-REQ×3 + SEC-REQ×3 |
-| [`phase15-final-audit.md`](docs_archive_rust_impl_2026_08_26/requirements/phase15-final-audit.md) | 终审验收：需求 ID 连续性/唯一性、跨文档引用完整性、链接有效性、各处声明数字与实际内容的一致性核查，3 条缺陷及修复记录 |
+以下内容是**真实的历史工作产物**，但描述的是早期 14-crate 架构，与当前实现**已经不一致**。
+保留它们是为了可回溯，但**阅读时请以代码为准**。
 
----
+最显著的不一致：归档的技术选型文档仍列出 `sqlx` 与 `gix`，而 `Cargo.toml` 中两者都不存在
+——实际实现是 shell `git` 子进程 + `rust-s3`。
 
-## 关键结论速览
+| 目录 | 内容 |
+| --- | --- |
+| [`docs_archive_rust_impl_2026_08_26/requirements/`](docs_archive_rust_impl_2026_08_26/requirements/) | 15 阶段需求定义过程产物，含 Phase 11 红队评审、Phase 12 UX 红队评审、Phase 15 终审验收 |
+| [`docs_archive_rust_impl_2026_08_26/design/`](docs_archive_rust_impl_2026_08_26/design/) | 基本设计书与详细设计书，严格按日本 IPA 共通框架 2013 编写 |
+| [`docs_archive_rust_impl_2026_08_26/process/workflow.md`](docs_archive_rust_impl_2026_08_26/process/workflow.md) | 150 个任务 × 13 阶段的工程过程模型 |
 
-### 三大护城河（诚实版本，非营销话术）
-
-1. **统一可查询的工程图谱** —— 留存型护城河而非获客型护城河：每一次循环迭代都在积累图数据，让后续查询和溯源越来越值钱，但新团队接入时图谱是空的，第一天没有价值。
-2. **真正的自托管 + 云一致性 + Agent 原生执行** —— 自托管一致性部分持久可信；但"Agent 原生执行"的能力优势建立在前沿模型质量之上,会随所有厂商模型进步而被稀释。
-3. **人机统一审计轨迹** —— 三者中最可能随 AI 能力提升而**变得更有价值**的护城河（Agent 越自主，统一审计越重要），但也是技术上最容易被竞争对手直接复制的一个。
-
-三者都**没有真正的网络效应**——项目坦诚承认，没有为了让故事好看而编造。
-
-### 终极判断题
-
-> 如果 GitHub 和 GitLab 明天把 AI 能力提升十倍，这个产品为什么还存在？
-
-诚实回答：会继续存在，但只对真正看重自托管控制权、含 Agent 的审计严谨性、以及积累的工程图谱——胜过原始 AI 能力本身——的那部分组织而言；会是一个更小、更持久的细分市场，而不是 GitHub/GitLab 的大众替代品。且明确承认：这个论证目前只停留在纸面，尚未有一个真正跑起来的 MVP 验证过。
-
-### MVP 范围
-
-MVP 需求数演进：45（Phase 9 初始）→ **37**（Phase 9 按最小完整闭环砍减）→ **43**（Phase 13 红队/UX 评审后补回 4 条）→ **45**（Phase 14 IPA 合规补 2 条）。数字有涨有落，每一步的增减理由都可追溯，不是单向膨胀。
-
-### 评审发现处置统计
-
-**Phase 11 红队 + Phase 12 UX 评审（共 26 条）**
-
-| 处置结果 | 数量 |
-|---|---|
-| 已接受并实际修复主文档 | 19 |
-| 已接受但延后至 V1/V2 | 4 |
-| 已驳回（附论证） | 2 |
-| 需人类决策（无法靠分析解决） | 1 |
-
-**Phase 14 IPA 合规评审（共 9 条）**：已修复 5 / 延后 V1 共 3 / 需人类决策 1。
-
-**Phase 15 终审（共 3 条）**：全部已修复，均为汇总表记账错误，无实质内容缺失。
-
-全部 4 条 Critical 级发现（3 条红队 + 1 条 UX）均已获得实际修复,而非被归入"待办事项"敷衍了事。
-
----
-
-## 阅读建议
-
-- 只想看结论：直接看 [`phase13-final-baseline.md`](docs_archive_rust_impl_2026_08_26/requirements/phase13-final-baseline.md) 的 §4（三大护城河）、§5（终极问题）、§6（Baseline 声明）。
-- 想看完整正式需求：看 [`00-requirements-definition.md`](docs_archive_rust_impl_2026_08_26/requirements/00-requirements-definition.md)，目录附有全部 55 节链接。
-- 想看某个具体判断是怎么来的：按上面的阶段顺序从 Phase 1 往后读，每个阶段都写明了方法、证据来源和推理过程。
-- 想看这个项目"骗不骗人"：重点看 Phase 11（红队评审）、Phase 12（UX 红队评审）和 Phase 15（终审验收）——前两个阶段的存在是为了防止前面的阶段自说自话，Phase 15 则是逐条核对各处声明的数字与实际内容是否一致（结果确实查出了 3 处记账错误并已修正）。
-
----
-
-## 状态
-
-**Baseline v1.0**（Phase 1–13 主程序完成，Phase 14 IPA 合规补充、Phase 15 终审验收已并入）。
-
-明确排除在本基线范围之外的内容：具体实现代码、UI 线框图/原型、法律与许可证审查、benchmark 实测数据、市场定位（Go-to-Market）决策、正式 ADR 文档产出物。这些留待后续阶段处理。
-
-已知悬而未决的最重要一条：整个程序**全程没有人类干系人正式签核环节**（Phase 14 finding F14-7，对照 IPA 共通框架的流程要求属于真实缺口），已记录为需人类决策的开放问题，无法靠继续编辑文档解决。
+该档案自身记录了一个当时成立、现在已不成立的判断，即「尚未有一个真正跑起来的 MVP 验证过」。
+以本文上文的实测数据为准。
