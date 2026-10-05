@@ -26,12 +26,24 @@
     refreshServerStatus();
   });
 
+  // `[FACT]` Was a single `refreshing` boolean, with `refreshLogs` setting
+  // it true on entry and false in a `finally`. Two overlapping calls both
+  // set it, and the *earlier* one to finish cleared the flag while the
+  // later one was still in flight — so the page showed "not refreshing"
+  // while a fetch was outstanding, and a caller that checked the flag to
+  // decide whether to start its own refresh would start a duplicate.
+  // Counter instead: the flag is released only when the last outstanding
+  // call finishes, whichever order they complete in.
+  let refreshesInFlight = 0;
+
   async function refreshLogs(): Promise<void> {
+    refreshesInFlight += 1;
     refreshing = true;
     try {
       logs = (await tauri.serverLogs(logLimit)) ?? [];
     } finally {
-      refreshing = false;
+      refreshesInFlight -= 1;
+      if (refreshesInFlight === 0) refreshing = false;
     }
   }
 

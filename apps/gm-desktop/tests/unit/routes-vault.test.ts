@@ -117,13 +117,14 @@ describe('route / vault — the list', () => {
     expect(actions.getByRole('button', { name: cat('vault.rotate') })).toBeTruthy();
     expect(actions.getByRole('button', { name: cat('common.delete') })).toBeTruthy();
     // The collapsed cell names a version.
-    // `[FACT]` It is the key's *position* in the list, not the vault's
-    // latest version for it: `refreshVault` fills `version` from the
-    // loop index, so the seed credential reads "v1" although its newest
-    // version is v2. A real defect in `src/lib/stores/vault.ts`,
-    // reported rather than fixed here; the expectation pins what the page
-    // really renders.
-    expect(actions.getByText('v1')).toBeTruthy();
+    // `[FACT]` It used to read "v1" and the test pinned that. The value came
+    // from the loop index in `refreshVault` — the key's *position* in the
+    // list — rather than the vault's newest version for that key, so the
+    // seed credential reported v1 while its newest version is v2 (the mock
+    // seeds two versions; see the `SEED` note at the top of this file).
+    // The store now reads the real version, so the cell is correct.
+    expect(actions.getByText('v2')).toBeTruthy();
+    expect(actions.queryByText('v1')).toBeNull();
   });
 
   it('keeps the value field masked', async () => {
@@ -220,7 +221,10 @@ describe('route / vault — versions', () => {
 
     await fireEvent.click(rowButton(SEED, t('common.close')));
     await waitFor(() => expect(within(row(SEED)).queryByText('aaaaaaaaaaaa')).toBeNull());
-    expect(within(row(SEED)).getByText('v1')).toBeTruthy();
+    // Collapsed again: the cell is the key's newest version, not the
+    // entry that was focused in the list above. It used to read "v1" here
+    // because the value came from the key's position in the list.
+    expect(within(row(SEED)).getByText('v2')).toBeTruthy();
   });
 
   it('diffs the default base/head pair, which is the two most recent versions', async () => {
@@ -275,13 +279,15 @@ describe('route / vault — versions', () => {
         'restored k.restore → v2',
       ])
     );
-    // `[FACT]` The refreshed list still shows one version. `onRestore`
-    // calls `vaultVersions(key)`, which answers from
-    // `vaultVersionsCache` when the key is already in it — and expanding
-    // the row just put it there. The restore is therefore invisible in
-    // the list until the page is remounted. A real defect in
-    // `src/lib/stores/vault.ts`, reported rather than fixed here.
-    expect(within(row('k.restore')).queryByText('v2')).toBeNull();
+    // `[FACT]` The refreshed list *used* to keep showing one version.
+    // `onRestore` re-reads through `vaultVersions(key)`, which answers from
+    // `vaultVersionsCache` when the key is present — and expanding the row
+    // just put it there, so the post-restore read returned the
+    // pre-restore list and the new version stayed invisible until the page
+    // was remounted. A real defect in `src/lib/stores/vault.ts`, pinned as
+    // a defect record; the store now invalidates the key's cache on
+    // restore, so the new version appears without a remount.
+    await waitFor(() => expect(within(row('k.restore')).getByText('v2')).toBeTruthy());
   });
 
   it('rotates a key and reports the version the rotation produced', async () => {

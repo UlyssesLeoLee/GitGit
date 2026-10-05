@@ -61,6 +61,11 @@ const en: Readonly<Record<string, string>> = {
   'repos.refs.none': 'This repo has no refs yet',
   'repos.commits.none': 'This repo has no commits yet',
   'repos.notFound': 'Repository {name} not found',
+  // `[FACT]` A heading, not a sentence: the route can be reached with no
+  // `name` param at all, and `repos.notFound` with an empty substitution
+  // renders "Repository  not found" — which is not a heading. This is the
+  // nameless case, and the detail card below carries the full message.
+  'repos.notFoundHeading': 'Repository not found',
 
   // 工作区状态与 diff 视图（T4）
   'repos.statusHeading': 'Working tree',

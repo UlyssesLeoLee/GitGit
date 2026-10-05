@@ -68,6 +68,10 @@ const zh: Readonly<Record<string, string>> = {
   'repos.refs.none': '该仓库还没有 ref',
   'repos.commits.none': '该仓库还没有提交',
   'repos.notFound': '找不到仓库 {name}',
+  // `[FACT]` 标题文案,不是整句。路由可能在完全没有 `name` 参数的情况下被访问,
+  // 此时 `repos.notFound` 替换空值会得到「找不到仓库 」,那不是标题。
+  // 此键对应无名称的情形,完整句子在下方卡片里。
+  'repos.notFoundHeading': '找不到仓库',
 
   // 工作区状态与 diff 视图（T4）
   'repos.statusHeading': '工作区',

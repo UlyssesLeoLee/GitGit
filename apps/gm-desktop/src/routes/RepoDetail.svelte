@@ -5,6 +5,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { repoDetail } from '$lib/stores/repos';
+  import { cloneUrl } from '$lib/api/tauri';
   import { t } from '$lib/i18n';
   import { copyText } from '$lib/utils/clipboard';
   import { pushToast } from '$lib/stores/toasts';
@@ -38,7 +39,13 @@
 
   async function copyCloneUrl(): Promise<void> {
     if (!detail) return;
-    const url = `http://127.0.0.1:38080/repos/${detail.name}.git`;
+    // `[FACT]` Was a hardcoded `http://127.0.0.1:38080/repos/<name>.git`.
+    // The bind address is the server's, not the frontend's to assume: the
+    // desktop shell can start the embedded server on a different bind, and
+    // a clone URL pointing at the wrong port is worse than no button. The
+    // `clone_url` command already exists and takes the bind as an
+    // argument; it was simply not being called.
+    const url = await cloneUrl(detail.name, null);
     const ok = await copyText(url);
     pushToast(ok ? 'success' : 'error', t('common.copiedToClipboard'));
   }
@@ -59,7 +66,22 @@
     <div>
       <a class="text-xs text-slate-500 hover:underline" href="#/repos">← {$catalog['repos.back']}</a>
       <h1 id="detail-h" class="text-2xl font-semibold">
-        {#if detail}{detail.name}{:else}{$catalog['common.loading']}{/if}
+        <!--
+          `[FACT]` Was `{#if detail}{detail.name}{:else}{common.loading}{/if}`,
+          so the not-found path — where `detail` is null — showed a heading
+          reading "Loading…" above a card saying the repository does not
+          exist, and never changed. The three states are distinct now:
+          loading, found, and not found. The not-found heading falls back to
+          a nameless label because `repos.notFound` with an empty `{name}`
+          substitution is not a heading.
+        -->
+        {#if detail}
+          {detail.name}
+        {:else if notFound}
+          {params?.name || $catalog['repos.notFoundHeading']}
+        {:else}
+          {$catalog['common.loading']}
+        {/if}
       </h1>
     </div>
     <button class="btn-secondary" type="button" onclick={copyCloneUrl}>
@@ -72,7 +94,16 @@
   {:else if notFound}
     <div class="card border-red-300 bg-red-50 dark:border-red-800 dark:bg-red-900/30">
       <p class="text-sm text-red-700 dark:text-red-200">
-        {$catalog['repos.notFound'].replace('{name}', params?.name ?? '')}}
+        <!--
+          `[FACT]` Substituting an empty `{name}` rendered "Repository
+          not found" with a double space where the name would be. The
+          nameless variant is a separate catalogue entry, used for both the
+          heading and this message so they cannot drift apart — and so a
+          query for the message does not also match the heading.
+        -->
+        {params?.name
+          ? $catalog['repos.notFound'].replace('{name}', params.name)
+          : $catalog['repos.notFoundHeading']}
       </p>
     </div>
   {:else if detail}

@@ -90,7 +90,14 @@ function heading(): string {
  */
 async function notFoundMessage(): Promise<string> {
   const stem = cat('repos.notFound').split('{name}')[0]?.trim() ?? '';
-  const p = await screen.findByText((text) => text.includes(stem));
+  // `[FACT]` Scoped to the message paragraph, not the section. The
+  // heading falls back to the same nameless label when the route carries
+  // no `name`, so a bare `findByText` matches both and Testing Library
+  // rejects the ambiguity — correctly. The heading has its own case.
+  const p = await screen.findByText(
+    (text) => text.includes(stem),
+    { selector: 'p' }
+  );
   return p.textContent ?? '';
 }
 
@@ -126,9 +133,13 @@ describe('route / repo detail — the three states', () => {
     useInvoke({ repo_detail: () => null });
     render(RepoDetail, { props: { params: { name: 'ghost' } } });
 
-    // Trailing `}` included on purpose — see `notFoundMessage`.
+    // `[FACT]` The expectation used to append a literal `}`. The
+    // not-found paragraph had a doubled closing brace in its Svelte
+    // expression, so the page rendered "Repository ghost not found}" and
+    // the test recorded that as the current behaviour. The brace is gone;
+    // this now pins the correct text.
     expect(await notFoundMessage()).toBe(
-      cat('repos.notFound').replace('{name}', 'ghost') + '}'
+      cat('repos.notFound').replace('{name}', 'ghost')
     );
     // The refs and commits halves stay away: there is nothing to show.
     expect(screen.queryByRole('heading', { name: cat('repos.refsHeading') })).toBeNull();
@@ -147,12 +158,21 @@ describe('route / repo detail — the three states', () => {
     const seen = useInvoke();
     render(RepoDetail);
 
-    expect(await notFoundMessage()).toBe(
-      cat('repos.notFound').replace('{name}', '') + '}'
-    );
+    // `[FACT]` Substituting an empty `{name}` produced "Repository
+    // not found" — a double space where the name would be. The nameless
+    // case has its own catalogue entry now, used by both the heading and
+    // this message.
+    expect(await notFoundMessage()).toBe(cat('repos.notFoundHeading'));
+    expect(await notFoundMessage()).not.toMatch(/\s{2}/);
     // No name means no question to ask the backend.
     expect(seen.filter((c) => c.cmd === 'repo_detail')).toHaveLength(0);
-    expect(heading()).toBe(cat('common.loading'));
+    // `[FACT]` This asserted "Loading…" — which contradicted the name of
+    // this very case. The heading used to fall back to the loading string
+    // whenever `detail` was null, so the not-found path showed a heading
+    // claiming to be loading, above a card saying the repository does not
+    // exist. With no name to show, it now uses the nameless heading.
+    expect(heading()).toBe(cat('repos.notFoundHeading'));
+    expect(heading()).not.toBe(cat('common.loading'));
   });
 });
 
