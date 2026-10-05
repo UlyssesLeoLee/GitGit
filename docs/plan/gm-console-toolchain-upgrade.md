@@ -140,3 +140,27 @@ HEAD https://registry.npmjs.org/vitest          -> The SSL connection could not 
 
 因此本轮**没有提交任何 `apps/gm-console` 的改动**。本文记录的 before 数据与版本
 选型依据仍然有效,网络恢复后可直接照此执行。
+
+## `--offline` 能做什么、不能做什么
+
+`[FACT]` 上面「网络被拦」这个结论下得太宽,需要分两件事:
+
+**能:`--offline` 从本地 store 装出当前 lockfile 需要的依赖。**
+2026-10-05 实测,在一个全新 worktree 里:
+
+```powershell
+cd apps/gm-desktop          # 没有任何 node_modules 的新 worktree
+corepack pnpm@9.15.9 install --frozen-lockfile --offline   # Done in 11.5s
+```
+
+11.5 秒装完,vitest 5.0.3 就位,四道门禁随后全绿。也就是说**开 lane worktree
+不再需要先解决网络**,这一点此前被连带低估了。
+
+**不能:升级本身。** 上面的升级要引入**新版本**,而新版本的 tarball 不在本地
+store 里,`--offline` 会直接失败而不是退化成慢速下载。所以本文「执行步骤」第 1 步
+的 `pnpm install`(不带 `--offline`)依然需要 registry 可达 —— 那个前置条件没有被
+绕过,只是不再阻塞「开 worktree」这件事。
+
+**结论:别把 `--offline` 当成这次升级的解法。** 它解决的是 lane 准备工作,不是
+升级本身。升级仍然等网络。
+

@@ -43,8 +43,8 @@
     "targets": ["msi", "dmg", "appimage", "deb"],
     "category": "DeveloperTool",
     "shortDescription": "Local Git HTTP server desktop shell",
-    "longDescription": "gitgit Desktop is the V0 desktop shell for the gitgit MVP — a tiny local Git HTTP server with credential-vault integration. See docs/adr/0020-v0-gui-tauri-svelte.md for the architecture.",
-    "copyright": "Copyright (c) 2026 Ulysses (one-person company per DEC-008)",
+    "longDescription": "gitgit Desktop is a local Git HTTP server with credential-vault integration, packaged as a native desktop application.",
+    "copyright": "Copyright (c) 2026 Ulysses",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -53,7 +53,7 @@
       "icons/icon.icns"
     ],
     "publisher": "Ulysses",
-    "homepage": "https://github.com/gitgit/gitgit",
+    "homepage": "https://github.com/UlyssesLeoLee/GitGit",
     "resources": [],
     "windows": {
       "wix": {
