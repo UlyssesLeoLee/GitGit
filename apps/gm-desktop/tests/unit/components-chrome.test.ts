@@ -80,8 +80,20 @@ async function gotoPath(hash: string): Promise<void> {
  * not change what the component does.
  */
 function installAnimationStub(): void {
-  if (typeof Element === 'undefined' || Element.prototype.animate) return;
-  Object.defineProperty(Element.prototype, 'animate', {
+  if (typeof Element === 'undefined') return;
+  // `[FACT]` The guard has to read the property through an untyped view.
+  // `Element.prototype.animate` is declared non-optional in the DOM lib
+  // types, so TypeScript resolves `Element.prototype.animate` to a
+  // function type and reports `if (Element.prototype.animate)` as a
+  // condition that "will always return true" — which `svelte-check`
+  // rejects as an error, and the `gm-desktop` CI job runs
+  // `svelte-check` as a gate. The runtime check is still the correct
+  // one; a real browser has the method and jsdom does not, so the stub
+  // must stay conditional. Going through `Record<string, unknown>`
+  // keeps the runtime semantics and drops the false positive.
+  const proto = Element.prototype as unknown as Record<string, unknown>;
+  if (typeof proto['animate'] === 'function') return;
+  Object.defineProperty(proto, 'animate', {
     configurable: true,
     writable: true,
     value: function animate(this: Element, _keyframes: unknown, options?: { duration?: number }) {

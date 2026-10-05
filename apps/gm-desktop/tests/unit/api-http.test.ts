@@ -111,7 +111,13 @@ describe('api / http — request shape', () => {
     await fetchJson('/repos');
 
     const init = fetchMock.mock.calls[0]?.[1] as RequestInit;
-    expect((init.headers as Record<string, string>)['Accept']).toBe('application/json');
+    // `[FACT]` `fetchJson` hands `fetch` a `Headers` instance rather than
+    // a plain object, so the assertions in this file read through
+    // `.get()`. That is deliberate: see the header-merge note in
+    // `src/lib/api/http.ts` for why a plain-object merge cannot be made
+    // correct here.
+    const headers = init.headers as Headers;
+    expect(headers.get('Accept')).toBe('application/json');
   });
 
   it('adds a JSON content type only when there is a body', async () => {
@@ -121,14 +127,14 @@ describe('api / http — request shape', () => {
     const withBody = stubResponse({ status: 200, jsonBody: {} });
     const m1 = stubFetch(withBody.response);
     await fetchJson('/repos', { method: 'POST', body: '{"name":"alpha"}' });
-    const h1 = (m1.mock.calls[0]?.[1] as RequestInit).headers as Record<string, string>;
-    expect(h1['Content-Type']).toBe('application/json');
+    const h1 = (m1.mock.calls[0]?.[1] as RequestInit).headers as Headers;
+    expect(h1.get('Content-Type')).toBe('application/json');
 
     const noBody = stubResponse({ status: 200, jsonBody: {} });
     const m2 = stubFetch(noBody.response);
     await fetchJson('/repos', { method: 'GET' });
-    const h2 = (m2.mock.calls[0]?.[1] as RequestInit).headers as Record<string, string>;
-    expect(h2).not.toHaveProperty('Content-Type');
+    const h2 = (m2.mock.calls[0]?.[1] as RequestInit).headers as Headers;
+    expect(h2.get('Content-Type')).toBeNull();
   });
 
   it('forwards the caller method and body to fetch', async () => {
@@ -142,27 +148,66 @@ describe('api / http — request shape', () => {
     expect(init.body).toBe('{"name":"alpha"}');
   });
 
-  it('drops the default Accept when the caller supplies its own headers', async () => {
-    // `[FACT]` This is the *measured* behaviour, and it is a defect in
-    // `http.ts`, not a designed one. The call is built as
+  it('keeps the default Accept when the caller supplies its own headers', async () => {
+    // `[FACT]` This case originally asserted the *opposite*, and the
+    // assertion was correct at the time. `http.ts` built the request as
     // `{ headers: { Accept, ...ContentType, ...init.headers }, ...init }`
-    // — the `...init` spread comes last, so when the caller passes a
-    // `headers` key it replaces the whole merged object and the
-    // carefully built `Accept` / `Content-Type` are discarded. The
-    // inner `...(init.headers ?? {})` merge is therefore dead code
-    // whenever it could matter.
+    // — the `...init` spread came last, so a caller passing a `headers`
+    // key replaced the whole merged object and the defaults were
+    // discarded. The inner `...(init.headers ?? {})` merge was dead code
+    // whenever it could matter, and a caller that set one custom header
+    // silently stopped asking for JSON.
     //
-    // A caller that sets one custom header silently stops asking for
-    // JSON. Asserted here so the current behaviour is on the record
-    // and a fix has to update this case deliberately.
+    // `http.ts` is fixed: `...init` is spread first and `init.headers` is
+    // normalised through `Headers` before merging. Both halves matter —
+    // moving the spread alone would have replaced a plain-object header
+    // loss with a `Headers`-instance header loss. This case now pins the
+    // merged result, and the next case pins the `Headers` form that the
+    // normalisation exists for.
     const { response } = stubResponse({ status: 200, jsonBody: {} });
     const fetchMock = stubFetch(response);
 
     await fetchJson('/repos', { headers: { 'X-Trace': 'abc' } });
 
     const init = fetchMock.mock.calls[0]?.[1] as RequestInit;
-    expect(init.headers).toEqual({ 'X-Trace': 'abc' });
-    expect((init.headers as Record<string, string>)['Accept']).toBeUndefined();
+    const headers = init.headers as Headers;
+    expect(headers.get('Accept')).toBe('application/json');
+    expect(headers.get('X-Trace')).toBe('abc');
+  });
+
+  it('keeps the default Accept when the caller passes a Headers instance', async () => {
+    // `[FACT]` `HeadersInit` also admits a `Headers` instance, whose
+    // entries are not own enumerable properties — so a bare
+    // `{ ...init.headers }` expands it to `{}` and loses the caller's
+    // header *and* the default. `fetchJson` normalises through `Headers`
+    // for exactly this case. Measured in jsdom, where `Headers` iterates.
+    const { response } = stubResponse({ status: 200, jsonBody: {} });
+    const fetchMock = stubFetch(response);
+
+    await fetchJson('/repos', { headers: new Headers({ 'X-Trace': 'abc' }) });
+
+    const init = fetchMock.mock.calls[0]?.[1] as RequestInit;
+    const headers = init.headers as Headers;
+    expect(headers.get('Accept')).toBe('application/json');
+    expect(headers.get('X-Trace')).toBe('abc');
+  });
+
+  it('lets a caller override the default Accept', async () => {
+    // The merge is caller-first by design, so an explicit caller value
+    // still wins. This distinguishes a correct merge from one that
+    // unconditionally forces the default. It is also the case that
+    // catches the case-normalisation trap: a plain-object merge built as
+    // `{ 'Accept': default, ...caller }` would carry both `'Accept'` and
+    // `'accept'` as separate keys, and a lookup for `'Accept'` would hit
+    // the default and ignore the caller entirely.
+    const { response } = stubResponse({ status: 200, jsonBody: {} });
+    const fetchMock = stubFetch(response);
+
+    await fetchJson('/repos', { headers: { 'Accept': 'text/plain' } });
+
+    const init = fetchMock.mock.calls[0]?.[1] as RequestInit;
+    const headers = init.headers as Headers;
+    expect(headers.get('Accept')).toBe('text/plain');
   });
 });
 
