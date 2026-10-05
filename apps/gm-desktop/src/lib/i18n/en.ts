@@ -139,6 +139,20 @@ const en: Readonly<Record<string, string>> = {
   'settings.adminPasswordClear': 'Clear password',
   'settings.dataDir': 'Data directory',
   'settings.about': 'About',
+  // AGPL-3.0 section 5(d) requires an interactive interface to display
+  // "Appropriate Legal Notices", and section 0 defines those as a
+  // prominently visible feature that (1) shows a copyright notice,
+  // (2) says there is no warranty, (3) says licensees may convey the
+  // work under this License, and (4) says how to view a copy of it.
+  // Each of the four is its own string so none of them can be dropped
+  // without leaving an obvious hole in the card.
+  'settings.license.title': 'License',
+  'settings.license.copyright': 'Copyright (c) 2026 Ulysses',
+  'settings.license.warranty':
+    'This work is provided as is, without warranty of any kind, express or implied.',
+  'settings.license.convey':
+    'You may convey this work, modified or unmodified, under the GNU Affero General Public License v3.0.',
+  'settings.license.view': 'Full license text: {url}',
   'settings.updates.title': 'Auto-update',
   'settings.updates.checkOnStartup': 'Check for updates on startup',
   'settings.updates.placeholderNote': '(Placeholder) No pushes this release; channel + signing are V1 work',

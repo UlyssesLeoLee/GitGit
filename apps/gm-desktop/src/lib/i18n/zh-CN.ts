@@ -147,6 +147,13 @@ const zh: Readonly<Record<string, string>> = {
   'settings.adminPasswordClear': '清除密码',
   'settings.dataDir': '数据目录',
   'settings.about': '关于',
+  // 见 en.ts 中同名注释:AGPL-3.0 第 5(d) 条 + 第 0 条的四要件。
+  'settings.license.title': '许可证',
+  'settings.license.copyright': '版权所有 (c) 2026 Ulysses',
+  'settings.license.warranty': '本作品按「现状」提供,不含任何明示或默示的担保。',
+  'settings.license.convey':
+    '你可以依据 GNU Affero 通用公共许可证第 3 版传递本作品(无论是否修改)。',
+  'settings.license.view': '许可证全文:{url}',
   'settings.updates.title': '自动更新',
   'settings.updates.checkOnStartup': '启动时检查更新',
   'settings.updates.placeholderNote': '（占位）本期不推送更新；通道与签名在 V1 配置',

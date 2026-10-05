@@ -20,10 +20,13 @@
  *    user can reach.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { readFile } from 'node:fs/promises';
+import { resolve } from 'node:path';
 import { get } from 'svelte/store';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import Settings from '../../src/routes/Settings.svelte';
 import { toasts } from '../../src/lib/stores/toasts';
+import { locale, setLocale } from '../../src/lib/stores/locale';
 import { callsTo, cat, resetRouteStores, useInvoke } from './routes-harness';
 
 /**
@@ -277,5 +280,122 @@ describe('route / settings — the hosted controls', () => {
 
     await fireEvent.click(box);
     expect(box.checked).toBe(true);
+  });
+});
+
+/**
+ * AGPL-3.0 section 5(d) requires every interactive interface to display
+ * "Appropriate Legal Notices", and section 0 defines that as a prominently
+ * visible feature which (1) displays a copyright notice, (2) tells the user
+ * there is no warranty, (3) tells licensees they may convey the work under
+ * this License, and (4) says how to view a copy of the License.
+ *
+ * `[FACT]` These patterns deliberately test the *substance* of each line
+ * rather than comparing it to `cat('settings.license.*')`. Comparing the
+ * rendered text to the catalog key it was interpolated from would pass for
+ * a card whose strings are all empty, which satisfies the letter of
+ * "displays a License line" and none of section 0. The per-locale tables
+ * exist for the same reason: a single English pattern would make this file
+ * pass while the default `zh-CN` interface said nothing at all.
+ */
+const SECTION_0_REQUIREMENTS: Record<
+  string,
+  { copyright: RegExp; warranty: RegExp; convey: RegExp }
+> = {
+  en: {
+    copyright: /copyright/i,
+    warranty: /without warranty|as is/i,
+    convey: /agpl|affero|general public license/i,
+  },
+  'zh-CN': {
+    copyright: /版权/,
+    // "按「现状」提供" and "不含任何明示或默示的担保" are the two halves
+    // of the English "as is, without warranty of any kind".
+    warranty: /担保|现状/,
+    convey: /agpl|affero|通用公共许可证/i,
+  },
+};
+
+describe('route / settings — the AGPL Appropriate Legal Notices', () => {
+  // `as const` so `localeId` keeps its literal type: without it the
+  // array infers `string[]`, and `setLocale` — which takes `LocaleId` —
+  // rejects it under `svelte-check`.
+  for (const localeId of ['en', 'zh-CN'] as const) {
+    it(`shows all four of section 0's requirements in ${localeId}`, async () => {
+      // Both bundles are exercised: the app defaults to zh-CN, so a suite
+      // that only ever rendered the English one would leave the interface
+      // users actually see unverified.
+      resetRouteStores();
+      setLocale(localeId);
+      useInvoke();
+      render(Settings);
+      await screen.findByTestId('license-card');
+
+      const want = SECTION_0_REQUIREMENTS[localeId];
+      expect(want).toBeDefined();
+
+      const copyright = screen.getByTestId('license-copyright').textContent ?? '';
+      const warranty = screen.getByTestId('license-warranty').textContent ?? '';
+      const convey = screen.getByTestId('license-convey').textContent ?? '';
+      const view = screen.getByTestId('license-view').textContent ?? '';
+
+      // (1) a copyright notice that actually names a holder,
+      expect(copyright).toMatch(want!.copyright);
+      // (2) the absence of warranty, stated rather than implied,
+      expect(warranty).toMatch(want!.warranty);
+      // (3) the right to convey the work under this License,
+      expect(convey).toMatch(want!.convey);
+      // (4) how to view a copy of the License: a URL a user can actually
+      // open, and the placeholder really substituted.
+      expect(view).toMatch(/https:\/\/\S+/);
+      expect(view).not.toContain('{url}');
+    });
+  }
+
+  it('names the same copyright holder the installer metadata claims', async () => {
+    // `tauri.conf.json` writes `bundle.copyright` into the MSI metadata, so
+    // an About card that disagreed with it would have the application
+    // claiming two different holders for the same work. Read through
+    // node:fs rather than importing the JSON so the assertion is against
+    // the file that actually ships, not a bundler-cached copy of it.
+    //
+    // `process.cwd()` and not `import.meta.url`: under vitest the module
+    // URL is the Vite dev server's `http://localhost:...`, so
+    // `new URL(relative, import.meta.url)` yields a non-`file:` URL and
+    // `readFile` rejects it with "The URL must be of scheme file". vitest
+    // runs with the Vite root as cwd, which is `apps/gm-desktop`.
+    const conf = JSON.parse(
+      await readFile(resolve(process.cwd(), 'src-tauri/tauri.conf.json'), 'utf8')
+    ) as { bundle: { copyright: string } };
+    expect(conf.bundle.copyright).toMatch(/copyright/i);
+    // The holder identity itself, not just the word "copyright".
+    const named = conf.bundle.copyright.replace(/^copyright\s*\(c\)\s*/i, '').trim();
+    expect(named.length).toBeGreaterThan(0);
+
+    resetRouteStores();
+    setLocale('en');
+    useInvoke();
+    render(Settings);
+    await screen.findByTestId('license-card');
+
+    expect(screen.getByTestId('license-copyright').textContent ?? '').toContain(named);
+  });
+
+  it('still shows the notices when the backend cannot describe itself', async () => {
+    // The card sits outside the `{#if info}` block on purpose. A legal
+    // notice that disappears when `app_info` fails is a notice that
+    // disappears exactly when something has gone wrong — and this page's
+    // `onMount` shares one try/catch between `app_info` and the password
+    // status, so a backend that cannot describe itself is reachable in
+    // ordinary use, not only in a test double.
+    useInvoke({ app_info: () => Promise.reject(new Error('no data directory')) });
+    render(Settings);
+
+    await waitFor(() => expect(screen.queryByTestId('admin-status')).toBeNull());
+    expect(screen.getByTestId('license-card')).toBeTruthy();
+    expect(screen.getByTestId('license-copyright').textContent).toMatch(
+      SECTION_0_REQUIREMENTS[get(locale)].copyright
+    );
+    expect(screen.getByTestId('license-view').textContent).toMatch(/https:\/\/\S+/);
   });
 });
