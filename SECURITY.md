@@ -88,9 +88,25 @@ on 2026-10-05 (`quick-xml` 0.38.4 twice, `rustls` 0.23.43) were cleared the
 same day by moving `rust-s3` to 0.38.0, `quick-xml` to 0.41.0, and `rustls` to
 0.23.45.
 
-Note that the gate covers Rust dependencies only. The two frontends
-(`apps/gm-desktop`, `apps/gm-console`) are audited separately and are not yet
-covered by an equivalent CI gate.
+Note that the gate covers Rust dependencies only. Measured on 2026-10-05, the two
+frontends carry their own advisories and have no equivalent CI gate:
+
+| Frontend | Advisories | Severity split |
+| --- | --- | --- |
+| `apps/gm-desktop` | 8 | 1 critical, 2 high, 5 moderate |
+| `apps/gm-console` | 10 | 1 critical, 2 high, 7 moderate |
+
+In `gm-desktop` every advisory sits in a devDependency chain — `vitest`,
+`@vitest/coverage-v8`, `vite`, `esbuild`, and `braces` under `tailwindcss` —
+and the production dependency list is only `@tauri-apps/api`, five Tauri
+plugins, `felte` and `zod`. None of it ships in the packaged application, so
+these are developer-machine risks (a hostile dev server, a Vite `fs.deny`
+bypass on Windows) rather than end-user exposure. `gm-console` additionally
+carries two `react-router@6.30.6` advisories that are in its runtime tree.
+
+The fixes are all major-version moves — `vitest` 2 -> 3 or 4, `vite` 5 -> 6,
+`react-router` 6 -> 7 — so each needs the frontend test suite re-verified
+rather than a lockfile edit, and `braces` has no patched 3.x release at all.
 
 ## Reporting something that is not a vulnerability
 
