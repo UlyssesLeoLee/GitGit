@@ -24,10 +24,31 @@ import Review from '../../src/routes/Review.svelte';
 import { installMock } from '../../src/mocks/handlers';
 import { tFor, locale } from '../../src/lib/i18n';
 
+/**
+ * `[FACT]` The event bridge is stubbed for the whole file so a case can
+ * drive the page's own start button.
+ *
+ * `@tauri-apps/api`'s `listen` needs the real runtime, so under jsdom the
+ * real `listenReviewEvents` rejects and `startReview` returns before it
+ * ever reaches `ai_review_start` — the button silently does nothing. That
+ * is a property of the test environment, not of the page, and it blocks
+ * every assertion about what the UI sends. The store's own cases use the
+ * `subscribe` seam instead and are unaffected.
+ *
+ * Same pattern as `api-ai.test.ts`: `vi.mock` is hoisted above the
+ * imports, so the spy it closes over must be hoisted too.
+ */
+const { listenMock } = vi.hoisted(() => ({ listenMock: vi.fn() }));
+vi.mock('@tauri-apps/api/event', () => ({ listen: listenMock }));
+
 beforeEach(() => {
   cleanup();
   installMock();
   resetReview();
+  listenMock.mockReset();
+  listenMock.mockImplementation(async () => () => {
+    // Nothing to release in these cases.
+  });
 });
 
 /**
@@ -113,6 +134,31 @@ function deferFirstStart(): {
     },
   };
   return { resolveStart, rejectStart };
+}
+
+/**
+ * Record every `invoke` call while still answering normally, so a case can
+ * assert what actually crossed the bridge.
+ *
+ * `[FACT]` Needed because "the UI has a field" and "the field's value
+ * reaches the command" are different claims. A page could bind an input
+ * and still never pass it — which is exactly the defect this closes:
+ * `Review.svelte` had no base URL field at all, so a self-hosted
+ * OpenAI-compatible endpoint on a non-default port was unreachable from
+ * the UI while `ReviewArgs.base_url` and
+ * `ProviderSpec::with_base_url` both existed and were tested on the Rust
+ * side.
+ */
+function recordInvocations(): { calls: { cmd: string; args?: Record<string, unknown> }[] } {
+  const installed = window.__TAURI_INTERNALS__!.invoke;
+  const calls: { cmd: string; args?: Record<string, unknown> }[] = [];
+  window.__TAURI_INTERNALS__ = {
+    invoke: (cmd: string, args?: Record<string, unknown>) => {
+      calls.push({ cmd, args });
+      return installed(cmd, args);
+    },
+  };
+  return { calls };
 }
 
 /**
@@ -552,8 +598,7 @@ describe('component / Review page', () => {
     expect(panel.textContent?.length).toBeGreaterThan(0);
   });
 
-  it('every rendered string comes from the catalogue', async () => {
-    // Cheap guard against a hardcoded string slipping into the page.
+  it('every rendered string comes from the catalogue', async () => {    // Cheap guard against a hardcoded string slipping into the page.
     // Compared against the active locale rather than a pinned one: this
     // asserts "the page renders the catalogue's string", which is the
     // actual intent, and it keeps holding under either locale.
@@ -563,6 +608,167 @@ describe('component / Review page', () => {
     expect(screen.getByTestId('review-start').textContent?.trim()).toBe(
       tFor(get(locale), 'review.start')
     );
+  });
+});
+
+/**
+ * Base URL override.
+ *
+ * `[FACT]` The gap this closes: `ReviewArgs.base_url` exists in Rust,
+ * `ProviderSpec::with_base_url` implements it, and the registry test
+ * `local_presets_point_at_loopback` proves the local presets resolve to
+ * loopback. `Review.svelte` never sent one, so the whole path was
+ * unreachable from the product. A self-hosted OpenAI-compatible gateway,
+ * a corporate proxy, or a local runtime on a non-default port could not
+ * be named from the UI.
+ *
+ * `[FACT]` These cases assert the value that crosses the Tauri bridge,
+ * not merely that an input exists — a bound `bind:value` that nobody
+ * forwards to `startReview` would pass a presence-only check.
+ */
+describe('component / Review page — base URL override', () => {
+  async function fillDiff(): Promise<void> {
+    await fireEvent.input(screen.getByTestId('review-diff'), {
+      target: { value: 'diff --git a/x b/x' },
+    });
+  }
+
+  it('sends a typed base URL to the command', async () => {
+    // The page's start button drives the real bridge, which is what makes
+    // this an end-to-end check of the UI half.
+    const recorder = recordInvocations();
+    render(Review);
+    await fillDiff();
+    await fireEvent.input(screen.getByTestId('review-base-url'), {
+      target: { value: 'http://127.0.0.1:8080/v1' },
+    });
+
+    await fireEvent.click(screen.getByTestId('review-start'));
+
+    await waitFor(() => {
+      expect(recorder.calls.some((c) => c.cmd === 'ai_review_start')).toBe(true);
+    });
+    const start = recorder.calls.find((c) => c.cmd === 'ai_review_start');
+    expect(start?.args?.baseUrl).toBe('http://127.0.0.1:8080/v1');
+  });
+
+  it('sends null for a blank base URL so the preset default applies', async () => {
+    // `[FACT]` The Rust contract distinguishes `Some("")` from `None`:
+    // `clean(&args.base_url)` returns `None` only for blank/absent, and
+    // `None` leaves `ProviderSpec` unmodified. Sending `""` would call
+    // `with_base_url("")` and point the request at `/chat/completions`
+    // on an empty host.
+    const recorder = recordInvocations();
+    render(Review);
+    await fillDiff();
+
+    await fireEvent.click(screen.getByTestId('review-start'));
+
+    await waitFor(() => {
+      expect(recorder.calls.some((c) => c.cmd === 'ai_review_start')).toBe(true);
+    });
+    const start = recorder.calls.find((c) => c.cmd === 'ai_review_start');
+    expect(start?.args?.baseUrl).toBeNull();
+  });
+
+  it('trims surrounding whitespace off a pasted base URL', async () => {
+    // A URL pasted out of a config file or a terminal usually carries a
+    // trailing newline. `ProviderSpec::with_base_url` strips trailing
+    // slashes but not whitespace, so `http://x/v1\n` would build
+    // `http://x/v1\n/chat/completions`.
+    const recorder = recordInvocations();
+    render(Review);
+    await fillDiff();
+    await fireEvent.input(screen.getByTestId('review-base-url'), {
+      target: { value: '  http://127.0.0.1:8080/v1  ' },
+    });
+
+    await fireEvent.click(screen.getByTestId('review-start'));
+
+    await waitFor(() => {
+      expect(recorder.calls.some((c) => c.cmd === 'ai_review_start')).toBe(true);
+    });
+    const start = recorder.calls.find((c) => c.cmd === 'ai_review_start');
+    expect(start?.args?.baseUrl).toBe('http://127.0.0.1:8080/v1');
+  });
+
+  it('refuses a base URL that is not http(s), without calling the backend', async () => {
+    // `[FACT]` `base_url` decides where an untrusted diff — code, paths,
+    // and whatever the redaction pass missed — is transmitted. A typo
+    // that still parses must not silently become a real destination.
+    for (const bad of ['not a url', 'file:///etc/passwd', 'javascript:alert(1)', 'ftp://x/v1']) {
+      const recorder = recordInvocations();
+      render(Review);
+      await fillDiff();
+      await fireEvent.input(screen.getByTestId('review-base-url'), {
+        target: { value: bad },
+      });
+
+      await fireEvent.click(screen.getByTestId('review-start'));
+
+      const err = await screen.findByTestId('review-local-error');
+      expect(err.textContent?.trim(), `accepted: ${bad}`).toBe(
+        tFor(get(locale), 'review.invalidBaseUrl')
+      );
+      // Nothing may leave the process on the refusal path.
+      expect(recorder.calls.some((c) => c.cmd === 'ai_review_start')).toBe(false);
+      expect(get(review).status).toBe('idle');
+      cleanup();
+    }
+  });
+
+  it('rejects an unparseable base URL before any network call', async () => {
+    // Kept as its own case rather than folded into the loop above: it is
+    // the `new URL` throw path, a different branch from the scheme check.
+    const recorder = recordInvocations();
+    render(Review);
+    await fillDiff();
+    await fireEvent.input(screen.getByTestId('review-base-url'), {
+      target: { value: '127.0.0.1:8080' },
+    });
+    await fireEvent.click(screen.getByTestId('review-start'));
+
+    const err = await screen.findByTestId('review-local-error');
+    expect(err.textContent?.trim()).toBe(tFor(get(locale), 'review.invalidBaseUrl'));
+    expect(recorder.calls.some((c) => c.cmd === 'ai_review_start')).toBe(false);
+  });
+
+  it('clears a previous base URL error when the value is corrected', async () => {
+    // A stale error that outlives its cause trains users to ignore the
+    // message, which is the same defect class as the `[object Object]`
+    // fallback this file already pins elsewhere.
+    render(Review);
+    await fillDiff();
+    await fireEvent.input(screen.getByTestId('review-base-url'), {
+      target: { value: 'nonsense' },
+    });
+    await fireEvent.click(screen.getByTestId('review-start'));
+    await screen.findByTestId('review-local-error');
+
+    await fireEvent.input(screen.getByTestId('review-base-url'), {
+      target: { value: 'http://127.0.0.1:8080/v1' },
+    });
+    await fireEvent.click(screen.getByTestId('review-start'));
+
+    await waitFor(() => {
+      expect(screen.queryByTestId('review-local-error')).toBeNull();
+    });
+  });
+
+  it('disables the base URL field while a review is streaming', async () => {
+    // Mid-stream edits would not change the in-flight request, so the
+    // field would disagree with what is actually happening.
+    render(Review);
+    await fillDiff();
+    const bridge = fakeSubscribe();
+    await startReview('diff --git a/x b/x', {
+      provider: 'openai',
+      subscribe: bridge.subscribe,
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId('review-base-url').hasAttribute('disabled')).toBe(true);
+    });
   });
 });
 
@@ -577,6 +783,8 @@ describe('i18n parity for the review surface', () => {
       'review.providerLabel',
       'review.modelLabel',
       'review.modelPlaceholder',
+      'review.baseUrlLabel',
+      'review.baseUrlPlaceholder',
       'review.start',
       'review.stop',
       'review.starting',
@@ -592,6 +800,7 @@ describe('i18n parity for the review surface', () => {
       'review.noKey',
       'review.truncated',
       'review.invalidDiff',
+      'review.invalidBaseUrl',
       'errors.kind.AiReviewUnsupported',
       'errors.kind.AiReviewNoKey',
       'errors.kind.AiReviewInvalid',

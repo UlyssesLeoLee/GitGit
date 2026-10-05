@@ -205,6 +205,8 @@ const en: Readonly<Record<string, string>> = {
   'review.providerLabel': 'Provider',
   'review.modelLabel': 'Model (optional)',
   'review.modelPlaceholder': 'Provider default',
+  'review.baseUrlLabel': 'Base URL (optional)',
+  'review.baseUrlPlaceholder': 'Provider default',
   'review.start': 'Start review',
   'review.stop': 'Stop',
   'review.starting': 'Starting…',
@@ -220,6 +222,7 @@ const en: Readonly<Record<string, string>> = {
   'review.noKey': 'No API key found. Set GITGIT_AI_API_KEY in the environment that launched the app — the key is never entered here.',
   'review.truncated': 'Output truncated for display.',
   'review.invalidDiff': 'Paste a diff first.',
+  'review.invalidBaseUrl': 'Enter an http(s) URL, or leave it empty for the provider default.',
 };
 
 export default en;
