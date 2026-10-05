@@ -167,18 +167,16 @@ describe('api / ai — event fan-out', () => {
     expect(unlistens.map((u) => u.mock.calls.length)).toEqual([1, 1, 1, 1, 1]);
   });
 
-  it('leaks the listeners it already opened when a later listen fails', async () => {
-    // `[FACT]` This is the measured behaviour, and it contradicts the
-    // function's own docstring ("a mid-flight failure still detaches
-    // what was already open"). The `await` inside the `for` loop means
-    // a rejection escapes before the `return` — the closure that would
-    // have detached the first listeners is never created, and nothing
-    // else holds a reference to them. The store is the one caller, and
-    // it treats a rejected subscribe as a fatal error state, so the
-    // leak lasts for the life of the page.
-    //
-    // Asserted as-is so the gap is on the record; a fix belongs in
-    // `ai.ts`, and this case then documents the new behaviour.
+  it('detaches the listeners it already opened when a later listen fails', async () => {
+    // `[FACT]` This case used to assert the opposite — `[0, 0]`, zero
+    // unlisten calls — because that was the measured behaviour while it
+    // was a bug. The `await` inside the `for` loop meant a rejection
+    // escaped before the `return`, so the closure that would have
+    // detached the first listeners never existed and nothing else held a
+    // reference to them: two live event channels with no handle anyone
+    // could ever use, for the life of the page. `ai.ts` now tracks each
+    // unlisten as it arrives and detaches the lot before rethrowing, so
+    // the same two listeners are each released exactly once.
     const unlistens = fakeListen();
     const failure = new Error('event bridge is not available');
     let call = 0;
@@ -191,9 +189,39 @@ describe('api / ai — event fan-out', () => {
       throw failure;
     });
 
+    // The caller still sees the original failure, not a detach error.
     await expect(listenReviewEvents(() => {})).rejects.toBe(failure);
-    // Two listeners were opened, and none of them were ever detached.
-    expect(unlistens.map((u) => u.mock.calls.length)).toEqual([0, 0]);
+    // The two that did open are both released; the three that never
+    // opened have no unlisten to call.
+    expect(unlistens.map((u) => u.mock.calls.length)).toEqual([1, 1]);
+  });
+
+  it('still detaches the rest when one unlisten throws on the failure path', async () => {
+    // `[FACT]` A detached listener is user code as far as this module is
+    // concerned. If the first unlisten throws, a naive cleanup would
+    // abandon the loop and leave the second listener attached — trading
+    // one leak for another, plus a second error thrown over the failure
+    // the caller actually needs. The loop therefore releases every
+    // handle it collected and swallows the teardown error.
+    const unlistens: ReturnType<typeof vi.fn>[] = [];
+    const failure = new Error('event bridge is not available');
+    let call = 0;
+    listenMock.mockImplementation(async () => {
+      if (call++ < 2) {
+        const unlisten = vi.fn(() => {
+          if (unlistens.length === 1) {
+            throw new Error('channel already gone');
+          }
+        });
+        unlistens.push(unlisten);
+        return unlisten;
+      }
+      throw failure;
+    });
+
+    await expect(listenReviewEvents(() => {})).rejects.toBe(failure);
+    // The thrower did not stop the second detach.
+    expect(unlistens.map((u) => u.mock.calls.length)).toEqual([1, 1]);
   });
 });
 
