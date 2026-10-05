@@ -22,10 +22,20 @@ Running light to produce E:\DevCache\cargo\target-lane-l\release\bundle\msi\gitg
 
 `[FACT]` That name carries product, version, arch and language but not the
 install scope, and both scopes write into the same directory
-(`<cargo-target>/release/bundle/msi/`). `[FACT]` A per-machine build and a
-per-user build of the same version and language both emit
-`gitgit Desktop_0.1.0_x64_en-US.msi` there — the second overwrites the first,
-with exit code 0 on both runs.
+(`<cargo-target>/release/bundle/msi/`).
+
+`[FACT]` The collision, verbatim, from a single `-Scope both` run — four
+`light` invocations, two distinct destination paths, each one written twice:
+
+```
+Running light to produce ...\bundle\msi\gitgit Desktop_0.1.0_x64_en-US.msi
+Running light to produce ...\bundle\msi\gitgit Desktop_0.1.0_x64_zh-CN.msi
+Running light to produce ...\bundle\msi\gitgit Desktop_0.1.0_x64_en-US.msi   <- perUser, same path
+Running light to produce ...\bundle\msi\gitgit Desktop_0.1.0_x64_zh-CN.msi   <- perUser, same path
+```
+
+`[FACT]` Both builds exited 0. The per-machine `en-US` package was replaced in
+place by the per-user one with no error anywhere.
 
 `[FACT]` `productName` cannot carry the scope instead: it is the installed
 application name and the Start Menu folder name.
@@ -168,15 +178,36 @@ make a Linux failure skip the installer job entirely; running them in parallel
 means the two gates report independently and neither can hide the other.
 
 `[UNVERIFIED-FACT]` The job has never run. Everything above about the job's
-*content* is verified by the same commands run locally; its wall-clock on a
-GitHub-hosted runner is not. Measured locally: cold `cargo build --release` of
-this crate tree is 8m 21s, and a warm-deps `-Scope both` run is 4m 44s, so
-`[INFERENCE]` a cold runner lands near 15 minutes against a `timeout-minutes: 45`
-ceiling. `[PROPOSAL]` If that is too slow for the runner budget, the cheaper
-gate I would defend is dropping `zh-CN` from the default language list (one MSI
-per scope instead of two) — the collision, the scope assertions and the payload
+*content* is verified by the same commands run locally; three things are not,
+and only the first run settles them:
+
+1. `[UNVERIFIED-FACT]` **WiX on the runner.** This machine already has
+   `%LOCALAPPDATA%\tauri\WixTools314`, so the WiX acquisition path was never
+   exercised here. `[FACT]` tauri-bundler v2 fetches the toolset itself when it
+   finds none, which needs network on the runner. If that fetch is blocked or
+   slow, this is the step that fails. Mitigation if it bites: cache or install
+   WiX 3.14 in an explicit step and put its `bin` on `PATH`.
+2. `[UNVERIFIED-FACT]` **Wall clock.** Measured locally: cold
+   `cargo build --release` of this crate tree is 8m 21s, and a warm-deps
+   `-Scope both` run is 4m 44s, so `[INFERENCE]` a cold runner lands near
+   15 minutes against a `timeout-minutes: 45` ceiling. Runner hardware is not
+   this machine's.
+3. `[UNVERIFIED-FACT]` **Artifact download.** `upload-artifact@v4` is exercised
+   here only as a YAML parse; the two artifact names are asserted to be
+   distinct by construction, not by a run.
+
+`[PROPOSAL]` If the job proves too slow for the runner budget, the cheaper gate
+I would defend is dropping `zh-CN` from the default language list (one MSI per
+scope instead of two) — the collision, the scope assertions and the payload
 check are all unaffected by language count. I would not drop either scope,
 because the two-scope comparison *is* the check.
+
+`[FACT]` One consequence of the workflow-level `concurrency:
+cancel-in-progress: true` worth knowing: a newer push to the same ref cancels
+the whole run, and a ~15-minute installer job is more exposed to that than a
+25-second lint step. `[PROPOSAL]` Splitting the `msi` job into its own workflow
+file with its own concurrency group would remove the exposure, at the cost of a
+second required check. Not done here — it changes CI topology beyond this lane.
 
 ## 7. Known problems found, not fixed here
 
