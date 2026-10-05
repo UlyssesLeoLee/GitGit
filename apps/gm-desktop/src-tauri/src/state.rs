@@ -295,10 +295,7 @@ impl ReviewManager {
     /// task from clearing a slot that a newer stream already claimed.
     pub fn release(&self, session_id: &str) {
         if let Ok(mut guard) = self.inner.lock() {
-            if guard
-                .as_ref()
-                .is_some_and(|r| r.session_id == session_id)
-            {
+            if guard.as_ref().is_some_and(|r| r.session_id == session_id) {
                 *guard = None;
             }
         }
