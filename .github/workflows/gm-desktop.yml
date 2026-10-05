@@ -120,15 +120,75 @@ jobs:
       # `CI=true` and colour on.
       - name: Coverage gate
         run: |
+          # `[FACT]` `set -o pipefail` is load-bearing, not hygiene.
+          # GitHub Actions runs a `run:` block as `bash -e {0}` — `-e`
+          # but NOT `pipefail` — so `pnpm test:coverage | tee` returned
+          # tee's status, i.e. 0, no matter what vitest exited with.
+          # Measured locally:
+          #     bash -e -c 'false | tee /dev/null'            -> exit 0
+          #     bash -e -o pipefail -c 'false | tee /dev/null' -> exit 1
+          # The step below therefore ignored the suite's own verdict.
+          set -o pipefail
           pnpm test:coverage 2>&1 | tee /tmp/gmd-coverage.txt
           sed 's/\x1b\[[0-9;]*m//g' /tmp/gmd-coverage.txt > /tmp/gmd-coverage.plain.txt
-          # `[FACT]` vitest prints `Tests  378 passed (378)`. A run that
-          # matched zero test files prints no such line.
+
+          # Guard 1 — the run reported real passing work. A run that
+          # matched zero test files prints no such line, and a run with a
+          # failure prints `Tests  1 failed | 390 passed (391)`, which
+          # this pattern cannot match.
           if ! grep -qE 'Tests +[1-9][0-9]* passed' /tmp/gmd-coverage.plain.txt; then
             echo "::error::the coverage run reported no passing tests, so its table proves nothing"
             tail -40 /tmp/gmd-coverage.plain.txt
             exit 1
           fi
+
+          # Guards 2 and 3 exist because of a measured flake, not a
+          # hypothetical. In one local run in two, vitest printed
+          #   [vitest-pool]: Timeout terminating forks worker for
+          #   .../tests/unit/router.test.ts
+          #   This might cause false positive tests.
+          # and accounted for 25 of 26 files while still exiting 0.
+          #
+          # Guard 1 cannot see that: `Tests  385 passed (385)` is a
+          # perfectly good-looking line for a run that silently skipped a
+          # whole test file. Rehearsed against the real log, the
+          # pre-2026-10-05 version of this step — the single grep above —
+          # reported PASS for that 25/26 log. So a dropped file read as a
+          # green build, which is the exact failure the gate exists to
+          # prevent.
+
+          # Guard 2 — the pool did not report a worker failure.
+          if grep -q 'forks worker' /tmp/gmd-coverage.plain.txt; then
+            echo "::error::vitest reported a forks-worker failure; the run may have skipped files"
+            grep -n 'forks worker' /tmp/gmd-coverage.plain.txt | head -5
+            exit 1
+          fi
+
+          # Guard 3 — every test file on disk actually ran. The total
+          # vitest reports is compared against the number of test files
+          # that exist, so a silently dropped file fails instead of
+          # shrinking the number and reading as progress.
+          expected=$(find tests -type f -name '*.test.ts' | wc -l | tr -d '[:space:]')
+          reported=$(sed -nE 's/^[[:space:]]*Test Files[[:space:]].*\(([0-9]+)\)[[:space:]]*$/\1/p' /tmp/gmd-coverage.plain.txt | tail -1)
+          if [ -z "$reported" ]; then
+            echo "::error::no 'Test Files ... (N)' summary line to compare against $expected files"
+            exit 1
+          fi
+          if [ "$reported" != "$expected" ]; then
+            echo "::error::$expected test files exist but vitest accounted for $reported"
+            grep -E '^[[:space:]]*(Test Files|Tests)[[:space:]]' /tmp/gmd-coverage.plain.txt | tail -5
+            exit 1
+          fi
+
+          # Guard 4 — the summary line names no failure. Defensive: a
+          # future vitest that drops the total from that line must not
+          # turn guard 3 into a silent no-op.
+          if grep -E '^[[:space:]]*Test Files[[:space:]]' /tmp/gmd-coverage.plain.txt | grep -q 'failed'; then
+            echo "::error::the Test Files summary reports a failure"
+            exit 1
+          fi
+
+          echo "coverage gate: $expected/$reported test files accounted for"
 
       - name: Build
         run: pnpm build
