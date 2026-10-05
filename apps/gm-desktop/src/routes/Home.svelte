@@ -12,7 +12,7 @@
   import { t, locale } from '$lib/i18n';
   import { formatUptime } from '$lib/utils/format';
   import { pushToast } from '$lib/stores/toasts';
-  import type { AppErrorPayload } from '$lib/api/types';
+  import { friendlyError } from '$lib/utils/errors';
   import { catalog } from '$lib/i18n';
 
   let bind = $state('127.0.0.1:38080');
@@ -70,18 +70,6 @@
   async function onClearLogs(): Promise<void> {
     await tauri.clearLogs();
     await refreshLogs();
-  }
-
-  function friendlyError(err: unknown): string {
-    if (typeof err === 'object' && err !== null && 'kind' in err) {
-      const e = err as AppErrorPayload;
-      const tmplKey = `errors.kind.${e.kind}`;
-      // The i18n lookup returns the key when missing; fall back to
-      // the raw `message` so we still surface something useful.
-      const tmpl = t(tmplKey);
-      return tmpl === tmplKey ? e.message : tmpl;
-    }
-    return String(err);
   }
 </script>
 

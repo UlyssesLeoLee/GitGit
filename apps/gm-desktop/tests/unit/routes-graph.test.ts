@@ -317,15 +317,18 @@ describe('route / graph — loading, failure, empty', () => {
     expect(listRows()).toHaveLength(NODES.length);
   });
 
-  it('survives a non-Error rejection by stringifying it', async () => {
-    // `loadGraph` falls back to `String(e)` for a rejection that is
-    // not an `Error`. A backend that rejects with a bare payload
-    // (the `AppError` shape does) must still produce a message.
+  it('surfaces the message of a bare-object rejection', async () => {
+    // `[FACT]` This used to be "survives a non-Error rejection by
+    // stringifying it", and it asserted the rendered box contained
+    // `[object Object]`. The fallback is gone: a Tauri rejection is a
+    // plain `{ kind, message, source }` object, so stringifying it told
+    // the user nothing at all. The backend's own message is rendered now.
     useInvoke({ graph_load: () => Promise.reject({ kind: 'Graph', message: 'boom' }) });
 
     render(Graph);
     const box = await findErrorBox();
-    expect(box.textContent).toContain('[object Object]');
+    expect(box.textContent).toContain('boom');
+    expect(box.textContent).not.toContain('[object Object]');
   });
 
   it('renders a graph with no nodes as the empty state, not as a failure', async () => {

@@ -24,6 +24,7 @@
 import { writable, derived, get } from 'svelte/store';
 import type { GraphEdge, GraphNode, GraphStats } from '$lib/api/types';
 import { graphLoad } from '$lib/api/graph';
+import { friendlyError } from '$lib/utils/errors';
 import { scoreNode } from '$lib/graph/parser';
 
 export type GraphSource = 'tauri' | 'web' | 'cache';
@@ -148,10 +149,15 @@ export async function loadGraph(): Promise<void> {
       buildAt: new Date().toISOString(),
     }));
   } catch (e) {
+    // `[FACT]` Was `e instanceof Error ? e.message : String(e)`. Tauri
+    // rejects with a plain `{ kind, message, source }` object, so the
+    // `instanceof` arm never matched and the page rendered
+    // "[object Object]" as the failure reason. Both the kind and the
+    // backend's own message are kept now.
     graph.update((g) => ({
       ...g,
       loading: false,
-      error: e instanceof Error ? e.message : String(e),
+      error: friendlyError(e),
     }));
   }
 }

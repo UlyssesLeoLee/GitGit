@@ -178,20 +178,19 @@ describe('store / graph — loadGraph', () => {
     expect(get(graph).error).toBe('graph index has not been built');
   });
 
-  it('loses the typed kind of a backend refusal', async () => {
-    // `[FACT]` This is the measured behaviour and it is a gap relative
-    // to the other stores: `worktree` keeps `errorKind` so the page can
-    // pick a localized remedy, and `review` does the same. This store
-    // only keeps a string, so the refusal object is stringified —
-    // `error` becomes "[object Object]" and the kind is gone.
-    //
-    // Asserted as-is so the difference is on the record. A fix belongs
-    // in `stores/graph.ts`; this case then documents the new shape.
+  it('keeps the message of a backend refusal', async () => {
+    // `[FACT]` This used to be "loses the typed kind of a backend
+    // refusal", and it asserted `error` was `"[object Object]"`. The
+    // store stringified whatever the command rejected with, but a Tauri
+    // rejection is a plain `{ kind, message, source }` object — not an
+    // `Error` — so the graph page told the user `[object Object]` and
+    // dropped both the kind and the message. The expectation below pins
+    // the fixed behaviour: the backend's own words survive.
     rejectsWith({ kind: 'GraphNotBuilt', message: 'no index yet', source: '"GraphNotBuilt"' });
     await loadGraph();
 
-    expect(get(graph).error).toBe('[object Object]');
-    expect(get(graph).error).not.toContain('GraphNotBuilt');
+    expect(get(graph).error).toBe('no index yet');
+    expect(get(graph).error).not.toBe('[object Object]');
   });
 });
 

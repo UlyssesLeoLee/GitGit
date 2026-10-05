@@ -17,6 +17,7 @@
   import { server, refreshServerStatus } from '$lib/stores/server';
   import { repos, refreshRepos } from '$lib/stores/repos';
   import { refreshVault } from '$lib/stores/vault';
+  import { friendlyError } from '$lib/utils/errors';
   import { t } from '$lib/i18n';
   import Home from './routes/Home.svelte';
   import Repos from './routes/Repos.svelte';
@@ -61,7 +62,11 @@
       ]);
       booted = true;
     } catch (err) {
-      bootError = err instanceof Error ? err.message : String(err);
+      // `[FACT]` Was `err instanceof Error ? err.message : String(err)`,
+      // which never took the first arm — a Tauri rejection is a plain
+      // `{ kind, message, source }` object — and rendered
+      // "[object Object]" as the boot failure reason.
+      bootError = friendlyError(err);
       booted = true;
     }
   });

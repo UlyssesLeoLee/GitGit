@@ -8,6 +8,7 @@
   import { t } from '$lib/i18n';
   import { copyText } from '$lib/utils/clipboard';
   import { formatBytes } from '$lib/utils/format';
+  import { friendlyError } from '$lib/utils/errors';
   import { pushToast } from '$lib/stores/toasts';
   import { catalog } from '$lib/i18n';
 
@@ -34,7 +35,10 @@
     try {
       await openRepoInShell(name);
     } catch (e) {
-      pushToast('error', String(e));
+      // `[FACT]` Was `String(e)`. Tauri rejects with a plain
+      // `{ kind, message, source }` object, so a failed "open in file
+      // manager" told the user `[object Object]`.
+      pushToast('error', friendlyError(e));
     }
   }
 </script>
