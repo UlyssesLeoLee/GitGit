@@ -32,7 +32,26 @@ export default defineConfig({
   server: {
     port: 5173,
     strictPort: true,
-    host: process.env.TAURI_DEV_HOST || 'localhost',
+    // `[FACT]` `127.0.0.1`, not `localhost`, and the difference is the
+    // whole reason `pnpm tauri:dev` starts at all.
+    //
+    // Node has resolved `localhost` verbatim (the DNS result order it
+    // prefers, not a sorted one) since 17, and on Windows `::1` comes
+    // back first. Vite therefore bound the IPv6 loopback only. The Tauri
+    // CLI then polled `http://localhost:5173` over IPv4, got a refused
+    // connection, and sat at
+    //
+    //     Warn Waiting for your frontend dev server to start on
+    //          http://localhost:5173/...
+    //
+    // indefinitely — with Vite's own banner already claiming it was
+    // `ready`. Nothing in CI sees this: the workflow runs `build`, which
+    // never opens a socket, and `test`, which never starts the dev
+    // server. It was found by running the app.
+    //
+    // `TAURI_DEV_HOST` still wins when set, because that is how the CLI
+    // points the dev server at a LAN address for device debugging.
+    host: process.env.TAURI_DEV_HOST || '127.0.0.1',
   },
   envPrefix: ['VITE_', 'TAURI_'],
   build: {
