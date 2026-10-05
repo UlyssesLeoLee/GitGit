@@ -180,9 +180,23 @@ jobs:
             exit 1
           fi
 
-          # Guard 4 — the summary line names no failure. Defensive: a
-          # future vitest that drops the total from that line must not
-          # turn guard 3 into a silent no-op.
+          # Guard 4 — the summary line names no failure.
+          #
+          # `[FACT]` Measured, and it is NOT the guard that does the work.
+          # With a file failing, vitest 5.0.3 puts the failure FIRST:
+          #     Test Files  1 failed | 27 passed (28)
+          #     Tests  1 failed | 403 passed (404)
+          # so guard 1's `Tests +[1-9][0-9]* passed` cannot match and
+          # guard 1 closes the step on its own. Verified by adding a
+          # deliberately failing test file and running the real suite.
+          #
+          # It is kept because it costs one grep and covers the one
+          # format change that would quietly defeat guard 1: a vitest
+          # that reported `Tests  403 passed | 1 failed` would satisfy
+          # guard 1, match guard 3 (28 == 28), and only fail here. It
+          # has never been observed to be load-bearing, and it is
+          # documented as such rather than presented as if it had been
+          # proven.
           if grep -E '^[[:space:]]*Test Files[[:space:]]' /tmp/gmd-coverage.plain.txt | grep -q 'failed'; then
             echo "::error::the Test Files summary reports a failure"
             exit 1
