@@ -551,16 +551,71 @@ async function handle(cmd: string, args?: Record<string, unknown>): Promise<unkn
 }
 
 /**
+ * `[FACT]` Identity marker for the `invoke` this module installs.
+ *
+ * `installMock()` used to answer "is the mock already installed?" by
+ * stringifying whatever `invoke` was currently installed and searching
+ * the source text for the substring `"mock"`. That is an identity test
+ * written as a text search, and it failed in two separate ways:
+ *
+ *   1. Any third-party `invoke` whose source happened to contain that
+ *      word — `model: 'mock'`, a `mock-*` fixture name, a comment — was
+ *      mistaken for this mock, so the reinstall was skipped and every
+ *      later caller silently talked to the stub instead. Several test
+ *      files carried a `delete window.__TAURI_INTERNALS__` in their
+ *      `beforeEach` purely to work around that.
+ *   2. It did not even match its own function: the installed arrow is
+ *      `(cmd, args) => handle(cmd, args)`, whose source contains no
+ *      such substring, so each `installMock()` call replaced the bridge
+ *      with a new object rather than being idempotent. The answer also
+ *      depended on how the function had been compiled, so it could
+ *      change with no edit here at all.
+ *
+ * A symbol carried on the function is a real identity test: no source
+ * text can spoof it, and no transform can add or drop it.
+ */
+const MOCK_INVOKE = Symbol('gm-desktop.mocks.invoke');
+
+/**
+ * `[FACT]` One stable function object, built once at module load.
+ * Reinstalling therefore cannot swap the identity of the bridge, which
+ * is what makes the idempotence below observable instead of assumed.
+ * `STORE` lives at module scope for the same reason: reinstalling
+ * restores the mock's *bridge*, never its state.
+ */
+const mockInvoke = Object.assign(
+  (cmd: string, args?: Record<string, unknown>) => handle(cmd, args),
+  { [MOCK_INVOKE]: true },
+);
+
+/** True only for the exact function this module installed. */
+function isMockInvoke(invoke: unknown): boolean {
+  return (
+    typeof invoke === 'function' &&
+    // `[FACT]` The assertion goes through `unknown` because
+    // `Function` has no symbol index signature — the same
+    // `as unknown as` the previous implementation's cast needed, but
+    // here it buys a runtime test rather than papering over one.
+    (invoke as unknown as Partial<Record<symbol, unknown>>)[MOCK_INVOKE] === true
+  );
+}
+
+/**
  * `installMock()` patches `window.__TAURI_INTERNALS__` so the rest
  * of the app sees a working backend without any Rust binary in the
- * loop. Safe to call multiple times; idempotent.
+ * loop. Safe to call multiple times.
+ *
+ * `[FACT]` Semantics for "a stub is installed, then `installMock()` is
+ * called": the mock **always takes over**. The call is a no-op only
+ * when the exact function this module installed is already in place,
+ * which is the one case where skipping changes nothing observable. A
+ * module-level `installed` flag was rejected for the opposite reason:
+ * it would make the second call a silent no-op even after a test had
+ * replaced the bridge, which is the same class of bug the substring
+ * test had, just keyed on a different piece of hidden state.
  */
 export function installMock(): void {
   if (typeof window === 'undefined') return;
-  if (window.__TAURI_INTERNALS__?.invoke?.toString().includes('mock')) return;
-  window.__TAURI_INTERNALS__ = {
-    invoke: ((cmd: string, args?: Record<string, unknown>) => handle(cmd, args)) as unknown as Window['__TAURI_INTERNALS__'] extends infer T
-      ? T extends { invoke: infer F } ? F : never
-      : never,
-  };
+  if (isMockInvoke(window.__TAURI_INTERNALS__?.invoke)) return;
+  window.__TAURI_INTERNALS__ = { invoke: mockInvoke };
 }
