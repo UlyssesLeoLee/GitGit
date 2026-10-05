@@ -31,6 +31,7 @@ const zh: Readonly<Record<string, string>> = {
   'nav.vault': '凭证',
   'nav.graph': '知识图谱',
   'nav.settings': '设置',
+  'nav.review': 'AI 评审',
 
   // 概览 / 服务器
   'dashboard.heading': '服务总览',
@@ -121,6 +122,11 @@ const zh: Readonly<Record<string, string>> = {
   'errors.kind.Bridge': '系统桥接错误',
   'errors.kind.Internal': '内部错误',
   'errors.kind.InvalidRepoName': '仓库名非法',
+  'errors.kind.AiReviewUnsupported': '该 provider 不支持流式输出',
+  'errors.kind.AiReviewNoKey': '环境中没有 API key',
+  'errors.kind.AiReviewInvalid': '评审请求被拒绝',
+  'errors.kind.AiReviewAlreadyRunning': '已有评审在进行',
+  'errors.kind.AiReviewNotRunning': '当前没有评审在进行',
 
   // 知识图谱（PR-C）
   'graph.heading': '工程知识图谱',
@@ -140,6 +146,30 @@ const zh: Readonly<Record<string, string>> = {
   'graph.noConnections': '该节点无关系（孤立节点或种子节点）。',
   'graph.outgoing': '出边',
   'graph.incoming': '入边',
+
+  // AI 评审（T9）
+  'review.heading': 'AI 评审',
+  'review.subhead': '模型边写，token 边到',
+  'review.diffLabel': '待评审 diff',
+  'review.diffPlaceholder': '粘贴 git diff…',
+  'review.providerLabel': 'Provider',
+  'review.modelLabel': '模型（可选）',
+  'review.modelPlaceholder': '使用 provider 默认值',
+  'review.start': '开始评审',
+  'review.stop': '停止',
+  'review.starting': '启动中…',
+  'review.streaming': '流式接收中…',
+  'review.done': '评审完成',
+  'review.cancelled': '评审已停止',
+  'review.empty': '评审内容会随着 token 到达显示在这里。',
+  'review.outputLabel': '评审结果',
+  'review.tokenCount': '{n} 个 token',
+  'review.modelServed': '模型：{model}',
+  'review.redacted': '发送前已过滤 {n} 处疑似密钥的片段',
+  'review.unsupported': '{provider} 不支持流式输出。其协议没有流式实现，因此不会发出评审（否则只会一次性返回，看起来像卡住）。请选择兼容 OpenAI 协议的 provider 以看到 token 逐字显示。',
+  'review.noKey': '未找到 API key。请在启动应用的环境中设置 GITGIT_AI_API_KEY —— 本界面不接收 key。',
+  'review.truncated': '内容过长，显示已截断。',
+  'review.invalidDiff': '请先粘贴 diff。',
 };
 
 export default zh;

@@ -37,6 +37,12 @@ pub const LOG_BUFFER_CAPACITY: usize = 500;
 pub const DEFAULT_BIND: &str = "127.0.0.1:38080";
 /// App-data-relative vault root when no explicit override is given.
 pub const DEFAULT_VAULT_DIR: &str = "vault";
+/// Largest diff accepted for a single AI review, in bytes.
+///
+/// A bound, not a suggestion: the diff is copied into a prompt, sent to a
+/// third-party endpoint, and accumulated again in the webview. An
+/// unbounded textarea is a cheap way to spend an operator's tokens.
+pub const REVIEW_MAX_DIFF_BYTES: usize = 256 * 1024;
 
 /// Snapshot of the embedded server's state — written into the response
 /// of `start_server` / `server_status`.
@@ -216,6 +222,120 @@ impl Default for ServerManager {
     }
 }
 
+/// Owner of the single in-flight AI review stream.
+///
+/// The shape deliberately mirrors [`ServerManager`] — one slot, a mutex
+/// held only across the bookkeeping and never across an `.await` — for
+/// the same reason: two concurrent reviews would interleave their token
+/// events into one UI text box, and there is no way to tell afterwards
+/// which model wrote which sentence.
+pub struct ReviewManager {
+    inner: Mutex<Option<RunningReview>>,
+}
+
+/// Internal record of the stream that is currently being consumed.
+struct RunningReview {
+    session_id: String,
+    /// Task draining the provider's `StreamReceiver` and emitting
+    /// events. Held so `cancel` can `abort()` it — dropping the handle
+    /// would only *detach* the task, which is precisely the defect
+    /// `ServerManager::stop` documents for the embedded server.
+    join: JoinHandle<()>,
+}
+
+impl ReviewManager {
+    pub fn new() -> Self {
+        Self {
+            inner: Mutex::new(None),
+        }
+    }
+
+    /// Session id of the running review, if any.
+    ///
+    /// Doubles as the "is anything running" test (`is_none()` means the
+    /// slot is free) so there is exactly one accessor to keep correct.
+    /// Its value also names the conflict in a "already streaming" error.
+    pub fn running_session(&self) -> Option<String> {
+        self.inner
+            .lock()
+            .ok()
+            .and_then(|g| g.as_ref().map(|r| r.session_id.clone()))
+    }
+
+    /// Install `join` as *the* running review.
+    ///
+    /// On conflict the handle is handed back to the caller rather than
+    /// dropped: the caller must abort it, because a dropped
+    /// `JoinHandle` detaches the task and it would keep streaming into
+    /// a session the UI has already been told is not running.
+    pub fn install(
+        &self,
+        session_id: String,
+        join: JoinHandle<()>,
+    ) -> Result<(), (JoinHandle<()>, String)> {
+        let mut guard = match self.inner.lock() {
+            Ok(g) => g,
+            Err(_) => return Err((join, String::from("<poisoned>"))),
+        };
+        // Inspect without taking: removing the incumbent here would
+        // orphan a stream that is still running, leaving two live
+        // streams and no way to cancel either.
+        if let Some(existing) = guard.as_ref() {
+            return Err((join, existing.session_id.clone()));
+        }
+        *guard = Some(RunningReview { session_id, join });
+        Ok(())
+    }
+
+    /// Release the slot without touching the task, for `session_id` only.
+    ///
+    /// Called by the stream task itself on every exit path, so a
+    /// finished stream does not make the *next* start look like a
+    /// double start. The session-id comparison stops a late-exiting
+    /// task from clearing a slot that a newer stream already claimed.
+    pub fn release(&self, session_id: &str) {
+        if let Ok(mut guard) = self.inner.lock() {
+            if guard
+                .as_ref()
+                .is_some_and(|r| r.session_id == session_id)
+            {
+                *guard = None;
+            }
+        }
+    }
+
+    /// Cancel the running review. Returns the session id that was
+    /// stopped.
+    ///
+    /// The handle is aborted AND awaited, for the reason spelled out in
+    /// [`ServerManager::stop`]: returning before the cancellation lands
+    /// would let the UI report "stopped" while the task still holds the
+    /// provider connection. Dropping the `StreamReceiver` is what
+    /// actually releases the HTTP body — see
+    /// [`gitgit::ai::provider::AiProvider::send_stream`].
+    pub async fn cancel(&self) -> AppResult<String> {
+        let taken = {
+            let mut guard = self
+                .inner
+                .lock()
+                .map_err(|_| AppError::ServerManagerPoisoned)?;
+            guard.take()
+        };
+        let Some(running) = taken else {
+            return Err(AppError::AiReviewNotRunning);
+        };
+        running.join.abort();
+        let _ = running.join.await;
+        Ok(running.session_id)
+    }
+}
+
+impl Default for ReviewManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// Ring buffer of recent log lines. Sized to [`LOG_BUFFER_CAPACITY`].
 #[derive(Clone)]
 pub struct LogBuffer {
@@ -326,6 +446,11 @@ impl tracing::field::Visit for StringVisitor {
 pub struct DesktopState {
     /// Embedded-server lifecycle.
     pub server: ServerManager,
+    /// In-flight AI review stream, so `ai_review_cancel` has something
+    /// to abort. Shared as an `Arc` because the stream task clears the
+    /// slot on exit, which requires a handle that outlives the command
+    /// that spawned it.
+    pub reviews: Arc<ReviewManager>,
     /// Credential vault. Lives for the lifetime of the app — `gitai
     /// key set/openai/…` from the CLI and "Settings → Vault" from the
     /// UI both read/write through this.
@@ -366,6 +491,7 @@ impl DesktopState {
 
         Ok(Self {
             server: ServerManager::new(),
+            reviews: Arc::new(ReviewManager::new()),
             vault: versioned,
             vault_root,
             repos_dir,

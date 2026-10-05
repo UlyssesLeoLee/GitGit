@@ -58,6 +58,36 @@ pub enum AppError {
     #[error("bridge error: {0}")]
     Bridge(String),
 
+    /// The requested provider's protocol has no streaming
+    /// implementation. Carries the provider key so the UI can name it in
+    /// a localized sentence. This is a refusal raised *before* any
+    /// network round trip, not a failed call.
+    #[error("{0} cannot stream: its protocol has no streaming implementation")]
+    AiReviewUnsupported(String),
+
+    /// `GITGIT_AI_API_KEY` is unset in the process that launched the app.
+    ///
+    /// The key is never accepted from the UI, so this is the only way to
+    /// supply one. The message names the variable and nothing else — it
+    /// must never carry a key value, including a wrong or partial one.
+    #[error("no api key in the environment: set GITGIT_AI_API_KEY before launching the app")]
+    AiReviewNoKey,
+
+    /// The review request was rejected by input validation (empty diff,
+    /// oversized diff, blank provider key).
+    #[error("invalid review request: {0}")]
+    AiReviewInvalid(String),
+
+    /// A review stream was started while one was already running.
+    #[error("a review is already streaming (session={0})")]
+    AiReviewAlreadyRunning(String),
+
+    /// `ai_review_cancel` was called with nothing in flight. Reported
+    /// rather than silently succeeding so a UI cannot report a cancel
+    /// that never stopped anything.
+    #[error("no review is currently streaming")]
+    AiReviewNotRunning,
+
     /// Catch-all for cases where the brief context doesn't predict a
     /// specific kind. Always carries the underlying source via
     /// `source` so it remains debuggable.
@@ -80,6 +110,11 @@ impl AppError {
             AppError::Io(_) => "Io",
             AppError::Vault(_) => "Vault",
             AppError::Bridge(_) => "Bridge",
+            AppError::AiReviewUnsupported(_) => "AiReviewUnsupported",
+            AppError::AiReviewNoKey => "AiReviewNoKey",
+            AppError::AiReviewInvalid(_) => "AiReviewInvalid",
+            AppError::AiReviewAlreadyRunning(_) => "AiReviewAlreadyRunning",
+            AppError::AiReviewNotRunning => "AiReviewNotRunning",
             AppError::Internal(_) => "Internal",
         }
     }

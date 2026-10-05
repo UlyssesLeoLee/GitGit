@@ -26,6 +26,7 @@ const en: Readonly<Record<string, string>> = {
   'nav.vault': 'Vault',
   'nav.graph': 'Knowledge Graph',
   'nav.settings': 'Settings',
+  'nav.review': 'AI Review',
 
   'dashboard.heading': 'Server overview',
   'dashboard.start': 'Start server',
@@ -111,6 +112,11 @@ const en: Readonly<Record<string, string>> = {
   'errors.kind.Bridge': 'System bridge error',
   'errors.kind.Internal': 'Internal error',
   'errors.kind.InvalidRepoName': 'Invalid repository name',
+  'errors.kind.AiReviewUnsupported': 'This provider cannot stream',
+  'errors.kind.AiReviewNoKey': 'No API key in the environment',
+  'errors.kind.AiReviewInvalid': 'The review request was rejected',
+  'errors.kind.AiReviewAlreadyRunning': 'A review is already running',
+  'errors.kind.AiReviewNotRunning': 'No review is running',
 
   'graph.heading': 'Engineering knowledge graph',
   'graph.subhead': 'Local-first viewer · walked from docs/requirements/ via Rust backend',
@@ -129,6 +135,30 @@ const en: Readonly<Record<string, string>> = {
   'graph.noConnections': 'No graph edges. This node is isolated (orphan or seed).',
   'graph.outgoing': 'Outgoing',
   'graph.incoming': 'Incoming',
+
+  // AI review (T9)
+  'review.heading': 'AI review',
+  'review.subhead': 'Tokens stream in as the model writes them',
+  'review.diffLabel': 'Diff to review',
+  'review.diffPlaceholder': 'Paste a git diff…',
+  'review.providerLabel': 'Provider',
+  'review.modelLabel': 'Model (optional)',
+  'review.modelPlaceholder': 'Provider default',
+  'review.start': 'Start review',
+  'review.stop': 'Stop',
+  'review.starting': 'Starting…',
+  'review.streaming': 'Streaming…',
+  'review.done': 'Review complete',
+  'review.cancelled': 'Review stopped',
+  'review.empty': 'The review appears here as tokens arrive.',
+  'review.outputLabel': 'Review',
+  'review.tokenCount': '{n} tokens',
+  'review.modelServed': 'Model: {model}',
+  'review.redacted': '{n} secret-shaped span(s) were filtered before sending',
+  'review.unsupported': '{provider} cannot stream. Its protocol has no streaming implementation, so the review is not sent rather than arriving in one lump. Pick an OpenAI-compatible provider to see tokens appear.',
+  'review.noKey': 'No API key found. Set GITGIT_AI_API_KEY in the environment that launched the app — the key is never entered here.',
+  'review.truncated': 'Output truncated for display.',
+  'review.invalidDiff': 'Paste a diff first.',
 };
 
 export default en;

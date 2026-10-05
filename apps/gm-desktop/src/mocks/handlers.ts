@@ -27,6 +27,10 @@ interface MockStore {
   repos: RepoSummary[];
   details: Map<string, RepoDetail>;
   versions: Map<string, VersionEntryDto[]>;
+  /** Session id the mock currently considers streaming, if any. */
+  session: string | null;
+  /** Monotonic id source for mock review sessions. */
+  sessionSeq: number;
 }
 
 declare global {
@@ -86,6 +90,8 @@ function initStore(): MockStore {
         { version: 2, bytes_sha256: 'b'.repeat(64), byte_len: 24, created_at_unix_ms: Date.now() - 60_000, change_note: null },
       ]],
     ]),
+    session: null,
+    sessionSeq: 0,
   };
 }
 
@@ -314,6 +320,57 @@ async function handle(cmd: string, args?: Record<string, unknown>): Promise<unkn
         root: '/var/data/com.gitgit.desktop/vault',
       };
     case 'set_clipboard_text': return null;
+
+    /* --- AI review (T9) ---
+     *
+     * Command shapes and refusals only. Token *delivery* is not mocked:
+     * it rides the Tauri event bridge (`ai-review://*`), and
+     * `@tauri-apps/api`'s `listen` needs the real runtime to register
+     * its callback. Under `vite dev` without Tauri the subscription
+     * therefore fails and the review page shows its error state, which
+     * is the same outcome every other command has in this mode. The
+     * refusal for `anthropic` is kept honest on purpose — a mock that
+     * streamed where production cannot would teach the wrong lesson.
+     */
+    case 'ai_review_start': {
+      const diff = String(args?.diff ?? '');
+      const provider = String(args?.provider ?? 'openai');
+      if (diff.trim() === '') {
+        throw {
+          kind: 'AiReviewInvalid',
+          message: 'invalid review request: the diff is empty',
+          source: '"AiReviewInvalid"',
+        };
+      }
+      if (provider === 'anthropic') {
+        throw {
+          kind: 'AiReviewUnsupported',
+          message: 'anthropic cannot stream: its protocol has no streaming implementation',
+          source: '"AiReviewUnsupported"',
+        };
+      }
+      const sessionId = `mock-session-${++STORE.sessionSeq}`;
+      STORE.session = sessionId;
+      return {
+        session_id: sessionId,
+        provider,
+        model: String(args?.model ?? 'mock-model'),
+        streaming: true,
+        redactions: 0,
+      };
+    }
+    case 'ai_review_cancel': {
+      if (!STORE.session) {
+        throw {
+          kind: 'AiReviewNotRunning',
+          message: 'no review is currently streaming',
+          source: '"AiReviewNotRunning"',
+        };
+      }
+      const sessionId = STORE.session;
+      STORE.session = null;
+      return sessionId;
+    }
 
     /* --- Knowledge-graph commands (PR-C) --- */
     case 'graph_load':

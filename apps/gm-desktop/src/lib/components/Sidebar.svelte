@@ -19,6 +19,7 @@
     { href: '/repos', labelKey: 'nav.repos', icon: '📦' },
     { href: '/vault', labelKey: 'nav.vault', icon: '🔐' },
     { href: '/graph', labelKey: 'nav.graph', icon: '🕸️' },
+    { href: '/review', labelKey: 'nav.review', icon: '🔍' },
     { href: '/settings', labelKey: 'nav.settings', icon: '⚙️' },
   ];
 

@@ -172,3 +172,37 @@ export interface GraphLoadResult {
 }
 
 export interface AppVersion { name: string; version: string; }
+
+/* ---------- AI review (T9) ----------
+ *
+ * Shapes mirror `commands/ai.rs`. The Rust side tags every event with
+ * `#[serde(tag = "type")]` and renames fields to camelCase, so the
+ * discriminated union below is the literal wire shape rather than a
+ * hand-maintained parallel copy.
+ */
+
+export interface ReviewStartedDto {
+  session_id: string;
+  provider: string;
+  model: string;
+  streaming: boolean;
+  redactions: number;
+}
+
+export type ReviewEventDto =
+  | { type: 'token'; sessionId: string; delta: string }
+  | { type: 'model'; sessionId: string; model: string }
+  | { type: 'done'; sessionId: string; tokens: number }
+  | { type: 'failed'; sessionId: string; message: string }
+  | { type: 'cancelled'; sessionId: string };
+
+/** Provider registry keys. Mirrors `src/ai/registry.rs::builtin_specs`. */
+export const AI_PROVIDERS = [
+  'openai',
+  'deepseek',
+  'ollama',
+  'vllm',
+  'anthropic',
+] as const;
+
+export type AiProviderKey = (typeof AI_PROVIDERS)[number];

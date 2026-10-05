@@ -99,6 +99,8 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
             commands::graph::graph_stats,
             commands::graph::docs_list,
             commands::graph::docs_read,
+            commands::ai::ai_review_start,
+            commands::ai::ai_review_cancel,
         ])
         .on_window_event(handle_window_event)
         .build(tauri::generate_context!())?;

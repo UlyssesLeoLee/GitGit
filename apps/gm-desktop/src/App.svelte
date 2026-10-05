@@ -24,6 +24,7 @@
   import Vault from './routes/Vault.svelte';
   import Settings from './routes/Settings.svelte';
   import Graph from './routes/Graph.svelte';
+  import Review from './routes/Review.svelte';
   import NotFound from './routes/NotFound.svelte';
   import { catalog } from '$lib/i18n';
 
@@ -37,6 +38,7 @@
     '/repos/:name': { component: RepoDetail },
     '/vault': { component: Vault },
     '/graph': { component: Graph },
+    '/review': { component: Review },
     '/settings': { component: Settings },
     '*': { component: NotFound },
   };
