@@ -46,7 +46,13 @@
       await tauri.setAdminPassword(newPassword);
       newPassword = '';
       await refreshAdmin();
-      pushToast('success', 'updated');
+      // `[FACT]` The server resolves the admin credential once, when it
+      // starts, and caches it. This toast used to say just "updated",
+      // which is what made the page actively misleading: a user saved a
+      // password, saw a success toast and a "Set (length N)" line, and
+      // the running server went on accepting the old one. The message
+      // now states the one true thing about when it takes effect.
+      pushToast('success', 'saved — the server uses it from its next start');
     } finally {
       updating = false;
     }
@@ -55,7 +61,9 @@
   async function onClearPassword(): Promise<void> {
     await tauri.clearAdminPassword();
     await refreshAdmin();
-    pushToast('info', 'cleared');
+    // Clearing removes the stored password, so the next start has
+    // nothing configured and generates a fresh random one.
+    pushToast('info', 'cleared — a new password is generated at the next start');
   }
 </script>
 

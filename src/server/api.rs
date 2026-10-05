@@ -18,19 +18,47 @@
 //! - `POST   /api/vault/keys/{key}/restore`      (body: `{target_version}`)
 //! - `DELETE /api/vault/keys/{key}`
 //!
-//! V0 does **not** enforce auth on `/api/*` — the server is intended
-//! for local-only deployment and the vault endpoints mutate real
-//! credentials, so deployers MUST keep the bind address on a trusted
-//! interface (loopback or private LAN). The auth extension point lives
-//! in [`auth_optional`] and is a no-op today; it carries the bearer
-//! parsing code so a future commit can flip it on without touching the
-//! handlers.
+//! Every route except `GET /api/health` requires HTTP Basic auth,
+//! enforced as axum middleware on the sub-router
+//! ([`build_api_router`]) rather than per-handler.
+//!
+//! ## Why middleware and not per-handler
+//!
+//! Per-handler enforcement is how the next endpoint gets forgotten. A
+//! route added to the list below without a `require_basic` call is
+//! silently public, and the test that would have caught it has to be
+//! written by the same person who forgot the check. A `route_layer` over
+//! the protected sub-router means the default for a new route is
+//! "protected", and opting out is a deliberate act.
+//!
+//! ## Why `/api/health` stays open
+//!
+//! It is the documented liveness probe. It returns a status string, the
+//! crate version, the backend name, and one boolean — no repo names, no
+//! paths, no key material. Requiring credentials on it would mean a
+//! probe has to hold the admin password to learn whether the process is
+//! alive, which is the worse failure: an unauthenticated probe that
+//! reports "auth required" is indistinguishable from a dead server, so
+//! it either flaps the service or gets special-cased into a second,
+//! weaker endpoint. See the `api_health_stays_open_without_credentials`
+//! test for the pinned behaviour.
+//!
+//! ## What replaced `auth_optional`
+//!
+//! `[FACT]` This module used to carry a function whose doc comment
+//! claimed "V0 ships the parser but skips the enforcement", with a body
+//! of `Ok(())`, called from nowhere, under `#[allow(dead_code)]`. There
+//! was no parser. It has been deleted rather than implemented: the real
+//! check lives in [`crate::server::auth`] and is applied by
+//! [`require_api_auth`], so there is no second, driftable copy of the
+//! rules to keep in sync.
 
 use std::path::PathBuf;
 use std::process::Stdio;
 
-use axum::extract::{Path, Query, State};
+use axum::extract::{Path, Query, Request, State};
 use axum::http::StatusCode;
+use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
@@ -40,6 +68,7 @@ use tokio::process::Command;
 use crate::config::{validate_repo_name, Config};
 use crate::error::{GitGitError, Result as CoreResult};
 use crate::repo;
+use crate::server::auth::require_basic;
 use crate::server::http::AppState;
 use crate::server::vault_versioned::{VaultVersionDiff, VaultVersionSummary};
 
@@ -202,9 +231,17 @@ fn map_core<T>(r: CoreResult<T>) -> std::result::Result<T, Response> {
 // ─── Router ───────────────────────────────────────────────────────────────
 
 /// Sub-router for `/api/*`. Merged into [`crate::server::http::build_router`].
-pub fn build_api_router() -> Router<AppState> {
-    Router::new()
-        .route("/health", get(health))
+///
+/// All routes except `/health` are wrapped in a `route_layer` running
+/// [`require_api_auth`]. `/health` is mounted outside that layer on
+/// purpose — see the module docs for why the liveness probe stays open.
+///
+/// Takes the [`AppState`] because the auth layer needs the cached
+/// credential out of it, and `middleware::from_fn` hardcodes the
+/// extractor state to `()` — reaching `AppState` from a `from_fn`
+/// middleware requires `from_fn_with_state`.
+pub fn build_api_router(state: AppState) -> Router<AppState> {
+    let protected = Router::new()
         .route("/repos", get(list_repos))
         .route("/repos/:name", get(get_repo))
         .route("/repos/:name/refs", get(get_repo_refs))
@@ -220,16 +257,35 @@ pub fn build_api_router() -> Router<AppState> {
         )
         .route("/vault/keys/:key/diff", get(get_vault_diff))
         .route("/vault/keys/:key/restore", post(post_vault_restore))
+        .route_layer(middleware::from_fn_with_state(
+            state.clone(),
+            require_api_auth,
+        ));
+
+    Router::new().route("/health", get(health)).merge(protected)
 }
 
-// ─── Auth extension point (V0 no-op) ──────────────────────────────────────
+// ─── Auth enforcement ──────────────────────────────────────────────────────
 
-/// Reserved for future bearer-token enforcement on `/api/*`. V0 ships
-/// the parser but skips the enforcement so local dev / demos keep
-/// working without secret management.
-#[allow(dead_code)]
-fn auth_optional(_headers: &axum::http::HeaderMap) -> CoreResult<()> {
-    Ok(())
+/// Middleware guarding every `/api` route except `/health`.
+///
+/// Returns 401 with a `WWW-Authenticate` challenge and the same JSON
+/// error envelope the handlers use, so a client sees one error shape on
+/// this surface rather than two.
+async fn require_api_auth(State(state): State<AppState>, request: Request, next: Next) -> Response {
+    let credential = state.admin.current();
+    if let Err(e) = require_basic(request.headers(), &credential) {
+        if let GitGitError::Unauthenticated = e {
+            let mut resp = api_error(GitGitError::Unauthenticated);
+            resp.headers_mut().insert(
+                axum::http::header::WWW_AUTHENTICATE,
+                axum::http::HeaderValue::from_static(r#"Basic realm="gitgit""#),
+            );
+            return resp;
+        }
+        return api_error(e);
+    }
+    next.run(request).await
 }
 
 // ─── Handlers ─────────────────────────────────────────────────────────────
@@ -676,6 +732,28 @@ mod tests {
     use std::sync::atomic::{AtomicU64, Ordering};
     use tower::ServiceExt;
 
+    /// The password these tests authenticate with.
+    ///
+    /// Deliberately not `admin` — the compiled-in default is gone, and a
+    /// test that accidentally used it would pass against code that still
+    /// had the old constant.
+    const TEST_PASSWORD: &str = "test-password";
+
+    fn auth_header() -> axum::http::HeaderValue {
+        use base64::Engine;
+        // The scheme prefix is part of the wire format, not decoration:
+        // `check_basic` does `strip_prefix("Basic ")` and answers `false`
+        // for anything else. An earlier version of this helper emitted the
+        // bare base64 and every endpoint test in this file got a 401 —
+        // which is the right answer for a malformed header, so the failure
+        // pointed at the auth code rather than at the helper.
+        let raw = format!(
+            "Basic {}",
+            base64::engine::general_purpose::STANDARD.encode(format!("admin:{TEST_PASSWORD}"))
+        );
+        axum::http::HeaderValue::from_str(&raw).unwrap()
+    }
+
     fn unique_temp(label: &str) -> std::path::PathBuf {
         static COUNTER: AtomicU64 = AtomicU64::new(0);
         let n = COUNTER.fetch_add(1, Ordering::SeqCst);
@@ -696,7 +774,11 @@ mod tests {
         let vault_root = unique_temp(&format!("{label}-vault"));
         let cfg = Config::new("127.0.0.1:0", repos.clone(), vault_root);
         let vault = std::sync::Arc::new(FileVault::new(&cfg.vault_file_root));
-        (AppState::new(cfg, vault), repos)
+        let state = AppState::new(cfg, vault);
+        // `AppState::new` deliberately starts with a random password
+        // nobody knows. Each test says which credential it is using.
+        state.admin.rotate_password(TEST_PASSWORD);
+        (state, repos)
     }
 
     async fn app_with_repo(label: &str, name: &str) -> (AppState, std::path::PathBuf) {
@@ -711,10 +793,48 @@ mod tests {
         crate::server::http::build_router(state)
     }
 
+    /// The raw router: **no** credentials injected. Used by the auth
+    /// cases below, which are the ones that must see an unauthenticated
+    /// request.
+    fn raw_router(state: AppState) -> axum::Router {
+        crate::server::http::build_router(state)
+    }
+
+    /// Wrap the router so every request carries valid admin credentials.
+    ///
+    /// The endpoint tests further down are about endpoint behaviour, not
+    /// about auth. Auth has its own cases. Injecting the header here
+    /// keeps the two concerns from tangling, and means a new endpoint
+    /// test cannot accidentally pass by being unauthenticated.
+    ///
+    /// `[FACT]` This returns a plain `axum::Router` rather than wrapping
+    /// the app in a `tower::service_fn`. The opaque `impl Service` that
+    /// produces is neither `Clone` nor carries a `Debug` bound on its
+    /// error, and the endpoint tests need both: they call `app.clone()`
+    /// to issue a second request against the same state, and they
+    /// `unwrap()` the result of `oneshot`. A `Router` satisfies both,
+    /// and applying this as a real layer rather than an outer closure
+    /// means the injected header goes through the same dispatch path a
+    /// client's would.
+    fn authed(app: axum::Router) -> axum::Router {
+        use axum::extract::Request as AxRequest;
+        app.layer(axum::middleware::from_fn(
+            |mut req: AxRequest, next: axum::middleware::Next| async move {
+                req.headers_mut()
+                    .insert(axum::http::header::AUTHORIZATION, auth_header());
+                next.run(req).await
+            },
+        ))
+    }
+
     #[tokio::test]
     async fn health_endpoint_returns_200_with_vault_status() {
         let (state, _repos) = app_state_with("health");
-        let app = router(state);
+        // Deliberately unauthenticated: the liveness probe must work
+        // without holding the admin password. See
+        // `api_health_stays_open_without_credentials` for the case that
+        // pins this as deliberate rather than accidental.
+        let app = raw_router(state);
         let resp = app
             .oneshot(
                 HttpRequest::builder()
@@ -735,7 +855,7 @@ mod tests {
     #[tokio::test]
     async fn list_repos_empty_returns_empty_array() {
         let (state, _repos) = app_state_with("list-empty");
-        let app = router(state);
+        let app = authed(router(state));
         let resp = app
             .oneshot(
                 HttpRequest::builder()
@@ -756,7 +876,7 @@ mod tests {
     #[tokio::test]
     async fn list_repos_returns_summaries() {
         let (state, _repos) = app_with_repo("list-with", "alpha").await;
-        let app = router(state);
+        let app = authed(router(state));
         let resp = app
             .oneshot(
                 HttpRequest::builder()
@@ -778,7 +898,7 @@ mod tests {
     #[tokio::test]
     async fn get_repo_unknown_returns_404() {
         let (state, _repos) = app_state_with("get-missing");
-        let app = router(state);
+        let app = authed(router(state));
         let resp = app
             .oneshot(
                 HttpRequest::builder()
@@ -795,7 +915,7 @@ mod tests {
     #[tokio::test]
     async fn get_repo_invalid_name_returns_400() {
         let (state, _repos) = app_state_with("bad-name");
-        let app = router(state);
+        let app = authed(router(state));
         let resp = app
             .oneshot(
                 HttpRequest::builder()
@@ -816,7 +936,7 @@ mod tests {
     #[tokio::test]
     async fn get_repo_detail_returns_refs_and_log() {
         let (state, _repos) = app_with_repo("detail", "demo").await;
-        let app = router(state);
+        let app = authed(router(state));
         let resp = app
             .oneshot(
                 HttpRequest::builder()
@@ -841,7 +961,7 @@ mod tests {
     #[tokio::test]
     async fn refs_endpoint_returns_empty_for_fresh_repo() {
         let (state, _repos) = app_with_repo("refs", "demo").await;
-        let app = router(state);
+        let app = authed(router(state));
         let resp = app
             .oneshot(
                 HttpRequest::builder()
@@ -861,7 +981,7 @@ mod tests {
     #[tokio::test]
     async fn log_endpoint_returns_empty_for_fresh_repo() {
         let (state, _repos) = app_with_repo("log", "demo").await;
-        let app = router(state);
+        let app = authed(router(state));
         let resp = app
             .oneshot(
                 HttpRequest::builder()
@@ -882,7 +1002,7 @@ mod tests {
     #[tokio::test]
     async fn vault_list_keys_empty() {
         let (state, _repos) = app_state_with("vault-list");
-        let app = router(state);
+        let app = authed(router(state));
         let resp = app
             .oneshot(
                 HttpRequest::builder()
@@ -903,7 +1023,7 @@ mod tests {
     #[tokio::test]
     async fn vault_set_then_list_round_trip() {
         let (state, _repos) = app_state_with("vault-roundtrip");
-        let app = router(state);
+        let app = authed(router(state));
         // POST /api/vault/keys/openai/versions with { value: "sk-1" }.
         let resp = app
             .clone()
@@ -947,7 +1067,7 @@ mod tests {
     #[tokio::test]
     async fn vault_get_returns_value_after_set() {
         let (state, _repos) = app_state_with("vault-get");
-        let app = router(state);
+        let app = authed(router(state));
         // First set a value.
         let _ = app
             .clone()
@@ -984,7 +1104,7 @@ mod tests {
     #[tokio::test]
     async fn vault_versions_endpoint_lists_timeline() {
         let (state, _repos) = app_state_with("vault-versions");
-        let app = router(state);
+        let app = authed(router(state));
         // Two writes -> two versions.
         for v in ["v1", "v2"] {
             let body = format!(r#"{{"value":"{v}"}}"#);
@@ -1025,7 +1145,7 @@ mod tests {
     #[tokio::test]
     async fn vault_diff_endpoint_reports_change() {
         let (state, _repos) = app_state_with("vault-diff");
-        let app = router(state);
+        let app = authed(router(state));
         for v in ["alpha", "beta"] {
             let body = format!(r#"{{"value":"{v}"}}"#);
             let _ = app
@@ -1063,7 +1183,7 @@ mod tests {
     #[tokio::test]
     async fn vault_restore_endpoint_appends_marker_version() {
         let (state, _repos) = app_state_with("vault-restore");
-        let app = router(state);
+        let app = authed(router(state));
         for v in ["one", "two"] {
             let body = format!(r#"{{"value":"{v}"}}"#);
             let _ = app
@@ -1101,7 +1221,7 @@ mod tests {
     #[tokio::test]
     async fn vault_delete_returns_204() {
         let (state, _repos) = app_state_with("vault-delete");
-        let app = router(state);
+        let app = authed(router(state));
         // Set first so there's something to delete.
         let _ = app
             .clone()
@@ -1132,7 +1252,7 @@ mod tests {
     #[tokio::test]
     async fn vault_set_empty_value_returns_400() {
         let (state, _repos) = app_state_with("vault-empty");
-        let app = router(state);
+        let app = authed(router(state));
         let resp = app
             .oneshot(
                 HttpRequest::builder()
@@ -1151,7 +1271,7 @@ mod tests {
     #[tokio::test]
     async fn vault_restore_with_invalid_version_returns_400() {
         let (state, _repos) = app_state_with("vault-restore-bad");
-        let app = router(state);
+        let app = authed(router(state));
         let resp = app
             .oneshot(
                 HttpRequest::builder()
@@ -1164,5 +1284,303 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(resp.status(), AxStatusCode::BAD_REQUEST);
+    }
+
+    // ─── Auth enforcement ─────────────────────────────────────────────────
+    //
+    // Every case below fails against the code this replaces, where
+    // `build_api_router` applied no layer at all and the whole `/api`
+    // surface — including `GET /api/vault/keys/:key`, which returns
+    // stored secrets in the clear — answered 200 to anyone.
+
+    /// Every protected route, enumerated.
+    ///
+    /// This list is the regression guard for "per-handler auth is how the
+    /// next endpoint gets forgotten": a route added to
+    /// [`build_api_router`] and not added here is not covered. When a
+    /// new route lands, it lands in both.
+    const PROTECTED_ROUTES: &[(&str, &str)] = &[
+        ("GET", "/api/repos"),
+        ("GET", "/api/repos/alpha"),
+        ("GET", "/api/repos/alpha/refs"),
+        ("GET", "/api/repos/alpha/log"),
+        ("GET", "/api/vault/keys"),
+        ("GET", "/api/vault/keys/openai"),
+        ("DELETE", "/api/vault/keys/openai"),
+        ("GET", "/api/vault/keys/openai/versions"),
+        ("POST", "/api/vault/keys/openai/versions"),
+        ("GET", "/api/vault/keys/openai/diff?base=1&head=2"),
+        ("POST", "/api/vault/keys/openai/restore"),
+    ];
+
+    #[tokio::test]
+    async fn every_api_route_except_health_requires_authentication() {
+        // `[FACT]` Falsified, not just asserted green. Deleting the
+        // `.route_layer(require_api_auth)` call from `build_api_router`
+        // turns seven cases in this file red, including this one, which
+        // then reports e.g. "GET /api/repos answered 200 OK without
+        // credentials -- the route is not covered by the auth layer". A
+        // route added to the sub-router later is covered by construction
+        // rather than by remembering to add it to a list.
+        let (state, _repos) = app_with_repo("auth-matrix", "alpha").await;
+        let app = raw_router(state);
+        for (method, uri) in PROTECTED_ROUTES {
+            let resp = app
+                .clone()
+                .oneshot(
+                    HttpRequest::builder()
+                        .method(*method)
+                        .uri(*uri)
+                        .header("content-type", "application/json")
+                        .body(axum::body::Body::from(
+                            r#"{"value":"x","target_version":1}"#,
+                        ))
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(
+                resp.status(),
+                AxStatusCode::UNAUTHORIZED,
+                "{method} {uri} answered {} without credentials — the route is not covered by the auth layer",
+                resp.status()
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn api_health_stays_open_without_credentials() {
+        // The documented liveness probe. It returns a status string, a
+        // version, a backend name and one boolean — no repo names, no
+        // paths, no key material — and a probe that has to hold the
+        // admin password to work cannot tell "alive" from "not alive".
+        let (state, _repos) = app_state_with("health-open");
+        let app = raw_router(state);
+        let resp = app
+            .oneshot(
+                HttpRequest::builder()
+                    .method("GET")
+                    .uri("/api/health")
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), AxStatusCode::OK);
+        let body = to_bytes(resp.into_body(), 4096).await.unwrap();
+        let v: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        // Pin the *shape* of what is disclosed, not just the status: if
+        // a future change adds a field here, this test is what notices.
+        assert_eq!(v["status"], "ok");
+        assert!(v["vault_online"].is_boolean());
+        let keys: Vec<&String> = v.as_object().unwrap().keys().collect();
+        assert_eq!(
+            keys,
+            vec!["backend", "status", "vault_online", "version"],
+            "the open health endpoint must not grow fields that describe the deployment"
+        );
+    }
+
+    #[tokio::test]
+    async fn api_401_carries_a_challenge_and_the_standard_error_envelope() {
+        let (state, _repos) = app_state_with("auth-envelope");
+        let app = raw_router(state);
+        let resp = app
+            .oneshot(
+                HttpRequest::builder()
+                    .method("GET")
+                    .uri("/api/vault/keys")
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), AxStatusCode::UNAUTHORIZED);
+        // RFC 7235: a 401 without a challenge is not an authentication
+        // challenge, it is just a refusal.
+        let challenge = resp
+            .headers()
+            .get(axum::http::header::WWW_AUTHENTICATE)
+            .expect("WWW-Authenticate must be present on 401");
+        let s = challenge.to_str().unwrap();
+        assert!(s.contains("Basic") && s.contains("gitgit"), "got: {s}");
+        // One error shape on this surface, not two.
+        let body = to_bytes(resp.into_body(), 4096).await.unwrap();
+        let v: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(v["code"], "unauthenticated");
+    }
+
+    #[tokio::test]
+    async fn a_stored_secret_is_not_readable_without_credentials() {
+        // The sharpest form of the vulnerability: a real value written
+        // into the real vault by an authenticated client, then fetched by
+        // a client that authenticated with nothing.
+        let (state, _repos) = app_state_with("auth-leak");
+
+        let writer = raw_router(state.clone());
+        let resp = writer
+            .oneshot(
+                HttpRequest::builder()
+                    .method("POST")
+                    .uri("/api/vault/keys/openai/versions")
+                    .header("content-type", "application/json")
+                    .header(axum::http::header::AUTHORIZATION, auth_header())
+                    .body(axum::body::Body::from(r#"{"value":"sk-super-secret"}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), AxStatusCode::OK, "the write must succeed");
+
+        let reader = raw_router(state);
+        let resp = reader
+            .oneshot(
+                HttpRequest::builder()
+                    .method("GET")
+                    .uri("/api/vault/keys/openai")
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), AxStatusCode::UNAUTHORIZED);
+        let body = to_bytes(resp.into_body(), 4096).await.unwrap();
+        let text = String::from_utf8_lossy(&body);
+        assert!(
+            !text.contains("sk-super-secret"),
+            "an unauthenticated response leaked a stored credential: {text}"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_wrong_password_is_rejected_on_api() {
+        let (state, _repos) = app_state_with("auth-wrong-pw");
+        let app = raw_router(state);
+        use base64::Engine;
+        let bad = axum::http::HeaderValue::from_str(&format!(
+            "Basic {}",
+            base64::engine::general_purpose::STANDARD.encode("admin:not-the-password")
+        ))
+        .unwrap();
+        let resp = app
+            .oneshot(
+                HttpRequest::builder()
+                    .method("GET")
+                    .uri("/api/vault/keys")
+                    .header(axum::http::header::AUTHORIZATION, bad)
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), AxStatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn the_historical_admin_admin_credential_does_not_open_the_api() {
+        // `admin` / `admin` was a `const` in this crate, so it was in
+        // every shipped binary. It must not authenticate anything now.
+        let (state, _repos) = app_state_with("auth-old-default");
+        let app = raw_router(state);
+        use base64::Engine;
+        let old = axum::http::HeaderValue::from_str(&format!(
+            "Basic {}",
+            base64::engine::general_purpose::STANDARD.encode(format!("{}:{}", "admin", "admin"))
+        ))
+        .unwrap();
+        let resp = app
+            .oneshot(
+                HttpRequest::builder()
+                    .method("GET")
+                    .uri("/api/vault/keys")
+                    .header(axum::http::header::AUTHORIZATION, old)
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), AxStatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn an_unauthenticated_write_does_not_reach_the_vault() {
+        let (state, _repos) = app_state_with("auth-write");
+        let vault = state.vault.clone();
+        let app = raw_router(state);
+        let resp = app
+            .oneshot(
+                HttpRequest::builder()
+                    .method("POST")
+                    .uri("/api/vault/keys/openai/versions")
+                    .header("content-type", "application/json")
+                    .body(axum::body::Body::from(
+                        r#"{"value":"sk-should-not-be-stored"}"#,
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), AxStatusCode::UNAUTHORIZED);
+        // A 401 is only meaningful if the mutation did not happen.
+        assert_eq!(vault.get("openai").await.unwrap(), None);
+    }
+
+    #[tokio::test]
+    async fn a_rotated_password_is_honoured_by_the_api_immediately() {
+        // The Settings page writes to the vault at runtime. If the cached
+        // credential were not actually rotated, the old password would
+        // keep working — the exact "success toast on a no-op" shape.
+        let (state, _repos) = app_state_with("auth-rotate");
+        let app = raw_router(state.clone());
+        let resp = app
+            .clone()
+            .oneshot(
+                HttpRequest::builder()
+                    .method("GET")
+                    .uri("/api/vault/keys")
+                    .header(axum::http::header::AUTHORIZATION, auth_header())
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), AxStatusCode::OK);
+
+        state.admin.rotate_password("brand-new-password");
+
+        // Old password stops working.
+        let resp = app
+            .clone()
+            .oneshot(
+                HttpRequest::builder()
+                    .method("GET")
+                    .uri("/api/vault/keys")
+                    .header(axum::http::header::AUTHORIZATION, auth_header())
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), AxStatusCode::UNAUTHORIZED);
+
+        // New password works.
+        use base64::Engine;
+        let fresh = axum::http::HeaderValue::from_str(&format!(
+            "Basic {}",
+            base64::engine::general_purpose::STANDARD.encode("admin:brand-new-password")
+        ))
+        .unwrap();
+        let resp = app
+            .oneshot(
+                HttpRequest::builder()
+                    .method("GET")
+                    .uri("/api/vault/keys")
+                    .header(axum::http::header::AUTHORIZATION, fresh)
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), AxStatusCode::OK);
     }
 }

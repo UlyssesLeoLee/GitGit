@@ -131,9 +131,39 @@ describe('route / settings — the admin password', () => {
         cat('settings.adminPasswordSet').replace('{n}', '16')
       )
     );
-    expect(get(toasts).map((t) => [t.kind, t.message])).toEqual([['success', 'updated']]);
+    // The old expectation here was `['success', 'updated']`, and it was
+    // pinning the lie this change removes. The page used to toast
+    // "updated" and render "Set (length 16)" while the running server
+    // went on accepting the old password, because the server resolved
+    // its credential once at start-up and nothing rotated it. The
+    // server now reads this vault key, and the toast states the one
+    // thing that is still true about *when* it takes effect.
+    expect(get(toasts).map((t) => [t.kind, t.message])).toEqual([
+      ['success', 'saved — the server uses it from its next start'],
+    ]);
     // The secret is not left sitting in a field on screen.
     expect(passwordField().value).toBe('');
+  });
+
+  it('does not tell the user the password is already in force', async () => {
+    // The specific failure mode: a success toast with no qualification
+    // is indistinguishable from "the server is using this right now".
+    // Pinned separately from the exact wording above so that rewording
+    // the message cannot quietly re-introduce the over-claim.
+    const backend = passwordBackend(false);
+    useInvoke(backend.overrides);
+    render(Settings);
+    await screen.findByTestId('admin-status');
+
+    await fireEvent.input(passwordField(), { target: { value: 'correct horse' } });
+    await fireEvent.click(screen.getByRole('button', { name: cat('common.save') }));
+
+    await waitFor(() => expect(get(toasts)).toHaveLength(1));
+    const toast = get(toasts)[0];
+    expect(toast.kind).toBe('success');
+    expect(toast.message).toMatch(/next start/i);
+    // "updated" on its own is exactly the claim that was not true.
+    expect(toast.message).not.toBe('updated');
   });
 
   it('clears the password and re-reads the status', async () => {
@@ -153,7 +183,13 @@ describe('route / settings — the admin password', () => {
         cat('settings.adminPasswordNotSet')
       )
     );
-    expect(get(toasts).map((t) => [t.kind, t.message])).toEqual([['info', 'cleared']]);
+    // Was `['info', 'cleared']`. Clearing does not restore a known
+    // password — the vault key is gone, so the next start generates a
+    // fresh random one. Saying only "cleared" left the user believing
+    // the server had reverted to something they knew.
+    expect(get(toasts).map((t) => [t.kind, t.message])).toEqual([
+      ['info', 'cleared — a new password is generated at the next start'],
+    ]);
   });
 });
 

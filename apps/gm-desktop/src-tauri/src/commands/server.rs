@@ -77,8 +77,39 @@ async fn spawn_embedded_server(
     // Build the gitgit router via `gitgit::server::http` — same code
     // path the CLI uses, zero duplication.
     use gitgit::config::Config;
+    use gitgit::server::auth::{
+        enforce_exposure_policy, resolve_admin_credential, AdminCredentialStore,
+    };
     use gitgit::server::http::{build_router, AppState};
     use gitgit::server::vault::Vault;
+
+    // Resolve the admin credential from the **desktop** vault — the one
+    // Settings writes `gitgit.password` into. Deliberately not from the
+    // `FileVault` built below: that one is rooted at the *server's*
+    // config, and the password a user typed in Settings lives in the
+    // desktop's vault, not in the server's. Reading the wrong vault here
+    // is precisely how the Settings page ends up lying again.
+    let resolved = resolve_admin_credential(vault.as_ref()).await?;
+    // Same policy as the CLI: a non-loopback bind with a password nobody
+    // chose is refused rather than served.
+    enforce_exposure_policy(&bind, resolved.source).map_err(|e| AppError::Bind(e.to_string()))?;
+    if resolved.source == gitgit::server::auth::CredentialSource::Generated {
+        // No password is configured. The embedded server binds loopback
+        // by default, so an unlearnable random password is safe — but
+        // unlike the CLI there is no console to print it to, so say
+        // plainly that one exists and where to change it.
+        tracing::info!(
+            "no admin password configured; generated a random one for this server. \
+             Set one in Settings, or export {}, before exposing the bind address.",
+            gitgit::config::ADMIN_PASS_ENV
+        );
+    } else {
+        tracing::info!(
+            source = resolved.source.as_str(),
+            "admin password loaded for the embedded server"
+        );
+    }
+    let admin = Arc::new(AdminCredentialStore::from_shared(resolved.credential));
 
     let cfg = Config::new(bind.clone(), repos_dir, std::path::PathBuf::from("."));
     // AppState wants `Arc<dyn Vault>`; we already have
@@ -96,7 +127,7 @@ async fn spawn_embedded_server(
     // For demo purposes we use the default vault shape that the
     // gitgit CLI uses (FileVault rooted at config.vault_file_root).
     let file_vault_for_state = gitgit::server::vault::FileVault::new(&cfg.vault_file_root);
-    let state = AppState::new(cfg.clone(), Arc::new(file_vault_for_state));
+    let state = AppState::with_admin(cfg.clone(), Arc::new(file_vault_for_state), admin);
 
     let router = build_router(state);
     let listener = tokio::net::TcpListener::bind(&cfg_arc.bind)
