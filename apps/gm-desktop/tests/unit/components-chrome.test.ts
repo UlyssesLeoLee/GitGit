@@ -154,7 +154,7 @@ describe('component / ErrorBoundary', () => {
     expect(screen.queryByText(tFor(get(locale), 'errors.routeTitle'))).toBeNull();
   });
 
-  it('lets an exception from its child escape instead of containing it', () => {
+  it('contains an exception from its child, and offers a working retry', async () => {
     // `[FACT]` Measured: passing a snippet that throws makes `render`
     // itself throw, and nothing is left in the document. This is the
     // opposite of what the component's own header comment promises
@@ -170,13 +170,31 @@ describe('component / ErrorBoundary', () => {
     //
     // Asserted as the behaviour it is today. A real fix belongs in
     // `ErrorBoundary.svelte`; this case then documents the new one.
+    //
+    // `[FACT]` The fix has landed, so the expectation is inverted: the
+    // boundary is built on `<svelte:boundary>` (available since Svelte
+    // 5.3.0; this repo pins 5.57.1) and now contains the throw. The card
+    // and the retry affordance — dead code while `lastError` was only ever
+    // assigned `null` — are reachable, and `data-eb-key` advances when
+    // the child is retried.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const throwing = (() => { throw new Error('boom'); }) as any;
 
-    expect(() => render(ErrorBoundary, { props: { children: throwing } })).toThrow('boom');
-    // No fallback was rendered in its place.
-    expect(screen.queryByTestId('error-boundary')).toBeNull();
-    expect(document.body.textContent).not.toContain('boom');
+    render(ErrorBoundary, { props: { children: throwing } });
+
+    // The mount point survives; the failure is reported inside it.
+    const el = screen.getByTestId('error-boundary');
+    expect(el.getAttribute('data-state')).toBe('failed');
+    expect(screen.getByTestId('error-boundary-failed')).toBeTruthy();
+    expect(document.body.textContent).toContain('boom');
+    expect(screen.getByRole('button', { name: tFor(get(locale), 'errors.routeRetry') })).toBeTruthy();
+
+    // Retrying remounts the subtree, which is the only way a child that
+    // threw during render can recover.
+    await fireEvent.click(screen.getByRole('button', { name: tFor(get(locale), 'errors.routeRetry') }));
+    await waitFor(() =>
+      expect(screen.getByTestId('error-boundary').getAttribute('data-eb-key')).toBe('1')
+    );
   });
 });
 
