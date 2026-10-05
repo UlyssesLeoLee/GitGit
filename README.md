@@ -120,19 +120,17 @@ pnpm test
 | 根 crate 测试 | **186 passed / 0 failed / 2 ignored** | CI 实测于 `f690486`；`f690486 → 6d24b21` 之间 `src/`、`Cargo.toml`、`Cargo.lock` 零改动，故结论延续，并已本地重跑复核 |
 | 根 crate fmt / clippy | 0 / 0 | 本地重跑复核 |
 | RUSTSEC 公告 | 0（扫描 240 个依赖） | CI `audit` job |
-| `apps/gm-desktop` 测试 | **289 passed / 17 files / 0 skipped** | 本地实测，CI 在 `d63b8c4` 上复核 |
-| `apps/gm-desktop` 覆盖率 | lines 55.80% / branches 54.35% / functions 55.21% / statements 49.68% | 本地实测，`pnpm test:coverage` |
+| `apps/gm-desktop` 测试 | **378 passed / 25 files / 0 skipped** | 本地实测，CI 复核 |
+| `apps/gm-desktop` 覆盖率 | lines 94.78% / branches 78.43% / functions 95.17% / statements 94.23% | 本地实测，`pnpm test:coverage` **exit 0** |
 | `apps/gm-console` 测试 | **194 passed / 15 files** | 本地实测 |
 | `apps/gm-console` 覆盖率 | **lines 93.63%** | 本地实测，门槛 lines 70 / branches 60 |
 | i18n 键一致性 | `en` 184 / `zh-CN` 184，键集完全一致 | 本地实测 |
 
-`apps/gm-desktop` 的覆盖率阈值声明在 `apps/gm-desktop/vite.config.ts`（lines/statements 70、
-functions 60、branches 55），但 CI 跑的是 `pnpm test`（不带 `--coverage`），
-**这些阈值目前没有被任何 job 求值**。实测覆盖率低于全部四项门槛 —— 这是明确的测试债，
-不是已关闭的项。该阈值的意图是保留的（下调它会摧毁这个文件唯一的意图声明），
-关闭方式是补测试，而不是改数字。gm-desktop 的前端依赖升级与
-测试补齐计划见 [`docs/plan/gm-console-toolchain-upgrade.md`](docs/plan/gm-console-toolchain-upgrade.md)
-的同类记录。
+`apps/gm-desktop` 的覆盖率阈值（lines/statements 70、functions 60、branches 55）声明在
+`vite.config.ts`，CI 的 `Coverage gate` step 现在**真的会求值它们**。
+这一度曾经只是"看起来像门禁"：CI 跑的是 `pnpm test`（不带 `--coverage`），
+而当时 `test:coverage` 是 exit 非零的。2026-10-05 补齐路由组件与 stores/api 层的测试后，
+`All files` 从 42.55% 提到 94.78%，门禁才真正成立。阈值未作任何下调。
 
 MSI 产物（CI 实测于 `d81f285`）：perUser 15,194,299 B / perMachine 15,193,981 B /
 manifest 640 B / dist 271,164 B，共四个 artifact 并存。

@@ -1,8 +1,15 @@
 /**
  * Theme store. Three modes: `light`, `dark`, `auto` (system).
  * The actual rendered palette comes from Tailwind's `darkMode:
- * 'class'` machinery, driven by the `data-theme` attribute on
- * `<html>` (wired up in `App.svelte`).
+ * 'class'` machinery, driven by the `data-theme` attribute on the
+ * document element.
+ *
+ * `[FACT]` This file writes that attribute itself, via the subscription
+ * below — not `App.svelte`. An older comment here claimed the wiring
+ * was "in `App.svelte`", which was never true: the `App.svelte` attempt
+ * used `<svelte:head><html data-theme=...>`, and the HTML parser drops a
+ * nested `<html>` start tag outright, so the value never arrived and the
+ * component crashed on mount instead.
  *
  * Persistence key: `gm-desktop.theme`.
  */
@@ -25,9 +32,28 @@ function readPersisted(): ThemeMode | null {
 
 export const theme = writable<ThemeMode>(readPersisted() ?? 'auto');
 
+/**
+ * Resolve the effective palette to apply via Tailwind. For `auto`
+ * we mirror the system `(prefers-color-scheme: dark)` media query
+ * via `matchMedia`.
+ */
+export function isEffectivelyDark(mode: ThemeMode): boolean {
+  if (mode === 'dark') return true;
+  if (mode === 'light') return false;
+  if (typeof window === 'undefined' || !window.matchMedia) return false;
+  return window.matchMedia('(prefers-color-scheme: dark)').matches;
+}
+
 function applyToDocument(mode: ThemeMode): void {
   if (typeof document === 'undefined') return;
-  document.documentElement.dataset.theme = mode;
+  // `[FACT]` Write the *resolved* palette, not the raw mode. Tailwind's
+  // `darkMode` selector list in `tailwind.config.js` is
+  // `['class', '[data-theme="dark"]', '[data-theme="auto"]']` — `auto` is
+  // listed as a dark selector. Writing the mode string straight through
+  // therefore made `auto` render the dark palette even on a light
+  // system, and the `isEffectivelyDark()` helper that exists to settle
+  // exactly that question was never called on this path.
+  document.documentElement.dataset.theme = isEffectivelyDark(mode) ? 'dark' : 'light';
 }
 
 theme.subscribe((mode) => {
@@ -47,16 +73,4 @@ export function setTheme(next: ThemeMode): void {
   } catch (_err) {
     // ignore
   }
-}
-
-/**
- * Resolve the effective palette to apply via Tailwind. For `auto`
- * we mirror the system `(prefers-color-scheme: dark)` media query
- * via `matchMedia`.
- */
-export function isEffectivelyDark(mode: ThemeMode): boolean {
-  if (mode === 'dark') return true;
-  if (mode === 'light') return false;
-  if (typeof window === 'undefined' || !window.matchMedia) return false;
-  return window.matchMedia('(prefers-color-scheme: dark)').matches;
 }

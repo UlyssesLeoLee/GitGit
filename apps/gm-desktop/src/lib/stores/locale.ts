@@ -36,6 +36,23 @@ function pickInitial(): LocaleId {
 
 export const locale = writable<LocaleId>(pickInitial());
 
+/**
+ * `[FACT]` `lang` on the document element used to be written by
+ * `<svelte:head><html lang={$locale}></svelte:head>` in `App.svelte`.
+ * That never reached the document: Svelte compiles `<svelte:head>`
+ * through `$.from_html`, and the HTML parser drops a nested `<html>`
+ * start tag (measured — a template fed `<html></html>` serialises to
+ * `""` with zero child nodes). It did not merely fail to apply, it
+ * crashed the component that owned it. The attribute is now mirrored
+ * here, matching how `stores/theme` already handles `data-theme`.
+ */
+function applyToDocument(id: LocaleId): void {
+  if (typeof document === 'undefined') return;
+  document.documentElement.lang = id;
+}
+
+locale.subscribe(applyToDocument);
+
 export async function initLocale(): Promise<void> {
   // Reserved for future async initializers (e.g. reading from a
   // backend user-pref table); the sync initializer already ran at

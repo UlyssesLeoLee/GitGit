@@ -29,49 +29,81 @@
  * component throws, and why — and the consequence that matters most for
  * a failed mount: nothing is left behind in the document.
  *
- * `[FACT]` The defect is reported, not fixed: `src/**` is read-only for
- * this lane. When `App.svelte` stops putting an `<html>` element inside
- * `<svelte:head>` (moving `lang` / `data-theme` onto
- * `document.documentElement` from the existing theme subscription, which
- * already does the `data-theme` half), the first case here has to be
- * replaced by the shell tests it was standing in for — the boot spinner,
- * the pre-warm order, the route table and the boot-failure card are all
- * still untested, and `matchRoute`'s own fallback *is* covered by
- * `router.test.ts`.
+ * `[FACT]` This file originally recorded a defect rather than a passing
+ * suite: `App.svelte` put an `<html>` element inside `<svelte:head>`,
+ * which the HTML parser drops, so the root component threw
+ * `TypeError: Cannot read properties of null (reading 'cloneNode')` and
+ * the app could not start. `src/**` was read-only for the lane that
+ * wrote this, so the crash was pinned as the expected behaviour and the
+ * report asked for the fix. The fix has since landed; the cases below
+ * are the regression test, and the mechanism case is kept so the trap
+ * cannot be re-introduced silently.
+ *
+ * Still untested and worth a follow-up: the boot spinner, the pre-warm
+ * ordering inside the `allSettled`, and the boot-failure card (whose
+ * `bootError` branch is currently unreachable, since `initTheme` and
+ * `initLocale` are no-ops and nothing in the try block can reject).
+ * `matchRoute`'s own fallback *is* covered by `router.test.ts`.
  */
 import { beforeEach, describe, expect, it } from 'vitest';
-import { cleanup, render, screen } from '@testing-library/svelte';
+import { get } from 'svelte/store';
+import { cleanup, render, screen, waitFor } from '@testing-library/svelte';
 import App from '../../src/App.svelte';
 
 beforeEach(() => {
   cleanup();
 });
 
-describe('app shell — the root component cannot mount', () => {
-  it('throws while mounting, and the failure names the null clone', () => {
-    // Asserted as the behaviour it is today. `render` is where the
-    // throw surfaces: Svelte evaluates the `<svelte:head>` block while
-    // creating the component's nodes, before anything is inserted.
-    expect(() => render(App)).toThrow(TypeError);
-    expect(() => render(App)).toThrow(/cloneNode/);
+describe('app shell — the root component mounts', () => {
+  // `[FACT]` These two cases previously asserted the opposite: that
+  // `render(App)` throws `TypeError: Cannot read properties of null
+  // (reading 'cloneNode')`. They were correct at the time and were
+  // written as a defect record, which is how the bug was found at all.
+  // The fix removed `<svelte:head><html lang=... data-theme=...>` from
+  // `App.svelte` — the HTML parser drops a nested `<html>` start tag, so
+  // that element never reached the document and the head code dereferenced
+  // a null `firstChild`. These cases are now the regression test for it.
+
+  it('mounts without throwing, and renders the shell', () => {
+    render(App);
+    expect(screen.getByTestId('app-shell')).toBeTruthy();
+    expect(screen.getByTestId('main-panel')).toBeTruthy();
   });
 
-  it('leaves no half-rendered shell behind when the mount fails', () => {
-    // A root component that threw half way through would otherwise
-    // leave a page with no way to navigate and no error shown.
-    expect(() => render(App)).toThrow();
-    expect(screen.queryByTestId('app-shell')).toBeNull();
-    expect(screen.queryByTestId('page-host')).toBeNull();
-    expect(screen.queryByTestId('boot-spinner')).toBeNull();
-    expect(document.body.querySelector('[data-testid]')).toBeNull();
+  it('publishes lang and data-theme on the document element', async () => {
+    // The `<html>` element in `<svelte:head>` never applied these, and
+    // `lang` in particular had no other writer — it was simply never set.
+    // Both are now written by their stores (`stores/locale` mirrors
+    // `stores/theme`), so the attributes are asserted on the real
+    // document element rather than on a component subtree.
+    //
+    // The expected locale comes from the store, not a literal:
+    // `pickInitial()` falls back to `navigator.language`, which is
+    // `en-US` under jsdom and so resolves to `en`. Hard-coding either
+    // value would make this a test of the environment, not the wiring.
+    const { locale, setLocale } = await import('../../src/lib/stores/locale');
+    render(App);
+    const html = document.documentElement;
+
+    expect(html.getAttribute('lang')).toBe(get(locale));
+
+    setLocale('zh-CN');
+    await waitFor(() => expect(html.getAttribute('lang')).toBe('zh-CN'));
+    setLocale('en');
+    await waitFor(() => expect(html.getAttribute('lang')).toBe('en'));
+
+    // `auto` is the default theme and resolves through `matchMedia`,
+    // which jsdom does not provide, so the resolved value is one of the
+    // two concrete palettes rather than the literal `auto`.
+    expect(['light', 'dark']).toContain(html.getAttribute('data-theme'));
   });
 
   it('reproduces the mechanism: an <html> element does not survive template parsing', () => {
     // The diagnosis, as an executable check. Svelte parses its head
     // block with `template.innerHTML`, and the parser drops the element,
     // so the compiled `get_first_child` returns null. If a future
-    // runtime ever keeps it, this case fails and the first case above
-    // needs re-checking — which is the point of having it.
+    // runtime ever keeps it, this case fails and the fix above needs
+    // re-checking — which is the point of having it.
     const t = document.createElement('template');
     t.innerHTML = '<html lang="en"></html>';
     expect(t.content.childNodes.length).toBe(0);

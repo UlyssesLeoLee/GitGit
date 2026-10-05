@@ -94,6 +94,28 @@ jobs:
       - name: Unit tests
         run: pnpm test
 
+      # The thresholds in `vite.config.ts` were declared for a long time
+      # and read as a gate, but nothing ever evaluated them: the step
+      # above is `vitest run` without `--coverage`. As of 2026-10-05 the
+      # suite clears all four (measured 94.78% lines / 94.23% statements
+      # / 95.17% functions / 78.43% branches, against 70/70/60/55), so
+      # the declaration is now actually enforced.
+      #
+      # It is a separate step rather than `--coverage` on the step above
+      # so the suite is not run twice. And the guard is fail-closed: the
+      # coverage reporter's own `text` output is not proof that tests ran,
+      # because a filtered run matching zero files exits 0 and prints a
+      # table. This asserts the run reported real work.
+      - name: Coverage gate
+        run: |
+          pnpm test:coverage 2>&1 | tee /tmp/gmd-coverage.txt
+          # `[FACT]` `grep -qE 'Tests +[1-9][0-9]* passed'` — vitest prints
+          # `Tests  378 passed (378)`. Zero-match runs print no such line.
+          if ! grep -qE 'Tests +[1-9][0-9]* passed' /tmp/gmd-coverage.txt; then
+            echo "::error::the coverage run reported no passing tests, so its table proves nothing"
+            exit 1
+          fi
+
       - name: Build
         run: pnpm build
 

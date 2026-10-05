@@ -12,8 +12,8 @@
   import ServerStatusBar from '$lib/components/ServerStatusBar.svelte';
   import ToastHost from '$lib/components/ToastHost.svelte';
   import ErrorBoundary from '$lib/components/ErrorBoundary.svelte';
-  import { locale, initLocale } from '$lib/stores/locale';
-  import { theme, initTheme } from '$lib/stores/theme';
+  import { initLocale } from '$lib/stores/locale';
+  import { initTheme } from '$lib/stores/theme';
   import { server, refreshServerStatus } from '$lib/stores/server';
   import { repos, refreshRepos } from '$lib/stores/repos';
   import { refreshVault } from '$lib/stores/vault';
@@ -67,9 +67,28 @@
   });
 </script>
 
-<svelte:head>
-  <html lang={$locale} data-theme={$theme}></html>
-</svelte:head>
+<!--
+  `[FACT]` There is deliberately no `<svelte:head>` here putting `<html>`
+  in the document head. That looks harmless and is not: Svelte compiles
+  `<svelte:head>` content through `$.from_html`, which builds a
+  `<template>` and assigns `innerHTML`, and the HTML parser's "in
+  template" insertion mode **ignores a nested `<html>` start tag**. The
+  element is dropped silently — measured, feeding
+  `'<html lang="zh-CN" data-theme="dark"></html>'` to a template yields
+  `childNodes.length === 0` and a serialised value of `""`. Svelte's head
+  code then calls `.cloneNode()` on `firstChild`, which is `null`, so
+  mounting this component throws
+
+      TypeError: Cannot read properties of null (reading 'cloneNode')
+
+  and the app never starts. WebView2 runs the same spec parser, so this
+  is not a jsdom artifact.
+
+  `data-theme` was already redundant before this was found: `stores/theme`
+  subscribes on module load and writes `document.documentElement.dataset`
+  itself. `lang` had no such wiring, so it is now mirrored there, in
+  `stores/locale`, rather than being written from a component.
+-->
 
 <div class="flex h-screen w-screen overflow-hidden" data-testid="app-shell">
   <Sidebar />

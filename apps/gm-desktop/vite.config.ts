@@ -55,30 +55,35 @@ export default defineConfig({
         'src/**/*.d.ts',
       ],
       thresholds: {
-        // `[FACT]` These numbers are NOT enforced anywhere today, and an
-        // earlier version of this comment claimed they were "a soft
-        // warning". Neither was true. Two separate facts:
+        // `[FACT]` These numbers are enforced. History, because the
+        // distinction matters to anyone tempted to move them:
         //
-        //   1. `pnpm test` is `vitest run`, without `--coverage`, and that
-        //      is what `.github/workflows/gm-desktop.yml` calls. Coverage is
-        //      therefore never measured in CI, so these thresholds are
-        //      never evaluated at all. A threshold in a config file that no
-        //      job reads is the appearance of a gate, not a gate.
-        //   2. `pnpm test:coverage` exits non-zero: vitest fails a run that
-        //      misses a threshold. Measured 2026-10-05 at `6d24b21`:
-        //      55.80% lines / 55.21% functions / 49.68% statements /
-        //      54.35% branches. All four are below the thresholds below.
+        //   1. For a long time they were not. `pnpm test` is
+        //      `vitest run` without `--coverage` and that is what the
+        //      workflow's `Unit tests` step called, so nothing read this
+        //      block at all — a threshold in a config file that no job
+        //      evaluates is the appearance of a gate, not a gate. The
+        //      coverage run also exited non-zero the whole time, because
+        //      vitest fails a run that misses a threshold.
+        //   2. The suite was brought up over 2026-10-05: the route
+        //      components and the stores/api layer had zero coverage,
+        //      and writing those tests took `All files` from 42.55% to
+        //      94.78% lines. The workflow now runs `test:coverage` in its
+        //      own `Coverage gate` step.
         //
-        // So the thresholds stay where they are — lowering them to match
-        // today's numbers would destroy the only statement of intent this
-        // file makes — and the gap is tracked as real work: raise actual
-        // coverage, then make CI run `test:coverage` once it can pass.
+        // Measured headroom at that point: 94.78% lines, 94.23%
+        // statements, 95.17% functions, 78.43% branches, against
+        // 70/70/60/55 below.
         //
-        // `[FACT]` The earlier claim that the low number was an artifact
-        // of the `coverage-v8` 2 -> 5 provider change was wrong, and is
-        // retracted here. The per-file report shows the uncovered surface
-        // is real untested code: whole route components sat at 0%. Raising
-        // it means writing tests, not reconfiguring the reporter.
+        // Do not lower these to match a future number. The point of
+        // declaring them was to say what the code should be held to; a
+        // drop in coverage is missing tests, not a budget to reallocate.
+        //
+        // `[FACT]` An earlier version of this comment blamed the low
+        // number on the `coverage-v8` 2 -> 5 provider change. That was
+        // wrong and is retracted: the per-file report showed entire
+        // route components sitting at 0%, which is real untested code,
+        // not a reporting artifact.
         lines: 70,
         functions: 60,
         statements: 70,
