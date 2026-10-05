@@ -7,7 +7,7 @@
  * unsupported-provider state, and the stale-session guard each get a
  * case, because those are the rules a UI-only smoke test would miss.
  */
-import { describe, expect, it, beforeEach } from 'vitest';
+import { describe, expect, it, beforeEach, vi } from 'vitest';
 import { get } from 'svelte/store';
 import { render, screen, fireEvent, cleanup, waitFor } from '@testing-library/svelte';
 import {
@@ -19,7 +19,7 @@ import {
   REVIEW_MAX_TEXT_CHARS,
   type ReviewState,
 } from '../../src/lib/stores/review';
-import type { ReviewEventDto } from '../../src/lib/api/types';
+import type { ReviewEventDto, ReviewStartedDto } from '../../src/lib/api/types';
 import Review from '../../src/routes/Review.svelte';
 import { installMock } from '../../src/mocks/handlers';
 import { tFor, locale } from '../../src/lib/i18n';
@@ -78,6 +78,44 @@ function invokeRejectsWith(payload: unknown): void {
 }
 
 /**
+ * Let the test settle the *first* `ai_review_start` itself, then hand
+ * every later command back to the installed mock.
+ *
+ * `[FACT]` This opens the window that exists on every real run: between
+ * "the event subscription is attached" and "the start command returned
+ * its session id". Rust spawns the stream and begins emitting
+ * immediately, so events genuinely land in that window — the store has
+ * a live subscription and no `sessionId` yet.
+ *
+ * Only the first call is deferred on purpose. A second review in the
+ * same test must go through the ordinary mock, or it would resolve
+ * against a promise this helper already settled.
+ */
+function deferFirstStart(): {
+  resolveStart: (payload: ReviewStartedDto) => void;
+  rejectStart: (reason: unknown) => void;
+} {
+  const installed = window.__TAURI_INTERNALS__!.invoke;
+  let resolveStart!: (payload: ReviewStartedDto) => void;
+  let rejectStart!: (reason: unknown) => void;
+  const settled = new Promise<ReviewStartedDto>((resolve, reject) => {
+    resolveStart = resolve;
+    rejectStart = reject;
+  });
+  let deferring = true;
+  window.__TAURI_INTERNALS__ = {
+    invoke: (cmd: string, args?: Record<string, unknown>) => {
+      if (cmd === 'ai_review_start' && deferring) {
+        deferring = false;
+        return settled as Promise<unknown>;
+      }
+      return installed(cmd, args);
+    },
+  };
+  return { resolveStart, rejectStart };
+}
+
+/**
  * Drives a full successful stream and returns the fake bridge plus the
  * session id the store actually issued.
  *
@@ -120,6 +158,116 @@ describe('store / review — streaming', () => {
     await startReview('diff', { provider: 'openai', subscribe: bridge.subscribe });
     bridge.emit({ type: 'model', sessionId: currentSession(), model: 'mock-model-1' });
     expect(get(review).model).toBe('mock-model-1');
+  });
+
+  it('records a model that arrives before the start command resolves', async () => {
+    // `[FACT]` The defect this pins, found by running the app against a
+    // local streaming endpoint: the provider reports the served model in
+    // the stream's first frame, which crosses the IPC bridge while
+    // `ai_review_start` is still in flight — `sessionId` is only written
+    // after that promise settles. The store dropped the event on the
+    // "start has not resolved yet" branch and kept showing
+    // `started.model`, the model that was *requested*. The Rust suite
+    // asserts the opposite ("the served model must be reported, not
+    // assumed") and both sides were green, because nothing crossed the
+    // process boundary.
+    //
+    // Tokens never had this problem, and that asymmetry is what made the
+    // bug visible: a `token` is accepted while `status` is still
+    // `starting`, so the text appeared on time while the model label did
+    // not. The page showed `gpt-4o` throughout a stream the provider
+    // served as `mock-review-1`.
+    const deferred = deferFirstStart();
+    const bridge = fakeSubscribe();
+    const started = startReview('diff', {
+      provider: 'openai',
+      model: 'gpt-4o',
+      subscribe: bridge.subscribe,
+    });
+
+    // Wait for the subscription to attach, then talk on it while the
+    // start command is still outstanding.
+    await vi.waitFor(() => expect(bridge.attached).toBe(true));
+    expect(get(review).sessionId).toBe(null);
+    bridge.emit({ type: 'model', sessionId: 'session-from-the-future', model: 'mock-review-1' });
+
+    deferred.resolveStart({
+      session_id: 'session-from-the-future',
+      provider: 'openai',
+      // What was asked for, which is not what is served.
+      model: 'gpt-4o',
+      streaming: true,
+      redactions: 0,
+    });
+    await started;
+
+    const s = get(review);
+    expect(s.status).toBe('streaming');
+    expect(s.model).toBe('mock-review-1');
+    expect(s.model).not.toBe('gpt-4o');
+  });
+
+  it('does not carry a held model into the next review', async () => {
+    // A held model belongs to the review it arrived on. If it survived
+    // into the next one, a provider that never reported a model would
+    // inherit the previous provider's answer — a plausible-looking lie
+    // in exactly the field that is supposed to be the truth.
+    const first = deferFirstStart();
+    const bridge = fakeSubscribe();
+    const started = startReview('diff', {
+      provider: 'openai',
+      model: 'gpt-4o',
+      subscribe: bridge.subscribe,
+    });
+    await vi.waitFor(() => expect(bridge.attached).toBe(true));
+    bridge.emit({ type: 'model', sessionId: 'session-from-the-future', model: 'mock-review-1' });
+    first.resolveStart({
+      session_id: 'session-from-the-future',
+      provider: 'openai',
+      model: 'gpt-4o',
+      streaming: true,
+      redactions: 0,
+    });
+    await started;
+    expect(get(review).model).toBe('mock-review-1');
+
+    // Finish the first review so the busy guard lets a second one start.
+    bridge.emit({ type: 'done', sessionId: 'session-from-the-future', tokens: 0 });
+
+    // Second review: silent provider, so the requested model is all
+    // there is. `mock-review-1` must not survive.
+    const second = fakeSubscribe();
+    await startReview('other diff', {
+      provider: 'openai',
+      model: 'gpt-4o',
+      subscribe: second.subscribe,
+    });
+    expect(get(review).model).toBe('gpt-4o');
+  });
+
+  it('does not carry a held model into a review that failed to start', async () => {
+    // Same leak, different exit. A start that produced no session must
+    // not leave a held model for the next review to pick up.
+    const deferred = deferFirstStart();
+    const bridge = fakeSubscribe();
+    const started = startReview('diff', {
+      provider: 'openai',
+      model: 'gpt-4o',
+      subscribe: bridge.subscribe,
+    });
+    await vi.waitFor(() => expect(bridge.attached).toBe(true));
+    bridge.emit({ type: 'model', sessionId: 'session-from-the-future', model: 'mock-review-1' });
+    deferred.rejectStart({ kind: 'AiReviewInvalid', message: 'the diff is empty' });
+    await started;
+    expect(get(review).status).toBe('error');
+
+    const next = fakeSubscribe();
+    await startReview('real diff', {
+      provider: 'openai',
+      model: 'gpt-4o',
+      subscribe: next.subscribe,
+    });
+    expect(get(review).model).toBe('gpt-4o');
   });
 
   it('ignores events from a session that is no longer current', async () => {
