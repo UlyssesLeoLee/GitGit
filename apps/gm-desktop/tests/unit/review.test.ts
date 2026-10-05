@@ -331,12 +331,10 @@ describe('component / Review page', () => {
     });
   });
 
-  // `[FACT]` Skipped for a *source* defect, not a tooling one. This is the
-  // one case that the toolchain upgrade could not rescue, and it fails on a
-  // real bug in `src/routes/Review.svelte:157`:
-  //
-  //   {fill($catalog, '{provider}', $review.unsupportedProvider ?? provider)}
-  //
+  // This case caught a real source defect at `src/routes/Review.svelte:157`,
+  // not a tooling one — the only case the toolchain upgrade could not rescue.
+  // It is now fixed; the note below records what the defect was, so the reason
+  // this assertion exists is not lost.
   // `fill` is declared as `(t, token, value) => (t[token] ?? token)…`, so it
   // looks up the literal key `'{provider}'` in the catalogue, finds nothing,
   // falls back to the token itself, and returns `'anthropic'`. The panel
@@ -345,11 +343,12 @@ describe('component / Review page', () => {
   // implementation…') is never interpolated. Measured: panel textContent
   // is exactly `'anthropic'`, so `toContain('cannot stream')` fails.
   //
-  // The fix is a one-line change to `fill`'s call site (pass
-  // `$catalog['review.unsupported']` instead of `$catalog`), which is
-  // application source and outside this lane's ownership. Fix the source,
-  // then drop this `.skip`.
-  it.skip('shows a clearly-worded unsupported-provider message', async () => {
+  // `[FACT]` Fixed. `Review.svelte` no longer routes these strings through
+  // the broken `fill($catalog, token, value)` helper — it looks the catalogue
+  // key up and interpolates directly, the same idiom the rest of the app
+  // already uses (`$catalog['repos.countOne'].replace('{n}', …)`). The full
+  // sentence now renders and this case runs again.
+  it('shows a clearly-worded unsupported-provider message', async () => {
     render(Review);
     const bridge = fakeSubscribe();
     await startReview('diff', { provider: 'anthropic', subscribe: bridge.subscribe });

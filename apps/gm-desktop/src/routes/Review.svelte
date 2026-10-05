@@ -27,10 +27,6 @@
 
   const busy = $derived(isBusy($review));
 
-  function fill(t: Record<string, string | undefined>, token: string, value: string): string {
-    return (t[token] ?? token).split(token).join(value);
-  }
-
   async function onStart(): Promise<void> {
     if (diff.trim().length === 0) {
       localError = $catalog['review.invalidDiff'];
@@ -140,7 +136,7 @@
 
     {#if $review.redactions > 0}
       <p class="text-xs text-amber-600" data-testid="review-redactions">
-        {fill($catalog, '{n}', String($review.redactions))}
+        {$catalog['review.redacted'].replace('{n}', String($review.redactions))}
       </p>
     {/if}
   </div>
@@ -154,7 +150,10 @@
       class="card border-l-4 border-l-amber-500 text-sm"
       data-testid="review-unsupported"
     >
-      {fill($catalog, '{provider}', $review.unsupportedProvider ?? provider)}
+      {$catalog['review.unsupported'].replace(
+        '{provider}',
+        $review.unsupportedProvider ?? provider,
+      )}
     </div>
   {/if}
 
@@ -181,11 +180,11 @@
       <span class="flex gap-3">
         {#if $review.model}
           <span data-testid="review-model-served">
-            {fill($catalog, '{model}', $review.model)}
+            {$catalog['review.modelServed'].replace('{model}', $review.model)}
           </span>
         {/if}
         <span data-testid="review-token-count">
-          {fill($catalog, '{n}', String($review.tokenCount))}
+          {$catalog['review.tokenCount'].replace('{n}', String($review.tokenCount))}
         </span>
       </span>
     </div>
