@@ -161,8 +161,14 @@ if (-not $TargetDir) {
     if ($env:CARGO_TARGET_DIR) { $TargetDir = $env:CARGO_TARGET_DIR }
     else { $TargetDir = Join-Path $TauriDir 'target' }
 }
+if (-not [System.IO.Path]::IsPathRooted($TargetDir)) { $TargetDir = Join-Path $RepoRoot $TargetDir }
 $TargetDir = [System.IO.Path]::GetFullPath($TargetDir)
 if (-not $OutputDir) { $OutputDir = Join-Path $TargetDir 'msi-out' }
+# A relative -OutputDir resolves against the REPO ROOT, never against the
+# caller's current directory: [System.IO.Path]::GetFullPath() alone would use
+# [Environment]::CurrentDirectory, which PowerShell does not keep in sync with
+# Set-Location, so a relative path can silently land somewhere else.
+if (-not [System.IO.Path]::IsPathRooted($OutputDir)) { $OutputDir = Join-Path $RepoRoot $OutputDir }
 $OutputDir = [System.IO.Path]::GetFullPath($OutputDir)
 # The Tauri CLI puts bundles under <target>/release/bundle/<type> for a host
 # build (no --target), which is the only mode this script uses: a cross build
@@ -260,9 +266,11 @@ if ($scopes -contains 'perUser' -and -not (Test-Path -LiteralPath $perUserTempla
 
 # Package manager: prefer a plain `pnpm` (CI installs it with
 # pnpm/action-setup), fall back to corepack for machines where pnpm only
-# exists as a corepack shim.
-$pnpm = if (Get-Command pnpm -ErrorAction SilentlyContinue) { @('pnpm') }
-        else { @('corepack', 'pnpm@9.15.9') }
+# exists as a corepack shim. The @() is load-bearing: assigning the result of
+# an `if` statement unrolls a one-element array back to a scalar, and
+# $pnpm[0] on a scalar STRING indexes characters ('pnpm'[0] is 'p').
+$pnpm = @(if (Get-Command pnpm -ErrorAction SilentlyContinue) { 'pnpm' } else { 'corepack'; 'pnpm@9.15.9' })
+if ($pnpm.Count -eq 0) { throw 'neither pnpm nor corepack pnpm@9.15.9 is available' }
 # Everything after the executable name. Written out rather than sliced inline
 # because `$arr[1..0]` on a one-element array yields @($null, 'pnpm').
 $pnpmArgs = if ($pnpm.Count -gt 1) { @($pnpm[1..($pnpm.Count - 1)]) } else { @() }
@@ -303,8 +311,17 @@ foreach ($scopeName in $scopes) {
     }
 
     $startedUtc = [DateTime]::UtcNow
-    Invoke-Native -File $pnpm[0] -Arguments ($pnpmArgs + $tauriArgs) `
-        -What "tauri build ($scopeName)"
+    # The Tauri CLI resolves `--config` paths against the CURRENT directory and
+    # pnpm resolves the `tauri` script from the nearest package.json, so the
+    # invocation has to happen in apps/gm-desktop no matter where this script
+    # was called from.
+    Push-Location -LiteralPath $AppDir
+    try {
+        Invoke-Native -File $pnpm[0] -Arguments ($pnpmArgs + $tauriArgs) `
+            -What "tauri build ($scopeName)"
+    } finally {
+        Pop-Location
+    }
 
     # Everything the bundler wrote after the build started. Comparing against
     # the build start time is what makes this a "did THIS run produce it"

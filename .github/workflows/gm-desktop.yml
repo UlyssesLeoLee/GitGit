@@ -5,11 +5,24 @@
 # changes were invisible to CI. That gap is what hid a long-standing
 # production build failure (see the note on the cargo step below).
 #
-# Scope is deliberately the *lightweight* gate: lint, svelte-check, unit
-# tests, the Vite production build, and a `cargo check` of the Tauri
-# backend. A full `tauri build` / `.msi` / `tauri-action` is NOT run here —
-# it needs a full bundling toolchain and multi-OS matrix. See
-# `.github/CI.md` "已知限制".
+# Two jobs, deliberately split by cost:
+#
+#   `build` (ubuntu-latest) is the *lightweight* gate: lint, svelte-check,
+#   unit tests, the Vite production build, and the Rust fmt/clippy/test
+#   gates on the Tauri backend. It never bundles.
+#
+#   `msi` (windows-latest) is the *installer* gate: it runs a real release
+#   `tauri build` for BOTH install scopes, proves the two .msi files coexist
+#   instead of overwriting each other, smoke-checks them without installing
+#   anything, and uploads one artifact per scope. It needs Windows and a WiX
+#   toolchain, and it costs minutes rather than seconds, so it is not folded
+#   into `build`. See `.github/CI.md` "已知限制".
+#
+# Between them they cover what neither `rust-backend.yml` nor
+# `gm-console.yml` can: neither lists `apps/gm-desktop/**` in its `paths`, so
+# before this file existed desktop changes were invisible to CI. That gap is
+# what hid a long-standing production build failure (see the note on the
+# cargo step below).
 name: gm-desktop
 
 on:
@@ -153,3 +166,133 @@ jobs:
           name: gm-desktop-dist
           path: apps/gm-desktop/dist/
           retention-days: 14
+
+  # The installer gate. Separate from `build` on purpose: `build` is the
+  # fast Linux lint/test gate and runs on every change, while a full release
+  # `tauri build` needs a Windows runner and a WiX toolchain and costs
+  # minutes, so it is its own job with its own timeout rather than a step
+  # bolted onto the end of `build`.
+  #
+  # What this job exists to catch: the Tauri bundler names an MSI
+  # {productName}_{version}_{arch}_{lang}.msi, which carries no install
+  # scope, so a per-user and a per-machine build of the same version and
+  # language land on the SAME path and the second silently overwrites the
+  # first with exit code 0. build-msi.ps1 moves each artifact out of the
+  # shared bundle directory under a scope-qualified name; this job proves
+  # both variants survive that, and uploads them separately.
+  msi:
+    name: msi (per-user + per-machine)
+    runs-on: windows-latest
+    timeout-minutes: 45
+
+    # No job-level `defaults.run.working-directory` here, unlike `build`: the
+    # steps below address repo-root paths (apps/gm-desktop/scripts/...) and
+    # upload paths, so an implicit working directory would only be one more
+    # thing to get wrong.
+    steps:
+      - uses: actions/checkout@v4
+
+      # Same ordering constraint as the `build` job: pnpm before setup-node,
+      # because setup-node shells out to `pnpm store path` for the cache.
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'pnpm'
+          cache-dependency-path: apps/gm-desktop/pnpm-lock.yaml
+
+      - name: Install dependencies
+        working-directory: apps/gm-desktop
+        run: pnpm install --frozen-lockfile
+
+      # No `components:` needed: nothing here runs rustfmt or clippy, and the
+      # msvc host toolchain is what `tauri build` needs on Windows.
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      # A cold release build of this crate tree plus two bundler runs. Shelled
+      # out to `pwsh -File` rather than invoked with `&` so the script's exit
+      # code lands in $LASTEXITCODE and the explicit check below is live code:
+      # a `pwsh -command` step that only runs a failing native command would
+      # otherwise still report the step as passed.
+      - name: Build both MSI variants
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          pwsh -NoProfile -File ./apps/gm-desktop/scripts/build-msi.ps1 -Scope both -OutputDir msi-out
+          if ($LASTEXITCODE -ne 0) { throw "build-msi.ps1 exited $LASTEXITCODE" }
+
+      # Neither an install nor elevation: `msiexec /a` lays the file table out
+      # into a temp directory, and the MSI tables are read through Windows
+      # Installer COM automation, so this asserts real payload and real scope
+      # on a stock runner.
+      - name: Smoke check the MSIs (no install, no elevation)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          pwsh -NoProfile -File ./apps/gm-desktop/scripts/verify-msi.ps1 -Dir msi-out
+          if ($LASTEXITCODE -ne 0) { throw "verify-msi.ps1 exited $LASTEXITCODE" }
+
+      # The version comes from the manifest build-msi.ps1 wrote, so the
+      # artifact names cannot drift from what was actually built. A missing or
+      # unparseable manifest fails here rather than silently yielding
+      # artifact names with an empty version.
+      - name: Read variant metadata
+        id: meta
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $manifestPath = Join-Path $PWD 'msi-out/manifest.json'
+          if (-not (Test-Path -LiteralPath $manifestPath)) { throw "manifest not found: $manifestPath" }
+          $m = Get-Content -LiteralPath $manifestPath -Raw -Encoding UTF8 | ConvertFrom-Json
+          "version=$($m.version)"  | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "variants=$(@($m.variants).Count)" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
+      # One artifact per scope, and `if-no-files-found: error` on both: with the
+      # default 'warn', a glob that matches nothing leaves a green job with no
+      # installer at all, which is the same class of failure as the collision
+      # this job exists to prevent. The scope token in the name is what makes
+      # the two uploads distinct.
+      - name: Upload perMachine MSI
+        uses: actions/upload-artifact@v4
+        with:
+          name: gm-desktop-msi-${{ steps.meta.outputs.version }}-perMachine
+          path: msi-out/*_perMachine_*.msi
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload perUser MSI
+        uses: actions/upload-artifact@v4
+        with:
+          name: gm-desktop-msi-${{ steps.meta.outputs.version }}-perUser
+          path: msi-out/*_perUser_*.msi
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload variant manifest
+        uses: actions/upload-artifact@v4
+        with:
+          name: gm-desktop-msi-${{ steps.meta.outputs.version }}-manifest
+          path: msi-out/manifest.json
+          if-no-files-found: error
+          retention-days: 14
+
+      # Uploaded on failure too, so a red installer job is diagnosable without
+      # re-running it. `if: always()` is safe here: the step fails loudly if
+      # the artifacts are absent, and on a build failure the job is already
+      # red, so nothing is being hidden.
+      - name: Upload build log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gm-desktop-msi-build-log
+          path: |
+            msi-out/manifest.json
+            apps/gm-desktop/src-tauri/target/release/bundle/msi/
+          if-no-files-found: ignore
+          retention-days: 7

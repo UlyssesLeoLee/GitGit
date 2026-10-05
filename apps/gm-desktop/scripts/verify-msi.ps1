@@ -338,7 +338,7 @@ $hashes = @($results | Select-Object -ExpandProperty sha256 -Unique)
 if ($hashes.Count -ne $results.Count) {
     throw "two variants are byte-identical; the scope did not reach the package"
 }
-Write-Ok "$($results.Count) distinct filenames, $hashes.Count distinct hashes, all coexisting in one directory"
+Write-Ok "$($results.Count) distinct filenames, $($hashes.Count) distinct hashes, all coexisting in one directory"
 
 $pm = @($results | Where-Object { $_.scope -eq 'perMachine' })
 $pu = @($results | Where-Object { $_.scope -eq 'perUser' })
