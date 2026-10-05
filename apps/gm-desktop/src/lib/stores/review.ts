@@ -99,6 +99,26 @@ export interface StartOptions {
 /** Detaches the live subscription, if any. */
 let detach: (() => void) | null = null;
 
+/**
+ * A `model` event that landed before the start command's promise resolved.
+ *
+ * `[FACT]` Providers report the served model in the first frame of the
+ * stream, so across a real Tauri bridge this event routinely arrives while
+ * `aiReviewStart` is still in flight — `sessionId` is only written after
+ * that promise settles. Dropping it left the page showing `started.model`,
+ * the model that was *requested*, which is exactly what the Rust suite
+ * forbids: "the served model must be reported, not assumed".
+ *
+ * `[FACT]` Tokens never had this problem, and that asymmetry is what made
+ * the bug visible: `applyReviewEvent` accepts a `token` while `status` is
+ * still `starting`, so text arrived on time while the model label did not.
+ *
+ * Found by running the desktop app against a local streaming endpoint that
+ * reported `mock-review-1`; the page displayed `gpt-4o` and kept displaying
+ * it after the stream finished.
+ */
+let pendingModel: string | null = null;
+
 function releaseSubscription(): void {
   if (detach) {
     detach();
@@ -109,6 +129,7 @@ function releaseSubscription(): void {
 /** Reset to the initial state and drop any subscription. */
 export function resetReview(): void {
   releaseSubscription();
+  pendingModel = null;
   review.set({ ...INITIAL });
 }
 
@@ -144,7 +165,13 @@ function applyReviewEvent(e: ReviewEventDto): void {
       return;
     }
     case 'model': {
-      if (s.sessionId === null) return; // start has not resolved yet
+      // Held rather than dropped: see `pendingModel`. The session id does
+      // not exist yet, which is exactly why this branch is reachable, and
+      // the next line of `startReview` is where the held value lands.
+      if (s.sessionId === null) {
+        pendingModel = e.model;
+        return;
+      }
       review.set({ ...s, model: e.model });
       return;
     }
@@ -200,6 +227,9 @@ export async function startReview(diff: string, opts: StartOptions = {}): Promis
   } catch (e) {
     const err = normalizeError(e);
     releaseSubscription();
+    // A start that produced no session must not leave a held model behind
+    // for the next review to pick up.
+    pendingModel = null;
     if (err.kind === 'AiReviewUnsupported') {
       review.set({
         ...get(review),
@@ -224,9 +254,12 @@ export async function startReview(diff: string, opts: StartOptions = {}): Promis
     status: 'streaming',
     sessionId: started.session_id,
     provider: started.provider,
-    model: started.model,
+    // The provider's own answer wins over what we asked for, whenever it
+    // got here first.
+    model: pendingModel ?? started.model,
     redactions: started.redactions,
   });
+  pendingModel = null;
 }
 
 /**
