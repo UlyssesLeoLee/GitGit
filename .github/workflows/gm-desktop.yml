@@ -31,11 +31,22 @@ on:
     paths:
       - 'apps/gm-desktop/**'
       - '.github/workflows/gm-desktop.yml'
+      # The desktop crate consumes the root crate by path
+      # (`gitgit = { path = "../../.." }`), so a change to the root manifest
+      # or lockfile can break the `--locked` cargo steps in this workflow.
+      # Omitting these from the filter is what let a stale
+      # `src-tauri/Cargo.lock` break this job for a full day without CI
+      # noticing: the breakage was introduced by a commit that touched only
+      # root `Cargo.toml` + `Cargo.lock`, so this workflow never ran.
+      - 'Cargo.toml'
+      - 'Cargo.lock'
   pull_request:
     branches: [dev, main]
     paths:
       - 'apps/gm-desktop/**'
       - '.github/workflows/gm-desktop.yml'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
 
 concurrency:
   group: gm-desktop-${{ github.ref }}
