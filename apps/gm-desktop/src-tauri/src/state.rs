@@ -64,6 +64,39 @@ pub struct ServerStatus {
     pub running: bool,
 }
 
+impl ServerStatus {
+    /// The one "not running" snapshot.
+    ///
+    /// `[FACT]` Three call sites used to spell this out: the poisoned-lock
+    /// branch of `status`, the empty-slot branch of `status`, and the same
+    /// empty-slot branch again inside `status_from_guard`. They are
+    /// identical, and the `pid` value is the load-bearing field —
+    /// `Home.svelte` renders `pid || '—'`, so `0` is the only value that
+    /// makes the placeholder reachable. A future edit to one copy and not
+    /// the others would be invisible until a user saw a PID next to
+    /// "Stopped", which is the exact defect this was refactored away from.
+    ///
+    /// `[FACT]` On why zero and not this process's id: the embedded server
+    /// shares the desktop process, so reporting our own pid is factually
+    /// true and completely useless — the dashboard showed a live-looking
+    /// PID next to "Stopped".
+    ///
+    /// Found by running the app. `routes-home.test.ts` asserts the em dash
+    /// and passes — against a `pid: 0` fixture the mock supplied. Nothing
+    /// ever asked the real command for a stopped snapshot, so both sides of
+    /// that contract were tested and the contract itself was not.
+    /// `status_reports_no_pid_when_stopped` now asks the manager directly.
+    fn stopped() -> Self {
+        ServerStatus {
+            handle: String::from("embedded"),
+            bind: String::new(),
+            pid: 0,
+            uptime_secs: None,
+            running: false,
+        }
+    }
+}
+
 /// Internal record kept while a server is running.
 struct Running {
     bind: String,
@@ -92,45 +125,20 @@ impl ServerManager {
         let guard = match self.inner.lock() {
             Ok(g) => g,
             Err(_) => {
-                return ServerStatus {
-                    handle: String::from("embedded"),
-                    bind: String::new(),
-                    pid: 0,
-                    uptime_secs: None,
-                    running: false,
-                };
+                // `[FACT]` A poisoned mutex means some other call panicked
+                // while holding it. The slot's contents are unknown and
+                // cannot be read, so "not running" is the honest report:
+                // claiming a running server with no `bind` would be worse.
+                return ServerStatus::stopped();
             }
         };
-        match &*guard {
-            Some(r) => ServerStatus {
-                handle: String::from("embedded"),
-                bind: r.bind.clone(),
-                pid: std::process::id(),
-                uptime_secs: Some(r.started_at.elapsed().as_secs()),
-                running: true,
-            },
-            None => ServerStatus {
-                handle: String::from("embedded"),
-                bind: String::new(),
-                // `[FACT]` Zero, not this process's id. The embedded
-                // server shares the desktop process, so reporting our own
-                // pid is factually true and completely useless: the
-                // dashboard showed a live-looking PID next to "Stopped",
-                // and `Home.svelte`'s `pid || '—'` placeholder could never
-                // fire because 0 was the only value that would reach it.
-                //
-                // Found by running the app. `routes-home.test.ts` asserts
-                // the em dash, and it passes — against a `pid: 0` fixture
-                // the mock supplied. Nothing ever asked the real command
-                // for a stopped snapshot, so the two sides of this
-                // contract were each tested and the contract itself was
-                // not. `status_reports_no_pid_when_stopped` now asks the
-                // manager directly.
-                pid: 0,
-                uptime_secs: None,
-                running: false,
-            },
-        }
+        // `[FACT]` Single construction point. This match used to be
+        // duplicated verbatim in `status_from_guard`, and PR #23 had to
+        // patch the same `pid` line in two places — which is exactly the
+        // shape that lets one copy drift and the other keep reporting the
+        // old, wrong value. The two callers need the same snapshot; they
+        // differ only in where the `MutexGuard` came from.
+        self.status_from_guard(&guard)
     }
 
     /// Start the embedded server. Returns a [`ServerStatus`] snapshot on
@@ -210,6 +218,12 @@ impl ServerManager {
         Ok(prev)
     }
 
+    /// The one place a [`ServerStatus`] is built from the manager's slot.
+    ///
+    /// `[FACT]` Both `status()` and `start_with` route through here. The
+    /// alternative — a `ServerStatus` literal at each call site — is what
+    /// let PR #23's `pid` fix be applied to one copy while the other kept
+    /// the pre-fix value. A duplicated constructor is a duplicated bug.
     fn status_from_guard(&self, guard: &std::sync::MutexGuard<Option<Running>>) -> ServerStatus {
         match &**guard {
             Some(r) => ServerStatus {
@@ -219,15 +233,14 @@ impl ServerManager {
                 uptime_secs: Some(r.started_at.elapsed().as_secs()),
                 running: true,
             },
-            None => ServerStatus {
-                handle: String::from("embedded"),
-                bind: String::new(),
-                // Same reason as `status()`: a stopped server owns no
-                // process, and this snapshot is what the UI renders.
-                pid: 0,
-                uptime_secs: None,
-                running: false,
-            },
+            None => {
+                // `[FACT]` Reachable: `status()` funnels here with an empty
+                // slot, and `server_status` is what the UI calls. It was
+                // briefly written off as dead code because `start_with`
+                // only calls this helper right after assigning `Some(..)`
+                // — but that says nothing about the other caller.
+                ServerStatus::stopped()
+            }
         }
     }
 }
