@@ -114,6 +114,13 @@ impl AiProvider for AnthropicProvider {
     fn capabilities(&self) -> ProviderCapabilities {
         ProviderCapabilities {
             supports_system: true,
+            // Anthropic's streaming protocol is a different SSE frame
+            // shape (`event: content_block_delta` with the text under
+            // `delta.text`) and a different request body (`stream: true`
+            // plus a mandatory `anthropic-version` header). It is not
+            // implemented, so it is advertised as unsupported rather
+            // than advertised and then failing at call time.
+            supports_streaming: false,
             models: self.models,
         }
     }

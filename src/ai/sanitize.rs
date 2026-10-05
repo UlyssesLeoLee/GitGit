@@ -348,6 +348,33 @@ pub fn sanitize_request(req: &mut ChatRequest) -> usize {
     touched
 }
 
+/// Replace every literal occurrence of `secret` in `input` with
+/// [`REDACTED`].
+///
+/// This is the second of two defences against a credential reaching a
+/// log line, an error message, or a UI. The first is structural: the key
+/// only ever travels in a request header, and neither `reqwest::Error`
+/// nor an HTTP body contains headers, so no transport error can carry
+/// it. This helper is the backstop for everything the first defence does
+/// not cover — chiefly a provider that echoes the submitted credential
+/// back inside its own error text, which is provider-authored data that
+/// this crate does not otherwise inspect.
+///
+/// `[FACT]` The empty-secret case is a no-op, and it must stay one:
+/// `str::replace("", …)` inserts the replacement between every character
+/// rather than matching nothing, so an empty input would shred the whole
+/// message.
+pub fn scrub_secret(input: &str, secret: &str) -> String {
+    if secret.is_empty() {
+        return input.to_string();
+    }
+    if input.contains(secret) {
+        input.replace(secret, REDACTED)
+    } else {
+        input.to_string()
+    }
+}
+
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 mod tests {
@@ -543,5 +570,29 @@ mod tests {
             trust: Trust::Untrusted,
         };
         assert_eq!(msg.trust, Trust::Untrusted);
+    }
+
+    #[test]
+    fn scrub_secret_removes_every_occurrence() {
+        let key = "sk-live-0123456789abcdef";
+        let msg = format!("auth failed for {key}; retry with {key}");
+        let out = scrub_secret(&msg, key);
+        assert!(!out.contains(key), "key survived: {out}");
+        assert_eq!(out.matches(REDACTED).count(), 2, "got: {out}");
+    }
+
+    #[test]
+    fn scrub_secret_with_an_empty_secret_is_a_no_op() {
+        // Regression: `str::replace("", …)` matches at every position,
+        // so an empty secret would insert `[REDACTED]` between every
+        // character of the message instead of leaving it alone.
+        let msg = "openai: HTTP 401 — invalid api key";
+        assert_eq!(scrub_secret(msg, ""), msg);
+    }
+
+    #[test]
+    fn scrub_secret_leaves_a_message_without_the_secret_byte_identical() {
+        let msg = "openai: HTTP 429 — rate limit";
+        assert_eq!(scrub_secret(msg, "sk-unrelated"), msg);
     }
 }

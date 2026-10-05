@@ -91,6 +91,17 @@ impl ProviderSpec {
         }
     }
 
+    /// Whether this spec's protocol has a streaming implementation.
+    ///
+    /// Lets a caller refuse a streaming request *before* a network round
+    /// trip, with the reason, instead of discovering it at call time.
+    pub fn supports_streaming(&self) -> bool {
+        match self {
+            ProviderSpec::OpenAi { .. } => true,
+            ProviderSpec::Anthropic { .. } => false,
+        }
+    }
+
     /// A copy with `base_url` replaced, for `--ai-base-url`.
     pub fn with_base_url(&self, base_url: &str) -> ProviderSpec {
         let base_url = base_url.trim_end_matches('/').to_string();

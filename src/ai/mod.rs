@@ -14,6 +14,9 @@
 //!   protocols. See that module for why the count is expressed as
 //!   presets rather than adapters.
 //! - [`openai`] / [`anthropic`] — the two wire implementations.
+//! - [`stream`] — OpenAI-compatible SSE decoding and the event channel.
+//!   Implemented for the OpenAI protocol; refused explicitly for
+//!   Anthropic.
 //! - [`sanitize`] — the security pass: untrusted-content tagging
 //!   (AISEC-REQ-001) and secret redaction (AISEC-REQ-004).
 //! - [`diff`] — git input collection via the `git` subprocess.
@@ -21,11 +24,11 @@
 //!
 //! ## What is deliberately absent
 //!
-//! The archived §5.4 interface also declares streaming and cost
-//! estimation, and §5.6 marks both V1. They are not stubbed — a stub
-//! would be indistinguishable from a working implementation at the call
-//! site. They are simply not present, so adding them later is a visible
-//! change rather than a silent one.
+//! Streaming is implemented for the OpenAI-compatible protocol and
+//! explicitly refused for Anthropic — see [`stream`]. Cost estimation is
+//! not stubbed: a stub returning a zero cost would be indistinguishable
+//! from a working implementation at the call site, so the method is
+//! simply not present.
 //!
 //! ## The one thing to read before trusting this
 //!
@@ -42,6 +45,7 @@ pub mod prompt;
 pub mod provider;
 pub mod registry;
 pub mod sanitize;
+pub mod stream;
 
 use provider::{ChatRequest, ChatResponse};
 

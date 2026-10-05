@@ -6,14 +6,18 @@
 //! sketch is a design reference only; this is an independent Rust
 //! implementation.
 //!
-//! Scope note `[FACT]`: the archived interface also declares `Stream()` and
-//! `EstimateCost()`, and §5.6 marks both "V1". They are deliberately **not**
-//! implemented here rather than stubbed — a stub that returns an empty
-//! stream or a zero cost would be worse than a missing method, because a
-//! caller cannot tell the difference. V0 `gitai` is non-streaming.
+//! Scope note `[FACT]`: streaming is implemented for the
+//! OpenAI-compatible protocol (four of the five registry presets) and is
+//! **refused explicitly** for Anthropic, whose SSE frame shape differs.
+//! The refusal is a returned error, never a silent non-streaming call
+//! presented to the user as a stream. `EstimateCost()` remains
+//! unimplemented rather than stubbed — a stub that returns a zero cost
+//! would be worse than a missing method, because a caller cannot tell
+//! the difference.
 
 use async_trait::async_trait;
 
+use crate::ai::stream::unsupported;
 use crate::error::Result;
 
 /// Who authored a piece of prompt content.
@@ -140,6 +144,10 @@ pub struct ProviderCapabilities {
     /// Whether the provider accepts a system role at all. Local models
     /// behind some runtimes do not.
     pub supports_system: bool,
+    /// Whether [`AiProvider::send_stream`] is implemented for this
+    /// provider. Checked by the UI before offering a streaming control,
+    /// so an operator is not invited into a call that will be refused.
+    pub supports_streaming: bool,
     /// Model identifiers known to work with this provider. Not exhaustive —
     /// a caller may pass any string the endpoint accepts.
     pub models: &'static [&'static str],
@@ -163,4 +171,44 @@ pub trait AiProvider: Send + Sync {
     /// Callers surface these errors to the terminal, so a leaked key in
     /// `Debug` output would end up in scrollback and CI logs.
     async fn send(&self, api_key: &str, req: &ChatRequest) -> Result<ChatResponse>;
+
+    /// Perform one completion, yielding tokens as they arrive.
+    ///
+    /// # Why a channel rather than a callback
+    ///
+    /// The two obvious alternatives both lose a property this transport
+    /// needs. A callback forces the transport to own the consumer's
+    /// error handling, and gives a caller no way to stop the read loop
+    /// from the outside. An `async fn` that streams into a caller-supplied
+    /// sink is worse: it cannot express "the consumer went away".
+    ///
+    /// A `mpsc::Receiver` does both jobs. Dropping the receiver makes
+    /// the producer's next send fail, which ends the read loop and drops
+    /// the in-flight response body — so *cancellation is the ordinary
+    /// "consumer left" case* rather than a special path that can be
+    /// forgotten. It also needs no new dependency: `tokio` is already
+    /// present.
+    ///
+    /// # Errors are in-band
+    ///
+    /// Failures after the first byte travel as `Err` items on the
+    /// channel rather than closing it. A mid-stream failure and a clean
+    /// finish are different outcomes and a UI that cannot tell them apart
+    /// will show a truncated answer as a complete one.
+    ///
+    /// # The default is a refusal, not a fallback
+    ///
+    /// The default implementation returns
+    /// [`crate::ai::stream::unsupported`]. It never falls back to
+    /// [`AiProvider::send`]: a provider that cannot stream must say so,
+    /// because a non-streaming call dressed up as a stream shows the
+    /// operator a frozen UI and no tokens, which reads as a hang rather
+    /// than an unsupported feature.
+    async fn send_stream(&self, _api_key: &str, _req: &ChatRequest) -> Result<StreamReceiver> {
+        Err(unsupported(self.name()))
+    }
 }
+
+/// Re-exported so callers that only need the stream types do not have to
+/// reach into [`crate::ai::stream`] separately.
+pub use crate::ai::stream::{StreamEvent, StreamItem, StreamReceiver, StreamSender};

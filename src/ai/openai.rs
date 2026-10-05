@@ -10,9 +10,11 @@
 //! property for Ollama's OpenAI-compatible surface and for DeepSeek.
 
 use async_trait::async_trait;
+use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
 
 use crate::ai::provider::{AiProvider, ChatRequest, ChatResponse, ProviderCapabilities};
+use crate::ai::stream::{stream_channel, SseDecoder, SseField, StreamEvent, StreamReceiver};
 use crate::error::{GitGitError, Result};
 
 /// A provider speaking the OpenAI chat-completions protocol.
@@ -89,6 +91,46 @@ struct WireUsage {
     completion_tokens: Option<u32>,
 }
 
+/// One frame of a streaming response: the same envelope as
+/// [`WireResponse`] but with a `delta` per choice instead of a whole
+/// `message`.
+#[derive(Debug, Deserialize)]
+struct WireStreamChunk {
+    #[serde(default)]
+    model: Option<String>,
+    #[serde(default)]
+    choices: Vec<WireStreamChoice>,
+    /// Providers signal mid-stream failures by sending an `error` object
+    /// in a normal `data:` frame and then closing. Ignoring the field
+    /// would let the stream look like it finished cleanly.
+    #[serde(default)]
+    error: Option<WireStreamError>,
+}
+
+#[derive(Debug, Deserialize)]
+struct WireStreamChoice {
+    #[serde(default)]
+    delta: Option<WireDelta>,
+    /// `stop` on a normal end, but also `content_filter`,
+    /// `length`, and provider-specific refusals. Any value terminates.
+    #[serde(default)]
+    finish_reason: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct WireDelta {
+    #[serde(default)]
+    content: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct WireStreamError {
+    #[serde(default)]
+    message: Option<String>,
+    #[serde(rename = "type", default)]
+    kind: Option<String>,
+}
+
 /// Build a transport error for `provider`.
 ///
 /// Deliberately not an `impl Fn(...)` factory: a closure returned from a
@@ -115,32 +157,16 @@ impl AiProvider for OpenAiProvider {
     fn capabilities(&self) -> ProviderCapabilities {
         ProviderCapabilities {
             supports_system: true,
+            // This adapter speaks the OpenAI-compatible streaming
+            // protocol, so every preset built on it (openai, deepseek,
+            // ollama, vllm) streams.
+            supports_streaming: true,
             models: self.models,
         }
     }
 
     async fn send(&self, api_key: &str, req: &ChatRequest) -> Result<ChatResponse> {
-        let messages: Vec<WireMessage<'_>> = req
-            .messages
-            .iter()
-            .map(|m| WireMessage {
-                role: m.role.as_openai(),
-                content: &m.content,
-            })
-            .collect();
-
-        // reqwest is built here without the `json` feature (the crate is
-        // pinned to rustls only), so the body is serialized explicitly
-        // rather than via `RequestBuilder::json`.
-        let body = serde_json::to_vec(&WireRequest {
-            model: &req.model,
-            messages,
-            temperature: req.temperature,
-            max_tokens: req.max_tokens,
-            stream: false,
-        })
-        .map_err(|e| GitGitError::Ai(format!("{}: serialize request: {e}", self.name)))?;
-
+        let body = self.wire_body(req, false)?;
         let url = format!("{}/chat/completions", self.base_url);
         let http = reqwest::Client::new();
         let resp = http
@@ -192,6 +218,180 @@ impl AiProvider for OpenAiProvider {
             input_tokens: parsed.usage.as_ref().and_then(|u| u.prompt_tokens),
             output_tokens: parsed.usage.as_ref().and_then(|u| u.completion_tokens),
         })
+    }
+
+    async fn send_stream(&self, api_key: &str, req: &ChatRequest) -> Result<StreamReceiver> {
+        let body = self.wire_body(req, true)?;
+        let url = format!("{}/chat/completions", self.base_url);
+        let http = reqwest::Client::new();
+        let resp = http
+            .post(&url)
+            .bearer_auth(api_key)
+            .header(reqwest::header::CONTENT_TYPE, "application/json")
+            .body(body)
+            .send()
+            .await
+            .map_err(|e| http_err(&self.name, "stream request failed", &e))?;
+
+        let status = resp.status();
+        if !status.is_success() {
+            // Same reasoning as `send`: the provider's own error text is
+            // the actionable part, and it cannot contain our key, which
+            // only ever travels in a request header.
+            let raw = resp
+                .text()
+                .await
+                .map_err(|e| http_err(&self.name, "reading error body failed", &e))?;
+            return Err(GitGitError::Ai(format!(
+                "{}: HTTP {} — {}",
+                self.name,
+                status.as_u16(),
+                truncate(&raw, 400)
+            )));
+        }
+
+        // The read loop is detached so the caller gets its receiver
+        // immediately. Cancelling is `drop(receiver)`: the next send
+        // fails, the loop returns, and the response body is dropped,
+        // which closes the connection.
+        let (tx, rx) = stream_channel();
+        let provider = self.name.clone();
+        tokio::spawn(async move {
+            pump(provider, resp, tx).await;
+        });
+        Ok(rx)
+    }
+}
+
+impl OpenAiProvider {
+    /// Serialize a request body.
+    ///
+    /// reqwest is built here without the `json` feature (the crate is
+    /// pinned to rustls plus `stream`), so the body is serialized
+    /// explicitly rather than via `RequestBuilder::json`.
+    fn wire_body(&self, req: &ChatRequest, stream: bool) -> Result<Vec<u8>> {
+        let messages: Vec<WireMessage<'_>> = req
+            .messages
+            .iter()
+            .map(|m| WireMessage {
+                role: m.role.as_openai(),
+                content: &m.content,
+            })
+            .collect();
+
+        serde_json::to_vec(&WireRequest {
+            model: &req.model,
+            messages,
+            temperature: req.temperature,
+            max_tokens: req.max_tokens,
+            stream,
+        })
+        .map_err(|e| GitGitError::Ai(format!("{}: serialize request: {e}", self.name)))
+    }
+}
+
+/// Drain one SSE response body into `tx`.
+///
+/// Every exit path either sends a terminal event or sends an error: a
+/// caller that stops receiving without an error knows the stream ended,
+/// and one that receives an error knows the output so far is incomplete.
+async fn pump(provider: String, resp: reqwest::Response, tx: crate::ai::stream::StreamSender) {
+    // `bytes_stream()` is `!Unpin`, and `StreamExt::next` needs `Unpin`;
+    // pinning it in a Box is the cheap way to get a `StreamExt` that
+    // works without depending on a pin-projection macro.
+    let mut body = Box::pin(resp.bytes_stream());
+    let mut decoder = SseDecoder::new();
+    let mut terminated = false;
+
+    while let Some(next) = body.next().await {
+        let chunk = match next {
+            Ok(bytes) => bytes,
+            Err(e) => {
+                // Mid-stream disconnect. Reported rather than treated as
+                // a clean end: a half-written review is not a review.
+                let _ = tx
+                    .send(Err(http_err(&provider, "stream read failed", &e)))
+                    .await;
+                return;
+            }
+        };
+
+        for field in decoder.push(&chunk) {
+            match field {
+                SseField::Ignored => {}
+                SseField::Done => terminated = true,
+                SseField::Data(payload) => {
+                    let chunk: WireStreamChunk = match serde_json::from_str(&payload) {
+                        Ok(c) => c,
+                        Err(e) => {
+                            // A frame we cannot parse means we do not know
+                            // what the model said. Skipping it silently
+                            // would drop model output with no signal.
+                            let _ = tx
+                                .send(Err(GitGitError::Ai(format!(
+                                    "{provider}: parse stream frame: {e}"
+                                ))))
+                                .await;
+                            return;
+                        }
+                    };
+
+                    if let Some(err) = chunk.error {
+                        let kind = err.kind.unwrap_or_else(|| "error".to_string());
+                        let detail = err.message.unwrap_or_else(|| "no detail".to_string());
+                        // Provider-authored text, not our request, so the
+                        // API key cannot be in it. Capped for the same
+                        // reason an HTTP error body is.
+                        let _ = tx
+                            .send(Err(GitGitError::Ai(format!(
+                                "{provider}: stream error ({kind}): {}",
+                                truncate(&detail, 400)
+                            ))))
+                            .await;
+                        return;
+                    }
+
+                    if let Some(model) = chunk.model.filter(|m| !m.is_empty()) {
+                        if tx.send(Ok(StreamEvent::Model(model))).await.is_err() {
+                            return; // consumer gone: cancelled
+                        }
+                    }
+
+                    for choice in &chunk.choices {
+                        if let Some(token) = choice.delta.as_ref().and_then(|d| d.content.clone()) {
+                            // Providers open every stream with a role-
+                            // only delta whose `content` is null or empty.
+                            // Emitting those as empty tokens would show up
+                            // in the UI as blank appends.
+                            if !token.is_empty()
+                                && tx.send(Ok(StreamEvent::Token(token))).await.is_err()
+                            {
+                                return; // consumer gone: cancelled
+                            }
+                        }
+                        if choice.finish_reason.is_some() {
+                            terminated = true;
+                        }
+                    }
+                }
+            }
+
+            if terminated {
+                let _ = tx.send(Ok(StreamEvent::Finished)).await;
+                return;
+            }
+        }
+    }
+
+    if terminated {
+        let _ = tx.send(Ok(StreamEvent::Finished)).await;
+    } else {
+        let _ = tx
+            .send(Err(GitGitError::Ai(format!(
+                "{provider}: stream ended without a terminator \
+                 (no `data: [DONE]` and no finish_reason)"
+            ))))
+            .await;
     }
 }
 
