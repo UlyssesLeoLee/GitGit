@@ -317,6 +317,39 @@ jobs:
       # a size floor plus a freedesktop `.desktop` entry. The Linux bundler
       # makes no network calls, so this job has no download step and no
       # upstream rate limit to hit.
+      #
+      # `[FACT]` The dependency names below were not looked up and copied;
+      # this step is what turns them into a checked fact. A `Depends:`
+      # line naming a package that does not exist is worse than no
+      # `Depends:` line at all: `dpkg -i` refuses to install a package
+      # whose dependencies cannot be satisfied, so a wrong name turns
+      # "installs, then fails to launch on a bare machine" into "refuses
+      # to install anywhere". The runner has the runtime packages present
+      # (the `-dev` packages installed for the build pull them in), so
+      # `dpkg-query` is a real existence check, not a guess.
+      - name: Assert the declared dependencies are real packages
+        run: |
+          set -euo pipefail
+          mapfile -t deps < <(jq -r '.bundle.linux.deb.depends // [] | .[]' \
+            apps/gm-desktop/src-tauri/tauri.conf.json)
+          if [ "${#deps[@]}" -eq 0 ]; then
+            echo "::error::bundle.linux.deb.depends is empty; the .deb would install with no runtime dependencies and fail to launch without webkit2gtk"
+            exit 1
+          fi
+          for dep in "${deps[@]}"; do
+            # `dpkg-query -W` exits non-zero for an unknown package, which
+            # under `set -e` is the failure we want, but the message is
+            # useless, so it is turned into a diagnostic.
+            if ! dpkg-query -W -f='${Status} ${Version}\n' "$dep" 2>/dev/null; then
+              echo "::error::'$dep' is declared in bundle.linux.deb.depends but is not a known package on $(. /etc/os-release && echo "$PRETTY_NAME"). A Depends: line naming a nonexistent package makes the .deb uninstallable."
+              echo "--- available candidates ---"
+              apt-cache search --names-only 'webkit2gtk' | head -10 || true
+              apt-cache search --names-only '^libgtk-3' | head -10 || true
+              exit 1
+            fi
+            echo "ok  $dep -> $(dpkg-query -W -f='${Version}' "$dep")"
+          done
+
       - name: Verify the .deb
         run: |
           bash apps/gm-desktop/scripts/verify-bundle.sh \
