@@ -95,7 +95,7 @@ impl ServerManager {
                 return ServerStatus {
                     handle: String::from("embedded"),
                     bind: String::new(),
-                    pid: std::process::id(),
+                    pid: 0,
                     uptime_secs: None,
                     running: false,
                 };
@@ -112,7 +112,21 @@ impl ServerManager {
             None => ServerStatus {
                 handle: String::from("embedded"),
                 bind: String::new(),
-                pid: std::process::id(),
+                // `[FACT]` Zero, not this process's id. The embedded
+                // server shares the desktop process, so reporting our own
+                // pid is factually true and completely useless: the
+                // dashboard showed a live-looking PID next to "Stopped",
+                // and `Home.svelte`'s `pid || '—'` placeholder could never
+                // fire because 0 was the only value that would reach it.
+                //
+                // Found by running the app. `routes-home.test.ts` asserts
+                // the em dash, and it passes — against a `pid: 0` fixture
+                // the mock supplied. Nothing ever asked the real command
+                // for a stopped snapshot, so the two sides of this
+                // contract were each tested and the contract itself was
+                // not. `status_reports_no_pid_when_stopped` now asks the
+                // manager directly.
+                pid: 0,
                 uptime_secs: None,
                 running: false,
             },
@@ -208,7 +222,9 @@ impl ServerManager {
             None => ServerStatus {
                 handle: String::from("embedded"),
                 bind: String::new(),
-                pid: std::process::id(),
+                // Same reason as `status()`: a stopped server owns no
+                // process, and this snapshot is what the UI renders.
+                pid: 0,
                 uptime_secs: None,
                 running: false,
             },
@@ -726,5 +742,60 @@ mod tests {
             "127.0.0.1:1234",
             "an explicit bind is passed through untouched"
         );
+    }
+
+    /// The contract between this command and `Home.svelte`.
+    ///
+    /// `[FACT]` The dashboard renders `{$server.pid || '—'}`, and
+    /// `tests/unit/routes-home.test.ts` asserts that a stopped server shows
+    /// the em dash. That test feeds a `pid: 0` fixture through a mocked
+    /// `invoke`, so it never learned what this manager actually returns —
+    /// and for a stopped server that was `std::process::id()`, which is
+    /// never 0, so the placeholder was unreachable in the shipped app.
+    ///
+    /// `[FACT]` Found by running the app and looking at it: "Stopped" sat
+    /// next to a live-looking PID. Each side of this contract had its own
+    /// passing tests; nothing asked both.
+    #[tokio::test]
+    async fn status_reports_no_pid_when_stopped() {
+        let manager = ServerManager::new();
+        let status = manager.status();
+
+        assert!(!status.running, "a fresh manager is not running");
+        assert_eq!(
+            status.pid, 0,
+            "a stopped server owns no process, so it reports no pid; \
+             anything else makes the dashboard's em dash unreachable"
+        );
+        assert_eq!(status.bind, "", "and no bind address either");
+        assert!(status.uptime_secs.is_none(), "and no uptime");
+    }
+
+    /// The other half of the same contract: once something *is* running the
+    /// pid has to be real, or the fix above would have traded a misleading
+    /// value for a permanently blank one.
+    #[tokio::test]
+    async fn status_reports_the_real_pid_while_running() {
+        let manager = ServerManager::new();
+        manager
+            .start_with(String::from(REQUESTED_BIND), |bind| async move {
+                Ok(tokio::spawn(async move {
+                    let _listener =
+                        std::net::TcpListener::bind(&bind).expect("bind the requested address");
+                    std::future::pending::<()>().await;
+                }))
+            })
+            .await
+            .expect("the server starts");
+
+        let status = manager.status();
+        assert!(status.running);
+        assert_eq!(
+            status.pid,
+            std::process::id(),
+            "the embedded server is this process, so that is its pid"
+        );
+
+        manager.stop().await.expect("stop returns the prior status");
     }
 }
