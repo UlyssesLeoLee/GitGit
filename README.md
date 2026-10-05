@@ -185,10 +185,25 @@ manifest 640 B / dist 271,164 B，共四个 artifact 并存。
 `["Hel","lo","wo","rld","!"]`），但仓内没有 `GITGIT_AI_API_KEY`，
 **从未真正调用过 OpenAI 或 Anthropic**。`TauriEmitter` 的事件是否真正抵达 webview 同样未验证。
 
-### P2 — 跨平台产物未验证
+### P2 — 跨平台产物已在 CI 构建，但仍未签名、未在真机安装验证
 
-macOS `.dmg` 与 Linux `.appimage` / `.deb` 从未构建过。维护机是 Windows-only，
-而 Tauri 不支持交叉打包，因此需要对应平台的机器或 CI runner。
+`tauri.conf.json` 声明了 `["msi","dmg","appimage","deb"]` 四种 target，
+此前只有 MSI 被构建过。现已新增 `.github/workflows/gm-desktop-bundle.yml`，
+在对应 runner 上产出并校验：
+
+| 产物 | runner | 校验方式 |
+|---|---|---|
+| `.dmg` | `macos-latest` | `hdiutil imageinfo` + 只读挂载，断言 app 二进制 ≥ 1 MiB |
+| `.deb` | `ubuntu-latest` | `dpkg-deb --info` / `--contents`，版本必须与 `tauri.conf.json` 一致 |
+| `.appimage` | `ubuntu-latest` | ELF magic + `file` + 5 MiB 下限 |
+
+`[FACT]` 三个 job 首次运行即全部通过。但**均未签名**，也**未在任何真实机器上
+安装运行过**：CI 只验证产物结构，不验证「装得上、跑得起来」。macOS 未做
+notarization，Windows 四个 MSI 变体同样未签名（见上一节）。
+
+`[UNVERIFIED-FACT]` `.deb` 依赖 `bundle.linux.deb.depends` 为空数组，
+bundler 因此不写 `Depends:`，真实安装时不会拉取 webkit2gtk。校验脚本对此
+只打印 NOTE 而不失败，因为它属于本仓不拥有的配置决策。
 
 ### P2 — 工作区根目录选择器未在真实窗口验证
 
