@@ -166,6 +166,7 @@ const zh: Readonly<Record<string, string>> = {
   'errors.kind.ServerAlreadyRunning': '服务已经在运行（pid={n}）',
   'errors.kind.ServerNotRunning': '服务尚未运行',
   'errors.kind.Bind': '无法绑定端口',
+  'errors.kind.ServerManagerPoisoned': '内嵌服务管理器处于不可恢复的状态，请重启应用',
   'errors.kind.Gitgit': 'gitgit 内部错误',
   'errors.kind.Git': 'git 子进程失败',
   'errors.kind.Io': '本地文件系统错误',

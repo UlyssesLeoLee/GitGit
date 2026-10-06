@@ -164,6 +164,8 @@ const en: Readonly<Record<string, string>> = {
   'errors.kind.ServerAlreadyRunning': 'Server is already running (pid={n})',
   'errors.kind.ServerNotRunning': 'Server is not running',
   'errors.kind.Bind': 'Could not bind port',
+  'errors.kind.ServerManagerPoisoned':
+    'The embedded server manager is in an unrecoverable state. Restart the app.',
   'errors.kind.Gitgit': 'gitgit internal error',
   'errors.kind.Git': 'git subprocess failed',
   'errors.kind.Io': 'Local filesystem error',
