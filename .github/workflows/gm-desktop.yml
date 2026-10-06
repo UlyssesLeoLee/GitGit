@@ -414,6 +414,26 @@ jobs:
           pwsh -NoProfile -File ./apps/gm-desktop/scripts/build-msi.ps1 -Scope both -OutputDir msi-out
           if ($LASTEXITCODE -ne 0) { throw "build-msi.ps1 exited $LASTEXITCODE" }
 
+      # Signing runs before verification, for the same reason as in
+      # `release.yml`: signing changes the bytes, so `verify-msi.ps1`'s
+      # manifest cross-check has to run against the signed files.
+      #
+      # No `-Required` here, and that is the deliberate difference from the
+      # release path. GitHub withholds secrets from pull requests raised from
+      # forks, so requiring a certificate would turn every such PR red while
+      # adding no safety. This job signs when credentials exist and says so
+      # when they do not; `release.yml` is where "unsigned must not ship" is
+      # enforced, because that is the only job whose output is distributed.
+      - name: Sign the MSIs when credentials are present
+        shell: pwsh
+        env:
+          GITGIT_MSI_PFX_BASE64: ${{ secrets.MSI_SIGN_PFX_BASE64 }}
+          GITGIT_MSI_PFX_PASSWORD: ${{ secrets.MSI_SIGN_PFX_PASSWORD }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          pwsh -NoProfile -File ./apps/gm-desktop/scripts/sign-msi.ps1 -Dir msi-out
+          if ($LASTEXITCODE -ne 0) { throw "sign-msi.ps1 exited $LASTEXITCODE" }
+
       # Neither an install nor elevation: `msiexec /a` lays the file table out
       # into a temp directory, and the MSI tables are read through Windows
       # Installer COM automation, so this asserts real payload and real scope

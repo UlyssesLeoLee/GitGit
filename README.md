@@ -5,9 +5,10 @@
 > **状态：可运行的 MVP，尚未达到可发布状态。**
 >
 > 本仓库有真实实现、真实测试和真实 CI 门禁，并且能产出可安装的安装包
-> （Windows `.msi`，以及 macOS `.dmg` / Linux `.deb` / `.AppImage`）。
-> **HTTP API 鉴权已于 2026-10-05 关闭**（P0），Windows 安装包仍未做代码签名，
-> 详见 [已知未决问题](#已知未决问题)。在签名问题关闭之前，本项目**不应**被当作
+> （Windows `.msi`，以及 macOS `.dmg` / Linux `.deb` / Linux `.AppImage`）。
+> **HTTP API 鉴权已于 2026-10-05 关闭**（P0）；**MSI 代码签名链路已于 2026-10-07
+> 就位并在 tag 发布路径强制**，但仍缺一张采购的证书。详见
+> [已知未决问题](#已知未决问题)。在这两项关闭之前，本项目**不应**被当作
 > 可商售产品分发。
 
 本文件只陈述**实测**状态。凡本文出现数字，均为在指定 commit 上跑出来的，不是估计值。
@@ -227,9 +228,33 @@ base64 而非加密，**无 TLS**；桌面端生成的密码只出现在日志�
 这会 fail closed，但意味着在 Settings 里设密码之前，Web 控制台无法对接加宽
 后的绑定。完整清单见 [`SECURITY.md`](SECURITY.md)。
 
-### P1 — Windows 安装包未做代码签名
+### P1 — Windows 安装包缺一张代码签名证书
 
-4 个 MSI 变体全部未签名，触发 SmartScreen 告警。需要购买代码签名证书，不在技术范围内。
+**签名链路本身已经关闭，剩下的只是证书。**
+
+`[FACT]` 2026-10-07：`apps/gm-desktop/scripts/sign-msi.ps1` 用 PFX + RFC 3161
+时间戳签名 4 个 MSI 变体，签完重算 `manifest.json` 的哈希并记录 `signing` 块。
+`release.yml` 的 `msi` job 以 `-Required` 调用它 —— **没有证书就直接变红**，
+不会发出一个自己以为签过名的发布。`gm-desktop.yml` 的日常 `msi` job 不带
+`-Required`：GitHub 不向 fork 的 PR 下发 secrets，强求只会把每个 fork PR 弄红
+而不增加任何安全性。两者共用同一个脚本，差别只有这一个开关。
+
+`[FACT]` 签名已用真实的 `signtool.exe` 对 4 个**实际产出的** MSI 本地验证过，
+覆盖了正确路径与两条错误路径（无证书 + `-Required` → exit 1；PFX 损坏 → exit 1）。
+
+仍然缺的是**一张采购的代码签名证书**，这不在技术范围内。配置方式：
+
+| Secret | 内容 |
+| --- | --- |
+| `MSI_SIGN_PFX_BASE64` | `signing.pfx` 文件本身的 base64（不是 `.cer`） |
+| `MSI_SIGN_PFX_PASSWORD` | 导出该 pfx 用的密码 |
+
+```powershell
+[Convert]::ToBase64String([IO.File]::ReadAllBytes('signing.pfx'))
+```
+
+在配置之前，**打 tag 会让 release 在预检后的 `msi` job 变红**，这是设计意图
+而不是故障。
 
 ### ~~P1 — 覆盖率门禁是声明而非门禁~~ 已关闭
 
@@ -280,7 +305,8 @@ Mock 日志确认 Rust 侧确实发出了 `Authorization: Bearer`，且未泄漏
 
 `[FACT]` 三个 job 首次运行即全部通过。但**均未签名**，也**未在任何真实机器上
 安装运行过**：CI 只验证产物结构，不验证「装得上、跑得起来」。macOS 未做
-notarization，Windows 四个 MSI 变体同样未签名（见上一节）。
+notarization。Windows 的 4 个 MSI 变体已有签名链路并在发布路径强制，但未配置
+证书前打 tag 会 fail-closed（见上一节）。
 
 `[UNVERIFIED-FACT]` `.deb` 依赖 `bundle.linux.deb.depends` 为空数组，
 bundler 因此不写 `Depends:`，真实安装时不会拉取 webkit2gtk。校验脚本对此
