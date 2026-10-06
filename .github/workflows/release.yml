@@ -88,12 +88,25 @@ jobs:
 
       - name: Resolve the tag
         id: tag
+        # Both values arrive through `env:`, never pasted into the script
+        # body with `${{ }}`. Two reasons, and the second one is why this
+        # workflow failed on its first real run:
+        #
+        #   1. `inputs.tag` is operator-supplied text. Interpolated into a
+        #      script body it becomes code, not data.
+        #   2. A `run:` block is its own process. Whatever this step
+        #      assigns is gone when the next step starts, which is how
+        #      `ref` came to be unbound downstream (see the note on the
+        #      step below).
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_TAG: ${{ inputs.tag }}
         run: |
           set -euo pipefail
           # On `workflow_dispatch` there is no tag in the ref, so the name
           # comes from the input. On a tag push it is the ref itself.
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            ref="${{ inputs.tag }}"
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            ref="$INPUT_TAG"
           else
             ref="${GITHUB_REF#refs/tags/}"
           fi
@@ -106,6 +119,15 @@ jobs:
 
       - name: Compare against tauri.conf.json
         id: check
+        # `ref` is handed over as an `env:` value, because the shell
+        # variable the previous step assigned does not survive into this
+        # one. Reading it here as a bare `$ref` is what made the first real
+        # run of this workflow exit 1 with no `::error::` line at all:
+        # `set -u` killed the step on `ref: unbound variable` before any of
+        # the guarded branches below could run. Nothing was wrong with the
+        # tag, and the workflow reported that by reporting nothing.
+        env:
+          REF: ${{ steps.tag.outputs.ref }}
         run: |
           set -euo pipefail
           declared=$(jq -r '.version' apps/gm-desktop/src-tauri/tauri.conf.json)
@@ -113,14 +135,14 @@ jobs:
             echo "::error::tauri.conf.json records no version; the tag cannot be checked"
             exit 1
           fi
-          tagged="${ref#v}"
+          tagged="${REF#v}"
           if [ "$declared" != "$tagged" ]; then
             echo "::error::tag is $tagged but apps/gm-desktop/src-tauri/tauri.conf.json says $declared"
             echo "A release named $tagged containing a $declared build is a lie a user has to discover."
             exit 1
           fi
           echo "version=$declared" >> "$GITHUB_OUTPUT"
-          echo "tag $ref matches tauri.conf.json ($declared)" >> "$GITHUB_STEP_SUMMARY"
+          echo "tag $REF matches tauri.conf.json ($declared)" >> "$GITHUB_STEP_SUMMARY"
 
       # The other two places the same number is written. A release job that
       # only checked one of three would still let a stale `Cargo.toml`
@@ -198,6 +220,35 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
+      # `verify-bundle.sh` records what it actually found — size, sha256,
+      # signing state, runner — in `manifest.json` beside the bundle, and both
+      # sibling workflows upload it as its own artifact. This file listed
+      # `staged/**/manifest.json` in the release `files:` while uploading no
+      # manifest at all, so `fail_on_unmatched_files: true` would have thrown
+      # "Pattern does not match any files" — after four platform builds had
+      # already completed.
+      #
+      # The rename is load-bearing, not tidiness. `merge-multiple: true` in
+      # the draft-release job flattens every `gm-desktop-*` artifact into one
+      # `staged/` directory, and four files all named `manifest.json` would
+      # land on the same path. Measured with glob 7.2.3 against a flattened
+      # staging tree: `staged/**/manifest.json` does match a flat
+      # `staged/manifest.json`, so the glob was never the problem — four
+      # identically named files would have been. The platform prefix is what
+      # keeps them apart.
+      - name: Rename the .dmg manifest so four platforms can share one staging dir
+        run: |
+          mv apps/gm-desktop/src-tauri/target/release/bundle/dmg/manifest.json \
+             apps/gm-desktop/src-tauri/target/release/bundle/dmg/dmg-manifest.json
+
+      - name: Upload the .dmg manifest
+        uses: actions/upload-artifact@v4
+        with:
+          name: gm-desktop-dmg-manifest
+          path: apps/gm-desktop/src-tauri/target/release/bundle/dmg/dmg-manifest.json
+          if-no-files-found: error
+          retention-days: 30
+
   deb:
     name: deb (unsigned)
     needs: verify-tag
@@ -247,6 +298,22 @@ jobs:
         with:
           name: gm-desktop-deb
           path: apps/gm-desktop/src-tauri/target/release/bundle/deb/*.deb
+          if-no-files-found: error
+          retention-days: 30
+
+      # See the note on the .dmg manifest step above: the rename is what keeps
+      # four same-named manifests from colliding once `merge-multiple` has
+      # flattened them into one directory.
+      - name: Rename the .deb manifest so four platforms can share one staging dir
+        run: |
+          mv apps/gm-desktop/src-tauri/target/release/bundle/deb/manifest.json \
+             apps/gm-desktop/src-tauri/target/release/bundle/deb/deb-manifest.json
+
+      - name: Upload the .deb manifest
+        uses: actions/upload-artifact@v4
+        with:
+          name: gm-desktop-deb-manifest
+          path: apps/gm-desktop/src-tauri/target/release/bundle/deb/deb-manifest.json
           if-no-files-found: error
           retention-days: 30
 
@@ -302,6 +369,22 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
+      # See the note on the .dmg manifest step above: the rename is what keeps
+      # four same-named manifests from colliding once `merge-multiple` has
+      # flattened them into one directory.
+      - name: Rename the .AppImage manifest so four platforms can share one staging dir
+        run: |
+          mv apps/gm-desktop/src-tauri/target/release/bundle/appimage/manifest.json \
+             apps/gm-desktop/src-tauri/target/release/bundle/appimage/appimage-manifest.json
+
+      - name: Upload the .AppImage manifest
+        uses: actions/upload-artifact@v4
+        with:
+          name: gm-desktop-appimage-manifest
+          path: apps/gm-desktop/src-tauri/target/release/bundle/appimage/appimage-manifest.json
+          if-no-files-found: error
+          retention-days: 30
+
   msi:
     name: msi (per-user + per-machine)
     needs: verify-tag
@@ -352,6 +435,24 @@ jobs:
         with:
           name: gm-desktop-msi
           path: msi-out/*.msi
+          if-no-files-found: error
+          retention-days: 30
+
+      # `build-msi.ps1` writes `msi-out/manifest.json` recording both install
+      # scopes; `gm-desktop.yml`'s msi job uploads it as its own artifact.
+      # Same collision reason as the three Unix targets, and `Move-Item` here
+      # because this job's shell is pwsh.
+      - name: Rename the MSI manifest so four platforms can share one staging dir
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Move-Item -LiteralPath 'msi-out/manifest.json' -Destination 'msi-out/msi-manifest.json'
+
+      - name: Upload the MSI manifest
+        uses: actions/upload-artifact@v4
+        with:
+          name: gm-desktop-msi-manifest
+          path: msi-out/msi-manifest.json
           if-no-files-found: error
           retention-days: 30
 
@@ -414,5 +515,15 @@ jobs:
             staged/**/*.dmg
             staged/**/*.deb
             staged/**/*.AppImage
-            staged/**/manifest.json
+            staged/**/*-manifest.json
+          # Per-pattern, not per-run. `unmatchedPatterns()` in
+          # softprops/action-gh-release throws for EACH glob that matched
+          # nothing, so a single entry that cannot match fails the job —
+          # which is why the four manifest uploads above exist rather than
+          # being optional extras.
+          #
+          # `**` matches zero directories as well as many, so these resolve
+          # against the flattened tree `merge-multiple: true` produces.
+          # Measured with glob 7.2.3 against a flattened staging tree rather
+          # than assumed.
           fail_on_unmatched_files: true
