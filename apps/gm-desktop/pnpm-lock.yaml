@@ -41,13 +41,13 @@ importers:
     devDependencies:
       '@sveltejs/vite-plugin-svelte':
         specifier: ^6.2.1
-        version: 6.2.4(svelte@5.57.1(@typescript-eslint/types@8.71.0))(vite@7.3.6(@types/node@22.20.4)(jiti@1.21.7))
+        version: 6.2.4(svelte@5.57.1(@typescript-eslint/types@8.71.0))(vite@7.3.6(@types/node@22.20.4)(jiti@1.21.7)(yaml@2.8.0))
       '@tauri-apps/cli':
         specifier: '2'
         version: 2.12.1
       '@testing-library/svelte':
         specifier: ^5.2.0
-        version: 5.4.2(svelte@5.57.1(@typescript-eslint/types@8.71.0))(vite@7.3.6(@types/node@22.20.4)(jiti@1.21.7))(vitest@5.0.3)
+        version: 5.4.2(svelte@5.57.1(@typescript-eslint/types@8.71.0))(vite@7.3.6(@types/node@22.20.4)(jiti@1.21.7)(yaml@2.8.0))(vitest@5.0.3)
       '@tsconfig/svelte':
         specifier: ^5.0.4
         version: 5.0.8
@@ -92,10 +92,10 @@ importers:
         version: 4.7.6(picomatch@4.0.7)(svelte@5.57.1(@typescript-eslint/types@8.71.0))(typescript@5.9.3)
       svelte-preprocess:
         specifier: ^6.0.2
-        version: 6.0.5(postcss-load-config@6.0.1(jiti@1.21.7)(postcss@8.5.28))(postcss@8.5.28)(svelte@5.57.1(@typescript-eslint/types@8.71.0))(typescript@5.9.3)
+        version: 6.0.5(postcss-load-config@6.0.1(jiti@1.21.7)(postcss@8.5.28)(yaml@2.8.0))(postcss@8.5.28)(svelte@5.57.1(@typescript-eslint/types@8.71.0))(typescript@5.9.3)
       tailwindcss:
         specifier: ^3.4.13
-        version: 3.4.19
+        version: 3.4.19(yaml@2.8.0)
       tslib:
         specifier: ^2.7.0
         version: 2.8.1
@@ -104,10 +104,13 @@ importers:
         version: 5.9.3
       vite:
         specifier: ^7.3.6
-        version: 7.3.6(@types/node@22.20.4)(jiti@1.21.7)
+        version: 7.3.6(@types/node@22.20.4)(jiti@1.21.7)(yaml@2.8.0)
       vitest:
         specifier: ^5.0.3
-        version: 5.0.3(@types/node@22.20.4)(@vitest/coverage-v8@5.0.3)(jsdom@25.0.1)(vite@7.3.6(@types/node@22.20.4)(jiti@1.21.7))
+        version: 5.0.3(@types/node@22.20.4)(@vitest/coverage-v8@5.0.3)(jsdom@25.0.1)(vite@7.3.6(@types/node@22.20.4)(jiti@1.21.7)(yaml@2.8.0))
+      yaml:
+        specifier: 2.8.0
+        version: 2.8.0
 
 packages:
 
@@ -1938,6 +1941,11 @@ packages:
   xmlchars@2.2.0:
     resolution: {integrity: sha512-JZnDKK8B0RCDw84FNdDAIpZK+JuJw+s7Lz8nksI7SIuU3UXJJslUthsi+uWBUYOwPFwW7W7PRLRfUKpxjtjFCw==}
 
+  yaml@2.8.0:
+    resolution: {integrity: sha512-4lLa/EcQCB0cJkyts+FpIRx5G/llPxfP6VQU5KByHEhLxY3IJCH0f0Hy1MHI8sClTvsIb8qwRJ6R/ZdlDJ/leQ==}
+    engines: {node: '>= 14.6'}
+    hasBin: true
+
   yocto-queue@0.1.0:
     resolution: {integrity: sha512-rVksvsnNCdJ/ohGc6xgPwyN8eheCxsiLM8mxuE/t/mOVqJewPuO1miLpTHQiRgTKCLexL4MeAFVagts7HmNZ2Q==}
     engines: {node: '>=10'}
@@ -2237,22 +2245,22 @@ snapshots:
 
   '@sveltejs/load-config@0.2.3': {}
 
-  '@sveltejs/vite-plugin-svelte-inspector@5.0.2(@sveltejs/vite-plugin-svelte@6.2.4(svelte@5.57.1(@typescript-eslint/types@8.71.0))(vite@7.3.6(@types/node@22.20.4)(jiti@1.21.7)))(svelte@5.57.1(@typescript-eslint/types@8.71.0))(vite@7.3.6(@types/node@22.20.4)(jiti@1.21.7))':
+  '@sveltejs/vite-plugin-svelte-inspector@5.0.2(@sveltejs/vite-plugin-svelte@6.2.4(svelte@5.57.1(@typescript-eslint/types@8.71.0))(vite@7.3.6(@types/node@22.20.4)(jiti@1.21.7)(yaml@2.8.0)))(svelte@5.57.1(@typescript-eslint/types@8.71.0))(vite@7.3.6(@types/node@22.20.4)(jiti@1.21.7)(yaml@2.8.0))':
     dependencies:
-      '@sveltejs/vite-plugin-svelte': 6.2.4(svelte@5.57.1(@typescript-eslint/types@8.71.0))(vite@7.3.6(@types/node@22.20.4)(jiti@1.21.7))
+      '@sveltejs/vite-plugin-svelte': 6.2.4(svelte@5.57.1(@typescript-eslint/types@8.71.0))(vite@7.3.6(@types/node@22.20.4)(jiti@1.21.7)(yaml@2.8.0))
       obug: 2.2.1
       svelte: 5.57.1(@typescript-eslint/types@8.71.0)
-      vite: 7.3.6(@types/node@22.20.4)(jiti@1.21.7)
+      vite: 7.3.6(@types/node@22.20.4)(jiti@1.21.7)(yaml@2.8.0)
 
-  '@sveltejs/vite-plugin-svelte@6.2.4(svelte@5.57.1(@typescript-eslint/types@8.71.0))(vite@7.3.6(@types/node@22.20.4)(jiti@1.21.7))':
+  '@sveltejs/vite-plugin-svelte@6.2.4(svelte@5.57.1(@typescript-eslint/types@8.71.0))(vite@7.3.6(@types/node@22.20.4)(jiti@1.21.7)(yaml@2.8.0))':
     dependencies:
-      '@sveltejs/vite-plugin-svelte-inspector': 5.0.2(@sveltejs/vite-plugin-svelte@6.2.4(svelte@5.57.1(@typescript-eslint/types@8.71.0))(vite@7.3.6(@types/node@22.20.4)(jiti@1.21.7)))(svelte@5.57.1(@typescript-eslint/types@8.71.0))(vite@7.3.6(@types/node@22.20.4)(jiti@1.21.7))
+      '@sveltejs/vite-plugin-svelte-inspector': 5.0.2(@sveltejs/vite-plugin-svelte@6.2.4(svelte@5.57.1(@typescript-eslint/types@8.71.0))(vite@7.3.6(@types/node@22.20.4)(jiti@1.21.7)(yaml@2.8.0)))(svelte@5.57.1(@typescript-eslint/types@8.71.0))(vite@7.3.6(@types/node@22.20.4)(jiti@1.21.7)(yaml@2.8.0))
       deepmerge: 4.3.1
       magic-string: 0.30.21
       obug: 2.2.1
       svelte: 5.57.1(@typescript-eslint/types@8.71.0)
-      vite: 7.3.6(@types/node@22.20.4)(jiti@1.21.7)
-      vitefu: 1.1.3(vite@7.3.6(@types/node@22.20.4)(jiti@1.21.7))
+      vite: 7.3.6(@types/node@22.20.4)(jiti@1.21.7)(yaml@2.8.0)
+      vitefu: 1.1.3(vite@7.3.6(@types/node@22.20.4)(jiti@1.21.7)(yaml@2.8.0))
 
   '@tauri-apps/api@2.11.1': {}
 
@@ -2346,14 +2354,14 @@ snapshots:
     dependencies:
       svelte: 5.57.1(@typescript-eslint/types@8.71.0)
 
-  '@testing-library/svelte@5.4.2(svelte@5.57.1(@typescript-eslint/types@8.71.0))(vite@7.3.6(@types/node@22.20.4)(jiti@1.21.7))(vitest@5.0.3)':
+  '@testing-library/svelte@5.4.2(svelte@5.57.1(@typescript-eslint/types@8.71.0))(vite@7.3.6(@types/node@22.20.4)(jiti@1.21.7)(yaml@2.8.0))(vitest@5.0.3)':
     dependencies:
       '@testing-library/dom': 10.4.2
       '@testing-library/svelte-core': 1.1.3(svelte@5.57.1(@typescript-eslint/types@8.71.0))
       svelte: 5.57.1(@typescript-eslint/types@8.71.0)
     optionalDependencies:
-      vite: 7.3.6(@types/node@22.20.4)(jiti@1.21.7)
-      vitest: 5.0.3(@types/node@22.20.4)(@vitest/coverage-v8@5.0.3)(jsdom@25.0.1)(vite@7.3.6(@types/node@22.20.4)(jiti@1.21.7))
+      vite: 7.3.6(@types/node@22.20.4)(jiti@1.21.7)(yaml@2.8.0)
+      vitest: 5.0.3(@types/node@22.20.4)(@vitest/coverage-v8@5.0.3)(jsdom@25.0.1)(vite@7.3.6(@types/node@22.20.4)(jiti@1.21.7)(yaml@2.8.0))
 
   '@tsconfig/svelte@5.0.8': {}
 
@@ -2475,7 +2483,7 @@ snapshots:
       obug: 2.2.1
       std-env: 4.3.0
       tinyrainbow: 3.2.0
-      vitest: 5.0.3(@types/node@22.20.4)(@vitest/coverage-v8@5.0.3)(jsdom@25.0.1)(vite@7.3.6(@types/node@22.20.4)(jiti@1.21.7))
+      vitest: 5.0.3(@types/node@22.20.4)(@vitest/coverage-v8@5.0.3)(jsdom@25.0.1)(vite@7.3.6(@types/node@22.20.4)(jiti@1.21.7)(yaml@2.8.0))
 
   '@vitest/istanbul-lib-coverage@1.0.2': {}
 
@@ -2483,14 +2491,14 @@ snapshots:
     dependencies:
       '@vitest/istanbul-lib-coverage': 1.0.2
 
-  '@vitest/mocker@5.0.3(vite@7.3.6(@types/node@22.20.4)(jiti@1.21.7))':
+  '@vitest/mocker@5.0.3(vite@7.3.6(@types/node@22.20.4)(jiti@1.21.7)(yaml@2.8.0))':
     dependencies:
       '@jridgewell/trace-mapping': 0.3.31
       '@vitest/spy': 5.0.3
       estree-walker: 3.0.3
       magic-string: 1.4.2
     optionalDependencies:
-      vite: 7.3.6(@types/node@22.20.4)(jiti@1.21.7)
+      vite: 7.3.6(@types/node@22.20.4)(jiti@1.21.7)(yaml@2.8.0)
 
   '@vitest/spy@5.0.3': {}
 
@@ -3199,12 +3207,13 @@ snapshots:
       camelcase-css: 2.0.1
       postcss: 8.5.28
 
-  postcss-load-config@6.0.1(jiti@1.21.7)(postcss@8.5.28):
+  postcss-load-config@6.0.1(jiti@1.21.7)(postcss@8.5.28)(yaml@2.8.0):
     dependencies:
       lilconfig: 3.1.3
     optionalDependencies:
       jiti: 1.21.7
       postcss: 8.5.28
+      yaml: 2.8.0
 
   postcss-nested@6.2.0(postcss@8.5.28):
     dependencies:
@@ -3365,12 +3374,12 @@ snapshots:
     transitivePeerDependencies:
       - picomatch
 
-  svelte-preprocess@6.0.5(postcss-load-config@6.0.1(jiti@1.21.7)(postcss@8.5.28))(postcss@8.5.28)(svelte@5.57.1(@typescript-eslint/types@8.71.0))(typescript@5.9.3):
+  svelte-preprocess@6.0.5(postcss-load-config@6.0.1(jiti@1.21.7)(postcss@8.5.28)(yaml@2.8.0))(postcss@8.5.28)(svelte@5.57.1(@typescript-eslint/types@8.71.0))(typescript@5.9.3):
     dependencies:
       svelte: 5.57.1(@typescript-eslint/types@8.71.0)
     optionalDependencies:
       postcss: 8.5.28
-      postcss-load-config: 6.0.1(jiti@1.21.7)(postcss@8.5.28)
+      postcss-load-config: 6.0.1(jiti@1.21.7)(postcss@8.5.28)(yaml@2.8.0)
       typescript: 5.9.3
 
   svelte@5.57.1(@typescript-eslint/types@8.71.0):
@@ -3395,7 +3404,7 @@ snapshots:
 
   symbol-tree@3.2.4: {}
 
-  tailwindcss@3.4.19:
+  tailwindcss@3.4.19(yaml@2.8.0):
     dependencies:
       '@alloc/quick-lru': 5.3.0
       arg: 5.0.2
@@ -3414,7 +3423,7 @@ snapshots:
       postcss: 8.5.28
       postcss-import: 15.1.0(postcss@8.5.28)
       postcss-js: 4.1.0(postcss@8.5.28)
-      postcss-load-config: 6.0.1(jiti@1.21.7)(postcss@8.5.28)
+      postcss-load-config: 6.0.1(jiti@1.21.7)(postcss@8.5.28)(yaml@2.8.0)
       postcss-nested: 6.2.0(postcss@8.5.28)
       postcss-selector-parser: 6.1.4
       resolve: 1.22.12
@@ -3492,7 +3501,7 @@ snapshots:
 
   util-deprecate@1.0.2: {}
 
-  vite@7.3.6(@types/node@22.20.4)(jiti@1.21.7):
+  vite@7.3.6(@types/node@22.20.4)(jiti@1.21.7)(yaml@2.8.0):
     dependencies:
       esbuild: 0.28.2
       fdir: 6.5.0(picomatch@4.0.7)
@@ -3504,15 +3513,16 @@ snapshots:
       '@types/node': 22.20.4
       fsevents: 2.3.3
       jiti: 1.21.7
+      yaml: 2.8.0
 
-  vitefu@1.1.3(vite@7.3.6(@types/node@22.20.4)(jiti@1.21.7)):
+  vitefu@1.1.3(vite@7.3.6(@types/node@22.20.4)(jiti@1.21.7)(yaml@2.8.0)):
     optionalDependencies:
-      vite: 7.3.6(@types/node@22.20.4)(jiti@1.21.7)
+      vite: 7.3.6(@types/node@22.20.4)(jiti@1.21.7)(yaml@2.8.0)
 
-  vitest@5.0.3(@types/node@22.20.4)(@vitest/coverage-v8@5.0.3)(jsdom@25.0.1)(vite@7.3.6(@types/node@22.20.4)(jiti@1.21.7)):
+  vitest@5.0.3(@types/node@22.20.4)(@vitest/coverage-v8@5.0.3)(jsdom@25.0.1)(vite@7.3.6(@types/node@22.20.4)(jiti@1.21.7)(yaml@2.8.0)):
     dependencies:
       '@types/chai': 5.2.3
-      '@vitest/mocker': 5.0.3(vite@7.3.6(@types/node@22.20.4)(jiti@1.21.7))
+      '@vitest/mocker': 5.0.3(vite@7.3.6(@types/node@22.20.4)(jiti@1.21.7)(yaml@2.8.0))
       chai: 6.3.0
       es-module-lexer: 2.3.2
       expect-type: 1.4.0
@@ -3523,7 +3533,7 @@ snapshots:
       tinybench: 6.2.0
       tinyexec: 1.3.1
       tinyglobby: 0.2.17
-      vite: 7.3.6(@types/node@22.20.4)(jiti@1.21.7)
+      vite: 7.3.6(@types/node@22.20.4)(jiti@1.21.7)(yaml@2.8.0)
       why-is-node-running: 3.2.1
     optionalDependencies:
       '@types/node': 22.20.4
@@ -3564,6 +3574,8 @@ snapshots:
   xml-name-validator@5.0.0: {}
 
   xmlchars@2.2.0: {}
+
+  yaml@2.8.0: {}
 
   yocto-queue@0.1.0: {}
 
