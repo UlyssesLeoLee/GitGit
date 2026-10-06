@@ -1,0 +1,418 @@
+# Tag-triggered release build.
+#
+# WHAT THIS IS, PRECISELY
+# =======================
+# Pushing a `v*` tag builds the four desktop targets and attaches them to a
+# **draft** GitHub Release. A draft is not public: it is visible only to
+# collaborators until someone presses "Publish". That is the whole point of
+# this file at its current stage — it proves the tag → build → artifact →
+# release path works, without committing the project to a public release
+# it is not ready for.
+#
+# WHY IT REPEATS FOUR `tauri build` INVOCATIONS
+# ==============================================
+# The obvious alternative is to make `gm-desktop-bundle.yml` reusable
+# (`workflow_call`) and call it. That was the first design here, and
+# checking it rather than assuming it changed the answer:
+#
+#   [FACT] `gm-desktop-bundle.yml` has no `workflow_call` trigger today.
+#   [FACT] It carries a `paths:` filter, which has no meaning for a
+#   reusable call, and a `concurrency:` group keyed on `github.ref` — and
+#   GitHub resolves `github.ref` differently inside a called workflow,
+#   so that group would have to be reworked too.
+#
+# So reuse would have meant editing a 540-line workflow that has been
+# green across every run so far, in order to save four one-line
+# `tauri build` commands. The drift risk that motivated reuse is real but
+# small at this size, and the verification is not duplicated at all: both
+# files call the same `scripts/verify-bundle.sh` and
+# `scripts/verify-msi.ps1`, so an artifact that passes here passed the
+# same checks CI runs. What is duplicated is the *build invocation*, not
+# the *definition of correct*.
+#
+# If the bundle workflow ever gains a `workflow_call` trigger, this file
+# should collapse to a single `uses:` and drop its four build jobs.
+#
+# WHAT IT DELIBERATELY DOES NOT DO
+# ================================
+# No signing, no notarization, no auto-updater manifest. All four MSI
+# variants and the .dmg are unsigned (see README "已知未决问题"), and
+# `tauri-plugin-updater` is not registered in `lib.rs`. A release that
+# produced a `latest.json` would advertise an update channel that no
+# install can actually use.
+#
+# TAGGING RULES, AND WHY THEY ARE ENFORCED
+# =========================================
+# The tag's version must equal the version in `tauri.conf.json`. Without
+# that check, `git tag v1.0.0` on a tree whose config says `0.1.0` produces
+# a release named 1.0.0 containing a 0.1.0 build, and the mismatch is only
+# discoverable by a user who downloads it. The check runs before any
+# building, so a mistyped tag costs seconds rather than a 15-minute job.
+name: release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  # Manual runs are how this gets exercised before a tag is trusted. The
+  # version check still applies, so a manual run on a mismatched tree is
+  # red for the same reason a tagged run would be.
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to build (must already exist and match tauri.conf.json)'
+        required: true
+        type: string
+
+permissions:
+  contents: write  # required to create a draft release and upload assets
+
+concurrency:
+  group: release-${{ github.ref }}
+  # A tag push is rare and deliberate. Cancelling one in flight would leave
+  # a half-populated draft release behind, which is worse than waiting.
+  cancel-in-progress: false
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Preflight — cheap, and it runs before any runner time is spent
+  # ---------------------------------------------------------------------------
+  verify-tag:
+    name: verify the tag matches the declared version
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      version: ${{ steps.check.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve the tag
+        id: tag
+        run: |
+          set -euo pipefail
+          # On `workflow_dispatch` there is no tag in the ref, so the name
+          # comes from the input. On a tag push it is the ref itself.
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            ref="${{ inputs.tag }}"
+          else
+            ref="${GITHUB_REF#refs/tags/}"
+          fi
+          case "$ref" in
+            v*) ;;
+            *) echo "::error::'$ref' is not a v-prefixed tag"; exit 1 ;;
+          esac
+          echo "ref=$ref" >> "$GITHUB_OUTPUT"
+          echo "building $ref" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Compare against tauri.conf.json
+        id: check
+        run: |
+          set -euo pipefail
+          declared=$(jq -r '.version' apps/gm-desktop/src-tauri/tauri.conf.json)
+          if [ -z "$declared" ] || [ "$declared" = "null" ]; then
+            echo "::error::tauri.conf.json records no version; the tag cannot be checked"
+            exit 1
+          fi
+          tagged="${ref#v}"
+          if [ "$declared" != "$tagged" ]; then
+            echo "::error::tag is $tagged but apps/gm-desktop/src-tauri/tauri.conf.json says $declared"
+            echo "A release named $tagged containing a $declared build is a lie a user has to discover."
+            exit 1
+          fi
+          echo "version=$declared" >> "$GITHUB_OUTPUT"
+          echo "tag $ref matches tauri.conf.json ($declared)" >> "$GITHUB_STEP_SUMMARY"
+
+      # The other two places the same number is written. A release job that
+      # only checked one of three would still let a stale `Cargo.toml`
+      # version into the binary.
+      - name: The other two version declarations agree too
+        run: |
+          set -euo pipefail
+          v="${{ steps.check.outputs.version }}"
+          for f in apps/gm-desktop/package.json Cargo.toml; do
+            if [ "$f" = "Cargo.toml" ]; then
+              got=$(sed -n '/^\[package\]$/,/^\[/p' "$f" | sed -nE 's/^version[[:space:]]*=[[:space:]]*"([^"]+)".*/\1/p' | head -1)
+            else
+              got=$(jq -r '.version' "$f")
+            fi
+            if [ "$got" != "$v" ]; then
+              echo "::error::$f declares $got, expected $v"
+              exit 1
+            fi
+          done
+          echo "all three version declarations agree ($v)"
+
+  # ---------------------------------------------------------------------------
+  # Build the four targets by calling the existing bundle workflow
+  # ---------------------------------------------------------------------------
+  # ---------------------------------------------------------------------------
+  # Build the four targets
+  #
+  # Each job calls the SAME verification script the ordinary bundle
+  # workflow calls, so an artifact accepted here was checked by the same
+  # rules CI applies. Only the build invocation is repeated, not the
+  # definition of correct.
+  # ---------------------------------------------------------------------------
+  dmg:
+    name: dmg (unsigned, ad-hoc app)
+    needs: verify-tag
+    runs-on: macos-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'pnpm'
+          cache-dependency-path: apps/gm-desktop/pnpm-lock.yaml
+
+      - name: Install dependencies
+        working-directory: apps/gm-desktop
+        run: pnpm install --frozen-lockfile
+
+      - name: Build the .dmg
+        working-directory: apps/gm-desktop
+        run: pnpm tauri build --bundles dmg --ci
+
+      - name: Verify the .dmg
+        run: |
+          bash apps/gm-desktop/scripts/verify-bundle.sh \
+            --target dmg \
+            --dir apps/gm-desktop/src-tauri/target/release/bundle/dmg
+
+      - name: Upload the .dmg
+        uses: actions/upload-artifact@v4
+        with:
+          name: gm-desktop-dmg
+          path: apps/gm-desktop/src-tauri/target/release/bundle/dmg/*.dmg
+          # `error`, never `warn`: a glob that matches nothing must fail the
+          # job. A release that silently produced nothing is the failure
+          # mode this whole file exists to prevent.
+          if-no-files-found: error
+          retention-days: 30
+
+  deb:
+    name: deb (unsigned)
+    needs: verify-tag
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'pnpm'
+          cache-dependency-path: apps/gm-desktop/pnpm-lock.yaml
+
+      - name: Install dependencies
+        working-directory: apps/gm-desktop
+        run: pnpm install --frozen-lockfile
+
+      - name: Install the Tauri system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            file
+
+      - name: Build the .deb
+        working-directory: apps/gm-desktop
+        run: pnpm tauri build --bundles deb --ci
+
+      - name: Verify the .deb
+        run: |
+          bash apps/gm-desktop/scripts/verify-bundle.sh \
+            --target deb \
+            --dir apps/gm-desktop/src-tauri/target/release/bundle/deb
+
+      - name: Upload the .deb
+        uses: actions/upload-artifact@v4
+        with:
+          name: gm-desktop-deb
+          path: apps/gm-desktop/src-tauri/target/release/bundle/deb/*.deb
+          if-no-files-found: error
+          retention-days: 30
+
+  appimage:
+    name: appimage (unsigned)
+    needs: verify-tag
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'pnpm'
+          cache-dependency-path: apps/gm-desktop/pnpm-lock.yaml
+
+      - name: Install dependencies
+        working-directory: apps/gm-desktop
+        run: pnpm install --frozen-lockfile
+
+      - name: Install the Tauri system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            file
+
+      - name: Build the .AppImage
+        working-directory: apps/gm-desktop
+        run: pnpm tauri build --bundles appimage --ci
+
+      - name: Verify the .AppImage
+        run: |
+          bash apps/gm-desktop/scripts/verify-bundle.sh \
+            --target appimage \
+            --dir apps/gm-desktop/src-tauri/target/release/bundle/appimage
+
+      - name: Upload the .AppImage
+        uses: actions/upload-artifact@v4
+        with:
+          name: gm-desktop-appimage
+          path: apps/gm-desktop/src-tauri/target/release/bundle/appimage/*.AppImage
+          if-no-files-found: error
+          retention-days: 30
+
+  msi:
+    name: msi (per-user + per-machine)
+    needs: verify-tag
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'pnpm'
+          cache-dependency-path: apps/gm-desktop/pnpm-lock.yaml
+
+      - name: Install dependencies
+        working-directory: apps/gm-desktop
+        run: pnpm install --frozen-lockfile
+
+      # `build-msi.ps1 -Scope both` is what keeps the per-user and
+      # per-machine installers from overwriting each other: the bundler
+      # names both `product_version_arch_lang.msi`, so the second write
+      # would silently replace the first with exit code 0. The script moves
+      # each artifact out under a scope-qualified name.
+      - name: Build both MSI variants
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          pwsh -NoProfile -File ./apps/gm-desktop/scripts/build-msi.ps1 -Scope both -OutputDir msi-out
+          if ($LASTEXITCODE -ne 0) { throw "build-msi.ps1 exited $LASTEXITCODE" }
+
+      # `msiexec /a` reads the file table without installing and without
+      # elevation, so this asserts real payload on a stock runner.
+      - name: Smoke check the MSIs (no install, no elevation)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          pwsh -NoProfile -File ./apps/gm-desktop/scripts/verify-msi.ps1 -Dir msi-out
+          if ($LASTEXITCODE -ne 0) { throw "verify-msi.ps1 exited $LASTEXITCODE" }
+
+      - name: Upload the MSIs
+        uses: actions/upload-artifact@v4
+        with:
+          name: gm-desktop-msi
+          path: msi-out/*.msi
+          if-no-files-found: error
+          retention-days: 30
+
+  # ---------------------------------------------------------------------------
+  # Collect every platform's artifact into one draft release
+  # ---------------------------------------------------------------------------
+  draft-release:
+    name: attach to a draft release
+    needs: [verify-tag, dmg, deb, appimage, msi]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      # `pattern: gm-desktop-*` rather than naming each artifact: the
+      # bundle workflow decides its own artifact names, and a hard-coded
+      # list here would silently stop matching the day a target is added.
+      # `merge-multiple: true` is what flattens the per-job directories
+      # into one staging dir.
+      - name: Download every bundle artifact
+        uses: actions/download-artifact@v4
+        with:
+          pattern: gm-desktop-*
+          path: staged
+          merge-multiple: true
+
+      - name: Show what will be attached
+        run: |
+          set -euo pipefail
+          find staged -type f | sort | sed 's/^/  /' | tee -a "$GITHUB_STEP_SUMMARY"
+          n=$(find staged -type f -name '*.msi' -o -name '*.dmg' -o -name '*.deb' -o -name '*.AppImage' | wc -l)
+          if [ "$n" -eq 0 ]; then
+            echo "::error::no installer reached the staging directory; the release would be empty"
+            exit 1
+          fi
+          echo "found $n installer(s)"
+
+      # `draft: true` is the entire safety property of this workflow. The
+      # release exists and is inspectable, and nobody outside the
+      # repository can reach it until a human publishes it.
+      - name: Create the draft release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.verify-tag.outputs.version && format('v{0}', needs.verify-tag.outputs.version) || github.ref_name }}
+          name: 'gitgit Desktop ${{ needs.verify-tag.outputs.version }} (unsigned draft)'
+          draft: true
+          prerelease: false
+          body: |
+            Automated draft for `${{ github.ref_name }}`.
+
+            **Unsigned.** No code-signing certificate is configured for this
+            project, so the MSI variants and the `.dmg` will trigger
+            SmartScreen / Gatekeeper. See the repository README
+            ("已知未决问题") before distributing this.
+
+            This release was created by `release.yml` and left as a draft on
+            purpose. Publishing it is a human decision.
+          files: |
+            staged/**/*.msi
+            staged/**/*.dmg
+            staged/**/*.deb
+            staged/**/*.AppImage
+            staged/**/manifest.json
+          fail_on_unmatched_files: true
