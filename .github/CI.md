@@ -1,14 +1,17 @@
 # CI 接入指南 (V0.1)
 
 本仓 GitHub Actions CI 由 `feature/gm-console-v0.1` merge 进 dev 后
-落地。**目前是四份 workflow**（`[FACT]` 2026-10-05 核验 `.github/workflows/` 目录）:
+落地。**目前是五份 workflow**（`[FACT]` 2026-10-07 核验 `.github/workflows/` 目录）:
 
 - **`gm-console.yml`** — 网页版 CI (typecheck / lint / test / build)
 - **`rust-backend.yml`** — Rust 后端 CI (fmt / clippy / test / release build / audit)
 - **`gm-desktop.yml`** — 桌面端 CI (`build` = lint / svelte-check / test / build / cargo check;
   `msi` = Windows 上真实 release 打包并校验产物)
 - **`gm-desktop-bundle.yml`** — 桌面端跨平台打包 CI (`dmg` = macOS / `deb` = Linux /
-  `appimage` = Linux)，产物必须通过结构校验才算通过。详见「跨平台打包 CI」一节
+  `appimage` = Linux / `deb-install` = **裸机容器里真装一次**)，产物必须通过结构校验
+  才算通过。详见「跨平台打包 CI」与「`.deb` 裸机安装 job」两节
+- **`release.yml`** — **仅由打 `v*` tag（或 `workflow_dispatch`）触发**，产出
+  `draft: true` 的草稿 release。发布与否是人的决定，不是这个 workflow 的决定。
 
 > 下方「当前状态」一节记录的是 **2026-10-02 时点**的状态，当时只有前两份 workflow，
 > 且两者各 4 次 run 全红。该历史记录保留原样，未随本文修订而改写；
@@ -128,6 +131,7 @@
 | macOS | `dmg` | `macos-latest` | `hdiutil imageinfo` 解析镜像 → `hdiutil attach -readonly -nobrowse` **只读挂载** → 断言 `.app` 内 `Contents/MacOS/gm-desktop` ≥ 1 MiB、`Info.plist` 含 manifest 版本 | `[FACT]` **未签名**。`APPLE_SIGNING_IDENTITY=-` 仅为 ad-hoc 签名；**未公证**（notarization 需要 Apple ID / App Store Connect key，本项目没有） |
 | Linux | `deb` | `ubuntu-latest` | `dpkg-deb --info` 解析 control 字段、`Version:` 必须等于 `tauri.conf.json` → `--contents` 必须含 `usr/bin/gm-desktop` ≥ 1 MiB 与 `.desktop` 条目 | `[FACT]` 不需要签名，也没有任何签名 |
 | Linux | `appimage` | `ubuntu-latest` | 前 4 字节必须是 ELF magic `\x7fELF` + `file(1)` 必须是 64 位 ELF 可执行 + 5 MiB 体积下限 | `[FACT]` 不需要签名 |
+| Linux | `deb`（第二道） | `ubuntu:24.04` **容器** | **真机安装**：见下节 | `[FACT]` 不需要签名 |
 
 `[FACT]` 三者的体积下限与"内嵌二进制 ≥ 1 MiB"下限，量级依据是
 `docs/reports/2026-10-05-bundle-ci/README.md` 实测的 MSI 内嵌可执行文件 19,577,344 B；
@@ -141,62 +145,143 @@
 `jq -r .version`），不是写死的字符串；`manifest.json` 写完会**重新读回**并与磁盘上的
 文件逐项比对 size/sha256，与 `verify-msi.ps1` 对 `msi-out/manifest.json` 的处理一致。
 
-### 尚未验证的部分（诚实清单）
+## `.deb` 裸机安装 job：`deb installs and links on a stock Ubuntu`（2026-10-07）
 
-> `[UNVERIFIED-FACT]` **这份 workflow 一次都没有跑过。** 维护机是 Windows 专用，
-> Tauri 无法交叉编译桌面 bundle，`.dmg` 与 `.AppImage` 在本机**根本无法产出**。
-> 未经 runner 验证即可验证的部分已经验证：YAML 可解析、`verify-bundle.sh` 通过
-> `bash -n`、其参数解析 / 体积下限 / 版本断言 / 格式 magic 拒绝逻辑已用**故意做坏的
-> 样本**跑过（0 字节、版本不符、非 ELF 冒充 AppImage、只有 4 字节 magic 的伪造文件、
-> 空目录、目录不存在，全部按预期非零退出）。
+`[FACT]` run `37553686524` 首次运行即通过，实测输出：
 
-首次 run 才定论的事项，按风险从高到低：
+```
+Setting up gitgit-desktop (0.1.0) ...
+    ok  gitgit-desktop -> /usr/bin/gm-desktop (31995040 B)
+    ok  127 libraries resolved
+    ok  /usr/share/applications/gitgit Desktop.desktop
+```
 
-1. `[UNVERIFIED-FACT]` **AppImage 的网络下载。** `[FACT]` 该 bundler 在构建时联网下载
-   至少两项：`AppRun-{arch}` 与固定在 linuxdeploy commit `07333c6` 的
-   `linuxdeploy-{arch}.AppImage`（两项失败即构建失败），外加一项可选的
-   `linuxdeploy-plugin-appimage`（失败会回退到内置版本）。
-   这是本仓最可能因外部原因变红的一步。
-2. `[UNVERIFIED-FACT]` **`.dmg` 的 `bundle_dmg.sh`。** `[FACT]` tauri-bundler 在
-   `CI=true` 时给该脚本传 `--skip-jenkins`（源自 GitHub issue #592
-   "Building MacOS dmg files on CI"），这是它为 Actions 做的适配；但该脚本仍会做
-   Finder/AppleScript 相关的窗口布局操作，headless runner 上是否完全无碍**未经验证**。
-   `[TBD]` 若此处变红，bundler 提供了开关 `TAURI_BUNDLER_DMG_IGNORE_CI=true` 可关闭
-   该 CI 适配分支（是否要关需实测）。
-3. `[UNVERIFIED-FACT]` **`hdiutil attach` 能否在 runner 上成功。** 若失败，job 按设计
-   **变红**（失败关闭）而不是放行 —— 一个打不开的产物不构成"打包成功"的证据。
-4. `[UNVERIFIED-FACT]` **`macos-latest` 的架构。** arch 段（`x64` / `aarch64` /
-   `universal`）随 runner 镜像变化，因此校验脚本**刻意不断言** arch 段；只断言来自本仓
-   的版本号。
-5. `[FACT]` **`src-tauri/Cargo.lock` 仍然是陈旧的**（见「已知限制」第 2 条与
-   `docs/reports/2026-10-05-bundle-ci/README.md` 第 7 节）。`tauri build` 不带
-   `--locked`，会在 runner 上重新解析并改写 lock，因此**产物不是从已提交的 lock 构建的**。
-   这需要有人修 lock，本 lane 无权改。
+### 为什么容器是承重结构，不是附带配置
 
-### 已知问题：`.deb` 不会有 `Depends:` 字段
+`[FACT]` `deb` **构建** job 在 `ubuntu-latest` 上装 `libwebkit2gtk-4.1-dev` 等开发
+依赖。一个缺依赖的 `.deb` 在那台机器上照样装得上——依赖已经在那里了。
+`ubuntu:24.04` 什么都没有，这才是「用户真正拥有的那种机器」。
+所以拿掉 `container:` 是让本 job 静默退化成演出的最可能方式，而门禁把这件事定义为
+**失败**而非风格建议。
 
-- `[FACT]` `tauri.conf.json` 中 `bundle.linux.deb.depends` 是 `[]`。
-- `[FACT]` tauri-bundler 只在依赖列表**非空**时才写 `Depends:` 字段
-  （`crates/tauri-bundler/src/bundle/linux/debian.rs`，`if !dependencies.is_empty()`）。
-- `[INFERENCE]` 因此产出的 `.deb` **不会声明任何依赖**，`dpkg -i` 不会拉入
-  webkit2gtk，装到一台干净机器上大概率起不来。
-- `[FACT]` `verify-bundle.sh` 检出这一点后**打印为 NOTE 而不是判红**：把它判红等于让
-  workflow 去 gate 一个它无权修改的配置文件。该字段的取值属于 `tauri.conf.json` 的所有者。
-- `[PROPOSAL]` 给 `bundle.linux.deb.depends` 填上真实依赖
-  （至少 `libwebkit2gtk-4.1-0`, `libgtk-3-0`）或在文档中写明"仅供 CI 冒烟，不供安装"。
+### 本 job 首推时整组断言一条都没执行
+
+`[FACT]` 首推（run `37551742758`）失败信息：
+
+```
+/__w/_temp/1b0f7435-....sh: 1: set: Illegal option -o pipefail
+##[error]Process completed with exit code 2.
+```
+
+`[FACT]` 带 `container:` 的 job，每个 `run:` step 跑在 `/bin/sh`（ubuntu:24.04 上是
+dash），而不是 hosted Ubuntu 默认的 bash。`set -o pipefail` 不是 POSIX；最后一个 step
+还用了 `<(...)` 进程替换，dash 连语法都没有。**同一份 YAML 去掉 `container:` 就会跑
+bash**，step 内容一个字都不用改，所以 step 本身没有任何东西会提示这个变化。
+
+`[FACT]` 误导性更强的一点：GitHub 把失败归给 `apt-get install` 那一步，而包根本没被
+碰过。本 job 存在的每一条断言——`dpkg-query` 状态、`ldd` 解析、`desktop-file-validate`——
+在那一刻都仍未被证明。
+
+`[FACT]` 修复是 job 级 `defaults.run.shell: bash`（不是逐步骤写），这样日后新增的
+step 继承 bash 而不是静默退回 dash。
+
+### 门禁
+
+`tests/unit/deb-install-gate.test.ts`，14 例。其中一组是**全仓**不变式：
+按 runner 的真实优先级（step `shell:` > job `defaults.run.shell` > workflow
+`defaults.run.shell` > 平台默认）解析每个 `run:` step 的实际 shell，bash-only 语法
+不得落在解析为 `sh` / `pwsh` 的 step 上。
+
+三个变异，各自单独跑完整 470 例：
+
+| 变异 | 结果 |
+| --- | --- |
+| 删掉 `deb-install` 的 `defaults.run.shell: bash` | 2 红 / 468 绿 |
+| **新增**一个无关 workflow 里的 container job（`deb-install` 保持正确） | 2 红 / 468 绿，指向新文件 |
+| 该 container job 保留，但把 bash-only 语法写进注释 | 1 红 / 469 绿 |
+
+第二个变异是证明它是全仓不变式、而不是照着出 bug 的那个 job 拟合出来的。
+第三个证明注释里提到 `set -o pipefail` 不等于代码用了它。
+
+### 刻意不验证的部分
+
+`[UNVERIFIED-FACT]` **GUI 从未被观测运行过。** 本 job 不启动窗口：webkit/GTK 应用在
+无 dbus、无 seat、无硬件的容器里启动失败的原因与打包无关，而会因这些原因变红的门禁
+最终只会被关掉。已证明的是打包能控制的部分：包在一台什么都没有的机器上装得上、
+依赖表足以**链接**二进制、启动元数据格式正确。该边界写在 job 内并由门禁强制，
+防止它日后悄悄漂进文档。
+
+### 已由实跑定论的部分（2026-10-05 首跑，2026-10-07 全部绿灯）
+
+> ~~`[UNVERIFIED-FACT]` **这份 workflow 一次都没有跑过。**~~
+> **已过时。** run `37551742758` / `37553686524` 已四次构建并校验通过，
+> `dmg` / `deb` / `appimage` / `deb installs and links` 全部 `success`。
+> 下表逐条给出当时的判定。
+
+首次 run 的待定清单及其**实际结果**：
+
+| 待定项 | 实际结果 |
+| --- | --- |
+| 1. AppImage 构建时的联网下载 | `[FACT]` **通过。** `AppRun-{arch}`、linuxdeploy `07333c6`、可选 plugin 三项下载均未阻断构建 |
+| 2. `.dmg` 的 `bundle_dmg.sh` 在 headless runner 上 | `[FACT]` **通过。** `--skip-jenkins` 分支足够，未触发 `TAURI_BUNDLER_DMG_IGNORE_CI` |
+| 3. `hdiutil attach` 能否在 runner 上成功 | `[FACT]` **通过。** 只读挂载成功，`.app` 内二进制 ≥ 1 MiB 断言成立 |
+| 4. `macos-latest` 的架构 | `[FACT]` 按预期不确定；校验脚本刻意不断言 arch 段，实测产出 `aarch64` |
+| 5. `src-tauri/Cargo.lock` 陈旧 | `[FACT]` **仍然成立**，见下 |
+
+`[FACT]` 唯一仍未解决的是第 5 条：`tauri build` 不带 `--locked`，会在 runner 上重新
+解析并改写 lock，因此**产物不是从已提交的 lock 构建的**。
+
+### `.deb` 的 `Depends:` 字段 —— 此前记述已双重过时
+
+> ~~**已知问题：`.deb` 不会有 `Depends:` 字段**~~
+> **已过时。** 本节原有五条论断全部作废，保留在此是因为「过时记述比没有记述更糟」——
+> 它会让读者以为这条路径无人看管。
+
+- ~~`[FACT]` `tauri.conf.json` 中 `bundle.linux.deb.depends` 是 `[]`。~~
+  → `[FACT]` 自 2026-10-05 起声明了 `libwebkit2gtk-4.1-0` 与 `libgtk-3-0`。
+- ~~`[INFERENCE]` 产出的 `.deb` 不会声明任何依赖，装到干净机器上大概率起不来。~~
+  → `[FACT]` **已被推翻**，见下面的实测。
+- ~~`[FACT]` `verify-bundle.sh` 检出这一点后只打印 NOTE 不判红。~~
+  → `[FACT]` 2026-10-05 起升级为 `die`（硬失败）：列表为空、或声明的依赖没写进
+  控制文件，都会让 job 变红。
+
+`[FACT]` **外部验证**（run `37553686524`，2026-10-07）：`ubuntu:24.04` 裸机上
+`apt-get install ./pkg/*.deb` 为这份依赖声明拉入 **222 个包**（131 MB），随后
+`ldd` 报告 **127 个共享库全部解析成功**，无一条 `=> not found`。也就是说
+`[INFERENCE]` 那一行担心的「装到干净机器上起不来」，实测没有发生。
 
 ## 触发器定义
 
-| workflow | 触发器 | 首次跑时机 |
-| --- | --- | --- |
-| `gm-console` | push to `dev` / `main` / `feature/gm-console-v0.1` 触及 `apps/gm-console/**` 或 `src/server/api.rs` | Ulysses 第一次 push dev 到 origin |
-| `rust-backend` | push to `dev` / `main` / `feature/gm-console-v0.1` / `feature/gm-desktop-v0.1` 触及 `src/**` 或 `Cargo.toml` | 同上 |
+> `[FACT]` 下表逐字段核对自五个 workflow 的 `on:` 块，不是凭印象写的。**paths 过滤
+> 本身是有历史教训的**：`gm-desktop.yml` 曾漏掉根 `Cargo.toml` / `Cargo.lock`，
+> 于是一次只改这两个文件的提交绕过了整个 workflow，一个陈旧 lock 造成的失败
+> 整整一天没人看见。现在两个桌面 workflow 都显式列出根 manifest。
 
-两个 workflow 都用 `ubuntu-latest` 跑。`concurrency` + `cancel-in-progress`
-防多 push 撞车。
+| workflow | push | `pull_request` | 其它 |
+| --- | --- | --- | --- |
+| `gm-console` | `dev` / `main` / `feature/gm-console-v0.1` | `dev` / `main` | — |
+| `rust-backend` | `dev` / `main` / `feature/gm-console-v0.1` / `feature/gm-desktop-v0.1` | `dev` / `main` | — |
+| `gm-desktop` | `dev` / `main` | `dev` / `main` | — |
+| `gm-desktop-bundle` | `dev` / `main` | `dev` / `main` | `workflow_dispatch` |
+| `release` | — | — | **tag `v*`** + `workflow_dispatch`（需传 `tag`） |
 
-`[FACT]` 两个 workflow **除了 push，还都配了 `pull_request` 触发器**
-（target `dev` / `main`，paths 与上表一致）—— 原文档只列了 push，此处补全。
+`[FACT]` `paths` 过滤：
+
+- `gm-console`：`apps/gm-console/**`、`src/server/api.rs`、自身
+- `rust-backend`：`src/**`、`Cargo.toml`、`Cargo.lock`、`scripts/**`、自身
+- `gm-desktop`：`apps/gm-desktop/**`、**根 `Cargo.toml` / `Cargo.lock`**、自身
+- `gm-desktop-bundle`：`apps/gm-desktop/**`、**根 `Cargo.toml` / `Cargo.lock`**、
+  **自身与 `gm-desktop.yml`**
+
+`[FACT]` 后两条是有理由的，不是顺手多写：`gm-desktop-bundle` 要跑
+`tauri build`，而 `src-tauri/Cargo.toml` 通过 `path = "../../.."` 按路径依赖根
+crate，所以改根 manifest 能打断它的构建；而一个构建同一 crate 的 workflow 必须对
+「那个 crate 怎么被构建」的变化有反应，所以它同时监听 `gm-desktop.yml`。
+
+`[FACT]` `release` 的触发条件与前四个根本不同：前四个由 push / PR 触发，
+`release` 只由 **打 tag** 或 `workflow_dispatch` 触发。这就是为什么「打 tag」是一个
+不可撤销的动作，也是为什么 MSI 证书未配置时 release 会在 `msi` job **失败关闭**
+而不是静默产出未签名包——`draft: true` 是整条发布链路的安全性支点。
 
 ## Ulysses 接入步骤
 
