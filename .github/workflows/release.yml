@@ -421,6 +421,31 @@ jobs:
           pwsh -NoProfile -File ./apps/gm-desktop/scripts/build-msi.ps1 -Scope both -OutputDir msi-out
           if ($LASTEXITCODE -ne 0) { throw "build-msi.ps1 exited $LASTEXITCODE" }
 
+      # Signing runs BEFORE verification, deliberately.
+      #
+      # `verify-msi.ps1` below extracts each package with `msiexec /a` and
+      # cross-checks `manifest.json` against the files on disk. Signing CHANGES
+      # those bytes, and `sign-msi.ps1` refreshes the manifest to match. Signing
+      # first means the verification covers exactly what ships, and it runs once
+      # rather than twice — `msiexec /a` is not cheap.
+      #
+      # `-Required` is the point of this step. Without it a missing secret is a
+      # printed NOTE and exit 0, which is correct for a pull-request build and
+      # wrong here: a release that ships unsigned installers while believing it
+      # signed them is exactly what the "Unsigned" warning in the release body
+      # exists to prevent, and it would end up being the warning that lies.
+      - name: Sign the MSIs
+        shell: pwsh
+        # Secrets arrive as environment variables, never as arguments, so the
+        # passphrase never reaches a command line or the log.
+        env:
+          GITGIT_MSI_PFX_BASE64: ${{ secrets.MSI_SIGN_PFX_BASE64 }}
+          GITGIT_MSI_PFX_PASSWORD: ${{ secrets.MSI_SIGN_PFX_PASSWORD }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          pwsh -NoProfile -File ./apps/gm-desktop/scripts/sign-msi.ps1 -Dir msi-out -Required
+          if ($LASTEXITCODE -ne 0) { throw "sign-msi.ps1 exited $LASTEXITCODE" }
+
       # `msiexec /a` reads the file table without installing and without
       # elevation, so this asserts real payload on a stock runner.
       - name: Smoke check the MSIs (no install, no elevation)
@@ -490,6 +515,37 @@ jobs:
           fi
           echo "found $n installer(s)"
 
+      # The release body used to say "Unsigned" unconditionally. That was true
+      # when it was written and would have become a lie the moment signing was
+      # switched on — and a draft release that misdescribes its own artifacts is
+      # worse than one with no description. It is derived from the staged
+      # manifest instead, so the claim tracks what actually shipped.
+      #
+      # Fail-closed on the unsigned branch: the msi job signs with `-Required`,
+      # so reaching here unsigned means something upstream did not do what it
+      # said. Publishing a release that claims less than it should is a
+      # decision a human makes, not one this step makes for them.
+      - name: Derive the signing notice from the manifest that was built
+        id: signing
+        run: |
+          set -euo pipefail
+          # `-print -quit` rather than `| head -1`: a pipe into `head` closes
+          # early and hands `find` a SIGPIPE status, which under `pipefail`
+          # turns a successful lookup into a red step.
+          m=$(find staged -type f -name 'msi-manifest.json' -print -quit)
+          if [ -z "$m" ]; then
+            echo "::error::no msi manifest reached the staging directory, so the signing status cannot be stated"
+            exit 1
+          fi
+          signed=$(jq -r '.signing.signed // false' "$m")
+          if [ "$signed" != "true" ]; then
+            echo "::error::$m records no signature, but the release path requires signed installers. Refusing to attach an unsigned release; publish manually if that is genuinely intended."
+            exit 1
+          fi
+          subject=$(jq -r '.signing.subject' "$m")
+          echo "notice=**Signed.** The MSI variants carry an Authenticode signature ($subject), RFC 3161-timestamped. The .dmg is still unnotarised and will trigger Gatekeeper." >> "$GITHUB_OUTPUT"
+          echo "signing: $subject" >> "$GITHUB_STEP_SUMMARY"
+
       # `draft: true` is the entire safety property of this workflow. The
       # release exists and is inspectable, and nobody outside the
       # repository can reach it until a human publishes it.
@@ -503,10 +559,7 @@ jobs:
           body: |
             Automated draft for `${{ github.ref_name }}`.
 
-            **Unsigned.** No code-signing certificate is configured for this
-            project, so the MSI variants and the `.dmg` will trigger
-            SmartScreen / Gatekeeper. See the repository README
-            ("已知未决问题") before distributing this.
+            ${{ steps.signing.outputs.notice }}
 
             This release was created by `release.yml` and left as a draft on
             purpose. Publishing it is a human decision.
