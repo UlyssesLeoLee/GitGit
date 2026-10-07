@@ -226,10 +226,29 @@ step 继承 bash 而不是静默退回 dash。
 | 2. `.dmg` 的 `bundle_dmg.sh` 在 headless runner 上 | `[FACT]` **通过。** `--skip-jenkins` 分支足够，未触发 `TAURI_BUNDLER_DMG_IGNORE_CI` |
 | 3. `hdiutil attach` 能否在 runner 上成功 | `[FACT]` **通过。** 只读挂载成功，`.app` 内二进制 ≥ 1 MiB 断言成立 |
 | 4. `macos-latest` 的架构 | `[FACT]` 按预期不确定；校验脚本刻意不断言 arch 段，实测产出 `aarch64` |
-| 5. `src-tauri/Cargo.lock` 陈旧 | `[FACT]` **仍然成立**，见下 |
+| 5. `src-tauri/Cargo.lock` 陈旧 | `[FACT]` **不成立**——实测已推翻，见下 |
 
-`[FACT]` 唯一仍未解决的是第 5 条：`tauri build` 不带 `--locked`，会在 runner 上重新
-解析并改写 lock，因此**产物不是从已提交的 lock 构建的**。
+`[FACT]` 第 5 条同样被推翻了。原文称「`src-tauri/Cargo.lock` 仍然是陈旧的」，
+并据此推断「`tauri build` 不带 `--locked`，会在 runner 上重新解析并改写 lock，
+因此产物不是从已提交的 lock 构建的」。
+
+2026-10-07 在 `apps/gm-desktop/src-tauri/` 实测：
+
+```
+cargo metadata --locked --format-version 1
+→ exit 0，解析出完整依赖图（3,405,069 B 的 metadata）
+→ Cargo.lock 的 SHA-256 前后一致
+```
+
+`--locked` 的语义是「断言 `Cargo.lock` 不会发生改变」——若 lock 与 manifest 不一致
+或缺项，cargo 直接报错退出。它以 0 退出并解析出整张图，且 lock 逐字节未变，说明
+lock 与 `Cargo.toml`（含 `gitgit = { path = "../../.." }` 的按路径依赖）是自洽且完整的。
+
+因此「产物不是从已提交的 lock 构建的」这一推论不成立：cargo 在 lock 自洽时按 lock
+构建，并不会「重新解析」。`[INFERENCE]` 仍然成立的那一小部分：`tauri build` 确实
+没有显式传 `--locked`，所以这个性质目前是**成立的**而非被**保证的**——它依赖
+「lock 恰好是自洽的」这一事实，而不是被门禁钉住。要把它变成保证，需要在打包
+路径上让 cargo 收到 `--locked`。
 
 ### `.deb` 的 `Depends:` 字段 —— 此前记述已双重过时
 
@@ -378,7 +397,10 @@ GitHub repo → Settings → Branches → Add rule for `dev`:
    非 hash 锚点；现统一由 `href()` 产出 `#/...`。
    替换一个不可用的库却没有测试不可接受，故新增
    `tests/unit/router.test.ts`（23 个用例），测试数 40 → 63。
-   `[FACT]` 完整 `tauri build` / `.msi` 仍**不在 CI 内**（见第 2 条）。
+   `[FACT]` ~~完整 `tauri build` / `.msi` 仍不在 CI 内（见第 2 条）~~
+   → **已过时。** `.msi` 已由 `gm-desktop.yml` 的 `msi` job 在 `windows-latest` 上
+   真实打包并校验（PR #33 / #34），`release.yml` 也已在 tag 上端到端跑通过一次，
+   产出 11 个资产的 draft release。见「跨平台打包 CI」与 `.dmg` / `.deb` 两节。
 
 ## Mavis 自动续做项 (per守门 #1 + 9/8 15:29 自驱)
 

@@ -125,7 +125,12 @@ that exercises the S3 client against a real server rather than only compiling it
 ## What is not done yet
 
 `docs/plan/v0-tasks.md` carries the current per-task status, including the
-tasks that are still `[TBD]`. Two of them are release blockers rather than
-polish: the Windows installers are unsigned, and the HTTP API currently has no
-authentication while the server binds all interfaces by default. See
-[SECURITY.md](SECURITY.md) for the full description of the second one.
+tasks that are still `[TBD]`. The one that is a release blocker rather than
+polish is code signing: the MSI signing path exists and is enforced on the
+release (a release without a certificate fails closed rather than publishing an
+unsigned build), but no certificate has been purchased, so
+`MSI_SIGN_PFX_BASE64` / `MSI_SIGN_PFX_PASSWORD` are unset and tagging `v*` will
+fail in the `msi` job until they are. The `.dmg` is additionally unnotarised,
+which triggers Gatekeeper. See [SECURITY.md](SECURITY.md) for the security
+posture, including the residual risks that remain after the API authentication
+and loopback-bind fixes.
