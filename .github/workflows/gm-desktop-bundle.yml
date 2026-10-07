@@ -176,13 +176,30 @@ jobs:
       # `pnpm build`, so `tauri build` runs the Vite production build itself.
       # The msi job relies on the same mechanism.
       #
-      # `--ci` matches build-msi.ps1's invocation. Note there is no `--locked`
-      # and that is not an oversight: `src-tauri/Cargo.lock` is stale against
-      # the root crate it takes by path, so a `--locked` build fails outright
-      # (docs/reports/2026-10-05-bundle-ci/README.md §7). `tauri build` runs
-      # cargo without `--locked`, so the runner re-resolves and rewrites the
-      # lock. That works, it needs network on the runner, and it means the
-      # artifact is not built from the committed lock.
+      # `--ci` matches build-msi.ps1's invocation.
+      #
+      # The comment here used to say there was deliberately no `--locked`
+      # "because `src-tauri/Cargo.lock` is stale … so a `--locked` build fails
+      # outright". **That was true on 2026-10-05 and stopped being true the same
+      # day**: the lock was refreshed in `ab632ae`, and
+      # `docs/reports/2026-10-05-bundle-ci/README.md` §7 carries a resolution
+      # note re-measuring it with three independent commands. The note was never
+      # carried through to this comment, so the workflow went on asserting a
+      # stale reason for a real omission.
+      #
+      # `tauri build` gives no way to forward `--locked` to the cargo it
+      # invokes, so the property is asserted one step earlier instead — and an
+      # earlier failure is strictly better: a lock that needs refreshing is
+      # caught before the ten-minute bundle build rather than after it.
+      #
+      # `[FACT]` `apps/gm-desktop/scripts/assert-lock-current.sh`, exercised on a
+      # fixture whose lock omits a required dependency: exit 1, cargo's own
+      # "cannot update the lock file … because --locked was passed" visible
+      # above the message, and the lock byte-identical afterwards — it refuses,
+      # it does not repair.
+      - name: Prove the committed lock is what this build will use
+        run: bash apps/gm-desktop/scripts/assert-lock-current.sh
+
       - name: Build the .dmg
         working-directory: apps/gm-desktop
         run: pnpm tauri build --bundles dmg --ci
@@ -311,6 +328,9 @@ jobs:
             librsvg2-dev \
             patchelf \
             file
+
+      - name: Prove the committed lock is what this build will use
+        run: bash apps/gm-desktop/scripts/assert-lock-current.sh
 
       - name: Build the .deb
         working-directory: apps/gm-desktop
@@ -632,6 +652,9 @@ jobs:
             librsvg2-dev \
             patchelf \
             file
+
+      - name: Prove the committed lock is what this build will use
+        run: bash apps/gm-desktop/scripts/assert-lock-current.sh
 
       - name: Build the .AppImage
         working-directory: apps/gm-desktop
