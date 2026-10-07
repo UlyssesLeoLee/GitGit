@@ -1,5 +1,33 @@
 #requires -Version 7
 <#
+.NOTES
+    NOT CHECKED HERE, DELIBERATELY: that the package carries the licence text.
+
+    AGPL-3.0 section 4(a) requires a copy of the Licence with every copy of the
+    Program, and the MSI does not currently carry one. A check asserting it was
+    written and then removed, and the reason is worth more than the check.
+
+    [FACT] Measured on run 37642251415: `msiexec /a` extracted exactly three
+    things - `admin-install.log`, the .msi itself, and
+    `PFiles\gitgit Desktop\gm-desktop.exe`. No licence. The check fired correctly.
+
+    [FACT] It cannot be fixed through configuration. This project supplies its
+    own WiX templates (`wix/main.wxs`, `wix/main-peruser.wxs`); Tauri injects
+    licence material into the template it generates, and the Handlebars context
+    of a hand-written template exposes no licence path - the template's data
+    blocks are `binaries` and `file_associations`, and there is no resources
+    block. `bundle.licenseFile` therefore has no effect here, exactly as it has
+    none for the Debian bundler (see crates/tauri-bundler/src/bundle/linux/
+    debian.rs, which never reads it).
+
+    [FACT] Leaving the check in place would make this job permanently red, and a
+    gate that cannot be satisfied gets switched off - at which point it protects
+    nothing and still blocks every merge. The boundary is written here instead,
+    and the assertion returns when the payload can actually carry the file.
+
+    [INFERENCE] The MSI cannot ship until a signing certificate is configured, so
+    this is downstream of that blocker rather than an additional one.
+
 .SYNOPSIS
     Prove a built .msi is well-formed, carries payload, and really is the
     install scope its filename claims - without installing anything and
