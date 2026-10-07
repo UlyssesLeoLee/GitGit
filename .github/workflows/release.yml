@@ -199,6 +199,9 @@ jobs:
         working-directory: apps/gm-desktop
         run: pnpm install --frozen-lockfile
 
+      - name: Prove the committed lock is what this build will use
+        run: bash apps/gm-desktop/scripts/assert-lock-current.sh
+
       - name: Build the .dmg
         working-directory: apps/gm-desktop
         run: pnpm tauri build --bundles dmg --ci
@@ -283,6 +286,9 @@ jobs:
             patchelf \
             file
 
+      - name: Prove the committed lock is what this build will use
+        run: bash apps/gm-desktop/scripts/assert-lock-current.sh
+
       - name: Build the .deb
         working-directory: apps/gm-desktop
         run: pnpm tauri build --bundles deb --ci
@@ -350,6 +356,9 @@ jobs:
             librsvg2-dev \
             patchelf \
             file
+
+      - name: Prove the committed lock is what this build will use
+        run: bash apps/gm-desktop/scripts/assert-lock-current.sh
 
       - name: Build the .AppImage
         working-directory: apps/gm-desktop
