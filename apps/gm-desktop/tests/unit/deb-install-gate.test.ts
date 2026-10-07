@@ -317,6 +317,26 @@ const containerJobs = workflowFiles.flatMap((file) => {
 });
 
 describe('every `run:` step runs under a shell that can parse it', () => {
+  /*
+   * Mutation evidence, recorded because a gate that has never been fed a real
+   * failure is not a gate:
+   *
+   * 1. Delete `defaults.run.shell: bash` from the deb-install job.
+   *    -> 2 red / 468 green. Both failures name the offending step and the
+   *       construct, e.g. `gm-desktop-bundle.yml :: deb-install :: The
+   *       freedesktop entry a package manager would show is valid` using
+   *       `set -o pipefail` and `process substitution <(`.
+   * 2. Add an unrelated workflow with its own container job and one
+   *    bash-only step, deb-install untouched and still correct.
+   *    -> 2 red / 468 green, both pointing at the new file. This is the
+   *       mutation that shows the invariant is repo-wide rather than fitted to
+   *       the job that happened to have the bug.
+   * 3. Keep that container job but move the bash-only syntax into a comment.
+   *    -> 1 red / 469 green: the declaration gate still fails, the syntax gate
+   *       goes green. Prose that says `set -o pipefail` is not code that uses
+   *       it, and the two tests are pinning different properties.
+   */
+
   it('scanned the workflows it claims to scan', () => {
     // Guards the guard. A path typo or a `readdirSync` filter that matches
     // nothing makes every assertion below pass vacuously, and the suite still
