@@ -436,6 +436,25 @@ jobs:
     timeout-minutes: 20
     container:
       image: ubuntu:24.04
+    # [FACT] A job with `container:` runs every `run:` step under `/bin/sh`,
+    # not the bash that a job on a hosted Ubuntu image gets. On ubuntu:24.04
+    # `sh` is dash.
+    #
+    # [FACT] That is not a stylistic difference. These steps die on their
+    # first line, before any assertion runs:
+    #   /__w/_temp/<uuid>.sh: 1: set: Illegal option -o pipefail
+    #   ##[error]Process completed with exit code 2.
+    # and the last step additionally uses `<(...)` process substitution, which
+    # dash has no syntax for at all. Observed on run 37551742758; the job
+    # reported `apt-get install` as the failing step while in fact the package
+    # was never touched.
+    #
+    # So `shell: bash` is set once here, at job level, rather than per step:
+    # a step added to this job later inherits it instead of silently reverting
+    # to dash. `tests/unit/deb-install-gate.test.ts` enforces this.
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/download-artifact@v4
         with:

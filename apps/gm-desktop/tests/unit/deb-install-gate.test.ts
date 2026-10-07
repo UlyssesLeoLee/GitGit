@@ -29,7 +29,7 @@
  * binary, and its launch metadata is well-formed.
  */
 import { describe, expect, it } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parse } from 'yaml';
@@ -200,5 +200,205 @@ describe('deb-install — it catches the defect the build job cannot see', () =>
       'deb-install must not shell out to xvfb or otherwise assert the GUI starts; that fails ' +
         'for reasons unrelated to packaging and the job would be switched off.'
     ).not.toMatch(/xvfb-run/);
+  });
+});
+
+/* -------------------------------------------------------------------------- *
+ * The shell this job actually gets
+ * -------------------------------------------------------------------------- */
+
+/**
+ * Constructs that `/bin/sh` cannot parse.
+ *
+ * Each entry pairs a pattern with the name it is reported under, so a failure
+ * says WHICH construct and WHERE instead of only "some step is not bash".
+ *
+ * `[[`, `mapfile`, `shopt` and `source` are here for the same reason `pipefail`
+ * is: they are extremely common in shell that was written on a hosted Ubuntu
+ * image, where bash is the default and nothing has ever complained.
+ */
+const BASH_ONLY: ReadonlyArray<{ name: string; re: RegExp }> = [
+  { name: 'set -o pipefail', re: /set\s+[^\n]*\bpipefail\b/ },
+  { name: 'process substitution <(', re: /<\(/ },
+  { name: 'here-string <<<', re: /<<</ },
+  { name: '[[ ]] conditional', re: /\[\[/ },
+  { name: 'mapfile/readarray', re: /\b(?:mapfile|readarray)\b/ },
+  { name: 'shopt', re: /\bshopt\b/ },
+  { name: 'source (POSIX uses `.`)', re: /^\s*source\s+\S/m },
+  { name: '$RANDOM', re: /\$RANDOM\b/ },
+  { name: 'printf -v', re: /printf\s+-v\b/ },
+  { name: '(( )) arithmetic command', re: /(?:^|[;&|(]|\b(?:if|while|until|elif)\s+)\(\(/m },
+  { name: 'shell parameter case-modification', re: /\$\{[A-Za-z_][A-Za-z0-9_]*(?:,,\}|\^\^})/ },
+];
+
+type Job = {
+  'runs-on'?: string | string[];
+  container?: unknown;
+  defaults?: { run?: { shell?: string } };
+  steps?: Array<{ name?: string; run?: string; shell?: string }>;
+};
+
+type Workflow = { defaults?: { run?: { shell?: string } }; jobs: Record<string, Job> };
+
+/**
+ * Strip comments the way a shell would: from `#` to end of line, but only when
+ * `#` starts the line or follows whitespace.
+ *
+ * This is deliberately the same treatment `stepRuns` above gets, for the same
+ * reason. A workflow that explains `set -o pipefail` in a comment must not be
+ * reported as using it — and, far worse, must not be able to SATISFY a check by
+ * mentioning it.
+ */
+const stripComments = (text: string): string =>
+  text
+    .split('\n')
+    .map((line) => line.replace(/(^|\s)#.*$/, ''))
+    .join('\n');
+
+/**
+ * The shell GitHub Actions will use for a `run:` step, with the precedence the
+ * runner actually applies: step `shell:` > job `defaults.run.shell` >
+ * workflow `defaults.run.shell` > platform default.
+ *
+ * [FACT] The platform default is the whole point of this function. A job with
+ * `container:` gets `/bin/sh` — on `ubuntu:24.04` that is dash — while the same
+ * YAML without the `container:` block gets bash. Nothing in the step body
+ * changes, so nothing in the step body warns you.
+ */
+function effectiveShell(
+  job: Job,
+  step: { shell?: string },
+  workflowDefault?: string
+): string {
+  const explicit = step.shell ?? job.defaults?.run?.shell ?? workflowDefault;
+  if (explicit) return explicit;
+
+  if (job.container) return 'sh';
+  const runsOn = job['runs-on'];
+  const label = Array.isArray(runsOn) ? runsOn.join(',') : (runsOn ?? '');
+  return /windows/i.test(label) ? 'pwsh' : 'bash';
+}
+
+const WORKFLOW_DIR = join(REPO_ROOT, '.github', 'workflows');
+const workflowFiles = readdirSync(WORKFLOW_DIR)
+  .filter((f) => /\.ya?ml$/.test(f))
+  .sort();
+
+/** Every step in every workflow, paired with the shell it will really get. */
+const allRunSteps = workflowFiles.flatMap((file) => {
+  const doc = parse(readFileSync(join(WORKFLOW_DIR, file), 'utf8')) as Workflow;
+  return Object.entries(doc.jobs ?? {}).flatMap(([jobId, job]) =>
+    (job.steps ?? [])
+      .filter((s): s is { name?: string; run: string; shell?: string } =>
+        typeof s.run === 'string' && s.run.trim() !== ''
+      )
+      .map((step) => ({
+        file,
+        jobId,
+        name: step.name ?? step.run.split('\n')[0].slice(0, 60),
+        body: stripComments(step.run),
+        shell: effectiveShell(job, step, doc.defaults?.run?.shell),
+        isContainer: Boolean(job.container),
+      }))
+  );
+});
+
+/** Container jobs across the repo, for the scan-coverage assertions below. */
+const containerJobs = workflowFiles.flatMap((file) => {
+  const doc = parse(readFileSync(join(WORKFLOW_DIR, file), 'utf8')) as Workflow;
+  return Object.entries(doc.jobs ?? {})
+    .filter(([, job]) => job.container)
+    .map(([jobId, job]) => ({
+      file,
+      jobId,
+      shell: job.defaults?.run?.shell,
+      overrides: (job.steps ?? []).map((s) => s.shell).filter((s): s is string => Boolean(s)),
+    }));
+});
+
+describe('every `run:` step runs under a shell that can parse it', () => {
+  it('scanned the workflows it claims to scan', () => {
+    // Guards the guard. A path typo or a `readdirSync` filter that matches
+    // nothing makes every assertion below pass vacuously, and the suite still
+    // reports green. Measured by deliberately narrowing the filter once.
+    expect(workflowFiles.length, 'no workflow files found').toBeGreaterThan(0);
+    expect(allRunSteps.length, 'no `run:` steps found in any workflow').toBeGreaterThan(0);
+    expect(
+      containerJobs.length,
+      'expected at least the deb-install job to have a `container:`. If this is zero, ' +
+        'the container was removed — which is exactly the change that would make ' +
+        'deb-install prove nothing — or this scan is not looking where it thinks it is.'
+    ).toBeGreaterThan(0);
+  });
+
+  it('recognises bash-only syntax (or the recogniser is broken, not the workflows)', () => {
+    // The scanner's own coverage, asserted against itself.
+    //
+    // Every construct in BASH_ONLY gets fed to the same detection used on the
+    // workflows. If a pattern is wrong, this goes red here instead of the
+    // workflows quietly scanning as clean forever.
+    const samples: ReadonlyArray<readonly [string, string]> = [
+      ['set -euo pipefail', 'set -euo pipefail'],
+      ['done < <(dpkg -L "$pkg")', 'done < <(dpkg -L x)'],
+      ['cat <<< "$x"', 'cat <<< "$x"'],
+      ['if [[ -n "$x" ]]; then', 'if [[ -n "$x" ]]; then'],
+      ['mapfile -t deps < <(x)', 'mapfile -t deps < <(x)'],
+      ['shopt -s nullglob', 'shopt -s nullglob'],
+      ['source /etc/os-release', 'source /etc/os-release'],
+      ['echo $RANDOM', 'echo $RANDOM'],
+      ['printf -v out %s x', 'printf -v out %s x'],
+      ['if (( n > 1 )); then', 'if (( n > 1 )); then'],
+      ['echo "${v^^}"', 'echo "${v^^}"'],
+    ];
+
+    const missed = samples.filter(([, sample]) => !BASH_ONLY.some((c) => c.re.test(sample)));
+    expect(
+      missed.map(([name]) => name),
+      'BASH_ONLY no longer detects these. A broken pattern makes every workflow look clean.'
+    ).toEqual([]);
+  });
+
+  it('no step uses bash-only syntax while resolving to sh', () => {
+    // [FACT] This gate is not hypothetical. Run 37551742758, job
+    // `deb installs and links on a stock Ubuntu`, died on its first line:
+    //
+    //   /__w/_temp/1b0f7435-....sh: 1: set: Illegal option -o pipefail
+    //   ##[error]Process completed with exit code 2.
+    //
+    // The job is reported as failing on `apt-get install`, but the package was
+    // never touched. The `deb` job above it had already gone green, and every
+    // local gate over this YAML passed, because the step body is valid bash and
+    // a machine with no `container:` runs bash by default.
+    const offenders = allRunSteps
+      .filter((s) => s.shell !== 'bash')
+      .map((s) => ({
+        where: `${s.file} :: ${s.jobId} :: ${s.name}`,
+        shell: s.shell,
+        used: BASH_ONLY.filter((c) => c.re.test(s.body)).map((c) => c.name),
+      }))
+      .filter((o) => o.used.length > 0);
+
+    expect(
+      offenders,
+      'these steps use bash-only syntax but do not run under bash. A job with `container:` ' +
+        'gets /bin/sh (dash on ubuntu:24.04), which cannot parse them.'
+    ).toEqual([]);
+  });
+
+  it('declares bash for the container jobs it found, at job level', () => {
+    // Job-level rather than per-step, so a step added later inherits bash
+    // instead of silently reverting to dash. Step-level overrides are allowed
+    // but must not exist here: they are the mechanism by which the guarantee
+    // quietly stops applying to a single step.
+    expect(
+      containerJobs.map((j) => ({ where: `${j.file} :: ${j.jobId}`, shell: j.shell })),
+      'a container job runs `run:` steps under /bin/sh unless it says otherwise'
+    ).toEqual(
+      containerJobs.map((j) => ({ where: `${j.file} :: ${j.jobId}`, shell: 'bash' }))
+    );
+    expect(
+      containerJobs.flatMap((j) => j.overrides).filter((s) => s !== 'bash'),
+      'a step-level `shell:` in a container job overrides the job default and can drop a step back to sh'
+    ).toEqual([]);
   });
 });
