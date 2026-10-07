@@ -260,6 +260,10 @@ jobs:
     name: deb (unsigned)
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    # Published so `deb-install` below can name the artifact without
+    # re-reading the manifest. A glob would match the `-manifest` artifact too.
+    outputs:
+      version: ${{ steps.meta.outputs.version }}
     steps:
       - uses: actions/checkout@v4
 
@@ -398,6 +402,136 @@ jobs:
           path: apps/gm-desktop/src-tauri/target/release/bundle/
           if-no-files-found: ignore
           retention-days: 7
+
+  # ---------------------------------------------------------------------------
+  # Linux — the .deb installed FOR REAL
+  # ---------------------------------------------------------------------------
+  # WHY A CONTAINER, AND WHY IT IS NOT PART OF THE `deb` JOB
+  # ======================================================
+  # [FACT] Everything `deb` already checks is structural. `verify-bundle.sh`
+  # parses the control fields, compares the version to `tauri.conf.json`,
+  # requires a plausible `usr/bin/<bin>` and a freedesktop `.desktop` entry.
+  # It never installs anything, so it cannot find out whether the package
+  # installs on a machine that does not already have the GTK/WebKit stack.
+  #
+  # [INFERENCE] Running the install on the hosted `ubuntu-latest` runner would
+  # prove almost nothing, and the reason is worth stating because it is not
+  # obvious: the `deb` job installs libwebkit2gtk-4.1-dev and friends ON THAT
+  # MACHINE, so a package with a missing dependency would still install
+  # happily. `ubuntu:24.04` has none of it. The container is what makes this a
+  # test rather than a restatement of what the build already proved.
+  #
+  # It is a separate job with `needs: deb` rather than steps inside `deb`,
+  # because the build machine is the wrong machine — see above — and because a
+  # job-level `container:` applies to every step, retro-fitting it would have
+  # meant moving the whole release build into a minimal image that lacks the
+  # toolchain. The `needs:` does weaken the independence argued for in the
+  # AppImage comment below, and deliberately: if the .deb was not built there
+  # is nothing to install, and `skipped` says that honestly where a red would
+  # not.
+  deb-install:
+    name: deb installs and links on a stock Ubuntu
+    needs: deb
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    container:
+      image: ubuntu:24.04
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: gm-desktop-deb-${{ needs.deb.outputs.version }}
+          path: pkg
+
+      - name: Install it the way a user would, letting apt resolve Depends
+        run: |
+          set -euo pipefail
+          export DEBIAN_FRONTEND=noninteractive
+          apt-get update
+          # `apt-get install ./pkg/*.deb`, NOT `dpkg -i`. `dpkg -i` refuses to
+          # configure a package whose dependencies are unmet and leaves it
+          # unpacked and half-registered; resolving them is what someone
+          # installing from a repo or an .deb URL actually gets, so that is
+          # what is under test. `apt-get -f install` afterwards would repair a
+          # broken `dpkg -i` and hide exactly the defect being looked for.
+          apt-get install -y --no-install-recommends ./pkg/*.deb
+
+      - name: It is registered, and the binary it names is really there
+        run: |
+          set -euo pipefail
+          pkg=$(dpkg-deb --info pkg/*.deb \
+            | awk '/^[[:space:]]*Package:/ { sub(/^[^:]*:[[:space:]]*/, ""); print; exit }')
+          if [ -z "$pkg" ]; then
+            echo "::error::the .deb declares no Package: field"
+            exit 1
+          fi
+          status=$(dpkg-query -W -f='${Status}' "$pkg")
+          if [ "$status" != "install ok installed" ]; then
+            echo "::error::$pkg reports '$status' after install, not 'install ok installed'"
+            exit 1
+          fi
+          bin=$(dpkg -L "$pkg" | awk '/^\/usr\/bin\// { print; exit }')
+          if [ -z "$bin" ]; then
+            echo "::error::$pkg installs no /usr/bin entry, so nothing can launch it"
+            exit 1
+          fi
+          if [ ! -x "$bin" ]; then
+            echo "::error::$bin is not executable after install"
+            exit 1
+          fi
+          echo "    ok  $pkg -> $bin ($(wc -c < "$bin") B)"
+          printf '%s' "$bin" > /tmp/gitgit-bin
+          printf '%s' "$pkg"  > /tmp/gitgit-pkg
+
+      - name: Every shared library the binary needs was actually pulled in
+        run: |
+          set -euo pipefail
+          bin=$(cat /tmp/gitgit-bin)
+          # The decisive assertion, and the one that makes this job worth its
+          # runner minutes.
+          #
+          # If `bundle.linux.deb.depends` were empty or incomplete, `ldd` prints
+          # `=> not found` for every library that was never installed. The app
+          # would then fail to start on a clean machine while EVERY structural
+          # check in `verify-bundle.sh` still passed — which is precisely the
+          # failure the deb job is unable to see.
+          missing=$(ldd "$bin" | grep 'not found' || true)
+          if [ -n "$missing" ]; then
+            echo "::error::$bin has unresolved shared libraries after a clean install."
+            echo "Either bundle.linux.deb.depends is missing an entry, or the image"
+            echo "could not satisfy it. Unresolved:"
+            echo "$missing"
+            exit 1
+          fi
+          echo "    ok  $(ldd "$bin" | grep -c '=>') libraries resolved"
+
+      - name: The freedesktop entry a package manager would show is valid
+        run: |
+          set -euo pipefail
+          export DEBIAN_FRONTEND=noninteractive
+          apt-get install -y --no-install-recommends desktop-file-utils
+          pkg=$(cat /tmp/gitgit-pkg)
+          # `dpkg -L` then a loop rather than `| head -1`: a pipe into `head`
+          # closes early and hands the producer a SIGPIPE status, which under
+          # `pipefail` turns a successful lookup into a red step.
+          entry=""
+          while IFS= read -r f; do
+            case "$f" in *.desktop) entry="$f"; break ;; esac
+          done < <(dpkg -L "$pkg")
+          if [ -z "$entry" ]; then
+            echo "::error::$pkg installs no .desktop entry, so no menu or file association is created"
+            exit 1
+          fi
+          desktop-file-validate "$entry"
+          echo "    ok  $entry"
+
+      # NOT CHECKED HERE, DELIBERATELY: that the window actually opens.
+      # A webkit/GTK application under `xvfb-run` on a container with no dbus,
+      # no seat and no hardware fails for reasons that have nothing to do with
+      # packaging, and a gate that goes red for those reasons gets switched
+      # off. What is proven above is the part packaging controls: the package
+      # installs on a machine with nothing preinstalled, its dependency list is
+      # sufficient to link the binary, and its launch metadata is well-formed.
+      # "[UNVERIFIED-FACT] The GUI has still never been observed running."
 
   # ---------------------------------------------------------------------------
   # Linux — AppImage

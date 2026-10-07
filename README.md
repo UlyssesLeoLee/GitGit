@@ -308,9 +308,14 @@ Mock 日志确认 Rust 侧确实发出了 `Authorization: Bearer`，且未泄漏
 notarization。Windows 的 4 个 MSI 变体已有签名链路并在发布路径强制，但未配置
 证书前打 tag 会 fail-closed（见上一节）。
 
-`[UNVERIFIED-FACT]` `.deb` 依赖 `bundle.linux.deb.depends` 为空数组，
-bundler 因此不写 `Depends:`，真实安装时不会拉取 webkit2gtk。校验脚本对此
-只打印 NOTE 而不失败，因为它属于本仓不拥有的配置决策。
+`[FACT]` `.deb` 依赖**不是**空数组：`tauri.conf.json` 的
+`bundle.linux.deb.depends` 声明了 `libwebkit2gtk-4.1-0` 与 `libgtk-3-0`
+（2026-10-05 起）。`verify-bundle.sh` 会把声明列表读回来，逐条断言控制文件里的
+`Depends:` 都写到了；缺一条、或列表为空，都是 `die`（硬失败），不再只是打印 NOTE。
+
+> 此前此处记的是「依赖为空数组，bundler 不写 `Depends:`，校验脚本只打印 NOTE」。
+> 两处都已过时：配置在 2026-10-05 被补上并同时升级为硬失败。过时记述比没有记述更糟，
+> 它会让读者以为这条路径无人看管。
 
 ### P2 — 工作区根目录选择器未在真实窗口验证
 
