@@ -128,6 +128,24 @@ describe('the MSI verifier would notice it too', () => {
     expect(msiCode).toMatch(/throw \(/);
   });
 
+  it('the throw belongs to the licence check, not to some other check', () => {
+    // Measured: replacing the licence guard's `if ($null -eq $licence)` with
+    // `if ($false)` left the suite GREEN, because this file already contained
+    // other `throw` statements and asserting "there is a throw" says nothing
+    // about which check it belongs to. The phrase below appears only inside the
+    // licence branch, so a mutation that disables that branch cannot satisfy it.
+    expect(msiCode).toMatch(/if \(\$null -eq \$licence\)/);
+    expect(
+      msiCode,
+      'the MSI failure message is what makes the red diagnosable, and it is the marker the ' +
+        'gate keys on. Removing the licence branch removes this string.'
+    ).toMatch(/ships no licence, copyright, copying/);
+    // Two halves rather than one phrase: PowerShell concatenates the message
+    // across string literals, so `"copying " +\n "or notice file."` has a `+`
+    // between the words and no run of whitespace for a single pattern to span.
+    expect(msiCode).toMatch(/or notice file\./);
+  });
+
   it('returns the licence path so the success line is evidence, not decoration', () => {
     expect(msiCode).toMatch(/LicenseRelPath/);
   });
