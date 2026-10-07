@@ -550,6 +550,7 @@ jobs:
       # release exists and is inspectable, and nobody outside the
       # repository can reach it until a human publishes it.
       - name: Create the draft release
+        id: draft
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ needs.verify-tag.outputs.version && format('v{0}', needs.verify-tag.outputs.version) || github.ref_name }}
@@ -580,3 +581,71 @@ jobs:
           # Measured with glob 7.2.3 against a flattened staging tree rather
           # than assumed.
           fail_on_unmatched_files: true
+
+      # The release is only trustworthy if every file its manifests describe is
+      # actually on it. This is not a formality: GitHub rewrites asset names, and
+      # softprops/action-gh-release papers over that by writing the original name
+      # into the asset's `label` in a BEST-EFFORT path — `maybeRestoreAssetLabel`
+      # in src/github.ts catches every failure, logs `console.warn`, and returns
+      # the asset unchanged. So the correspondence between a manifest's `file` and
+      # a downloadable asset is normally there and silently absent when that call
+      # fails, and nothing downstream would notice.
+      #
+      # Measured on release 404746754 (tag v0.1.0): all 7 installers carry a label
+      # equal to the `file` recorded in their manifest, while `name` is GitHub's
+      # rewritten form (`gitgit Desktop_…` -> `gitgit.Desktop_…`). This step is
+      # what turns "it happened to work" into "it is checked".
+      - name: Every file the manifests describe is really on the draft
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_ID: ${{ steps.draft.outputs.id }}
+        run: |
+          set -euo pipefail
+          if [ -z "$RELEASE_ID" ]; then
+            echo "::error::the upload step published no release id, so its asset list cannot be verified"
+            exit 1
+          fi
+
+          gh api "repos/${{ github.repository }}/releases/$RELEASE_ID/assets" --paginate \
+            --jq '.[] | "\(.name)\t\(.label // "")"' > /tmp/assets.tsv
+
+          installers=$(awk -F'\t' '$1 ~ /\.(msi|dmg|deb|AppImage)$/ { n++ } END { print n + 0 }' /tmp/assets.tsv)
+          if [ "$installers" -eq 0 ]; then
+            echo "::error::the draft release carries no installer at all; nothing below can be true"
+            exit 1
+          fi
+
+          # BOTH shapes, deliberately. The per-target manifests carry `artifacts`;
+          # the MSI manifest carries `variants`. Reading only one of them would
+          # silently check half the release and still report success — "not
+          # checked" and "checked and correct" are indistinguishable from here.
+          checked=0
+          missing=0
+          for m in $(find staged -type f -name '*-manifest.json' | sort); do
+            while IFS= read -r file; do
+              [ -n "$file" ] || continue
+              checked=$((checked + 1))
+              if ! awk -F'\t' -v want="$file" '$1 == want || $2 == want { found = 1 } END { exit !found }' /tmp/assets.tsv; then
+                echo "::error::$m describes '$file', but no uploaded asset carries that name or label"
+                missing=$((missing + 1))
+              fi
+            done < <(jq -r '((.artifacts // []) + (.variants // []))[]?.file // empty' "$m")
+          done
+
+          if [ "$checked" -eq 0 ]; then
+            echo "::error::no manifest entry was found to check. The manifests use a shape this step does not read, so a green run here would mean nothing."
+            exit 1
+          fi
+          if [ "$missing" -ne 0 ]; then
+            echo "::error::$missing of $checked manifest entries do not correspond to any uploaded asset"
+            exit 1
+          fi
+          # The reverse direction. Every installer on the release must be described
+          # by some manifest, or an unverified artifact shipped.
+          if [ "$checked" -ne "$installers" ]; then
+            echo "::error::manifests describe $checked files but the release carries $installers installers; the two sets must be the same"
+            exit 1
+          fi
+
+          echo "    ok  all $checked manifest entries resolve to an uploaded asset"
+          echo "manifest/asset correspondence verified for $checked file(s)" >> "$GITHUB_STEP_SUMMARY"
