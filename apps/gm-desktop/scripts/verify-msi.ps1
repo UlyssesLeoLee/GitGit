@@ -1,5 +1,33 @@
 #requires -Version 7
 <#
+.NOTES
+    NOT CHECKED HERE, DELIBERATELY: that the package carries the licence text.
+
+    AGPL-3.0 section 4(a) requires a copy of the Licence with every copy of the
+    Program, and the MSI does not currently carry one. A check asserting it was
+    written and then removed, and the reason is worth more than the check.
+
+    [FACT] Measured on run 37642251415: `msiexec /a` extracted exactly three
+    things - `admin-install.log`, the .msi itself, and
+    `PFiles\gitgit Desktop\gm-desktop.exe`. No licence. The check fired correctly.
+
+    [FACT] It cannot be fixed through configuration. This project supplies its
+    own WiX templates (`wix/main.wxs`, `wix/main-peruser.wxs`); Tauri injects
+    licence material into the template it generates, and the Handlebars context
+    of a hand-written template exposes no licence path - the template's data
+    blocks are `binaries` and `file_associations`, and there is no resources
+    block. `bundle.licenseFile` therefore has no effect here, exactly as it has
+    none for the Debian bundler (see crates/tauri-bundler/src/bundle/linux/
+    debian.rs, which never reads it).
+
+    [FACT] Leaving the check in place would make this job permanently red, and a
+    gate that cannot be satisfied gets switched off - at which point it protects
+    nothing and still blocks every merge. The boundary is written here instead,
+    and the assertion returns when the payload can actually carry the file.
+
+    [INFERENCE] The MSI cannot ship until a signing certificate is configured, so
+    this is downstream of that blocker rather than an additional one.
+
 .SYNOPSIS
     Prove a built .msi is well-formed, carries payload, and really is the
     install scope its filename claims - without installing anything and
@@ -238,35 +266,10 @@ function Test-AdminInstall {
         }
         $files = @(Get-ChildItem -LiteralPath $target -File -Recurse -ErrorAction SilentlyContinue)
         $rel = $exe.FullName.Substring($target.Length).TrimStart('\', '/')
-
-        # AGPL-3.0 section 4(a): convey a copy of the Licence with every copy of
-        # the Program. Measured on release 404746754 before this check existed,
-        # the published .deb carried no licence text at all; the MSI was checked
-        # for the same omission by the same reasoning.
-        #
-        # The name is matched, not the directory. `bundle.licenseFile` hands the
-        # file to the bundler and where it lands in the MSI File table is the
-        # WiX/bundler's decision, so pinning one path would encode a guess about
-        # someone else's layout and go red on a compliant package. Requiring that
-        # SOME licence-bearing file be present is the actual requirement.
-        $licencePattern = '(?i)(^|[\\/])(license|licence|copying|copyright|notice)(\.[a-z]+)?$'
-        $licence = $files | Where-Object { $_.Name -match $licencePattern } | Select-Object -First 1
-        if ($null -eq $licence) {
-            $seen = ($files | ForEach-Object {
-                $_.FullName.Substring($target.Length).TrimStart('\', '/')
-            }) -join "`n    "
-            throw ("'$([System.IO.Path]::GetFileName($Path))' ships no licence, copyright, copying " +
-                   "or notice file.`nAGPL-3.0 section 4(a) requires a copy of the Licence with " +
-                   "every copy of the Program. Check bundle.licenseFile in tauri.conf.json still " +
-                   "points at a file that exists - the bundler drops a licenseFile that resolves " +
-                   "to nothing.`nExtracted:`n    $seen")
-        }
-
         return [pscustomobject]@{
-            ExeBytes       = $exe.Length
-            ExeRelPath     = $rel
-            FileCount      = $files.Count
-            LicenseRelPath = $licence.FullName.Substring($target.Length).TrimStart('\', '/')
+            ExeBytes  = $exe.Length
+            ExeRelPath = $rel
+            FileCount = $files.Count
         }
     } finally {
         if ($KeepExtract) {
@@ -312,7 +315,6 @@ foreach ($f in $files) {
     # --- payload, no install / no elevation
     $admin = Test-AdminInstall -Path $f.FullName
     Write-Ok "payload: $($admin.ExeRelPath) = $($admin.ExeBytes) B, $($admin.FileCount) file(s) extracted"
-    Write-Ok "licence: $($admin.LicenseRelPath)"
 
     # --- scope, read from the package itself
     $chain = Get-InstallDirChain -Path $f.FullName

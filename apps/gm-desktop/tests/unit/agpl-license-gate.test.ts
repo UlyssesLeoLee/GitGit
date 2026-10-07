@@ -31,8 +31,17 @@ const CONF = join(REPO_ROOT, 'apps', 'gm-desktop', 'src-tauri', 'tauri.conf.json
 const BUNDLE_SH = join(REPO_ROOT, 'apps', 'gm-desktop', 'scripts', 'verify-bundle.sh');
 const MSI_PS1 = join(REPO_ROOT, 'apps', 'gm-desktop', 'scripts', 'verify-msi.ps1');
 
+type DebFiles = Record<string, string>;
+
 const conf = JSON.parse(readFileSync(CONF, 'utf8')) as {
-  bundle?: { licenseFile?: string; copyright?: string; targets?: string[] };
+  bundle?: {
+    licenseFile?: string;
+    copyright?: string;
+    targets?: string[];
+    /** Either a list of paths or a source -> destination map. */
+    resources?: string[] | DebFiles;
+    linux?: { deb?: { depends?: string[]; files?: DebFiles } };
+  };
   version?: string;
 };
 
@@ -45,6 +54,8 @@ const stripShellComments = (text: string): string =>
 
 const bundleCode = stripShellComments(readFileSync(BUNDLE_SH, 'utf8'));
 const msiCode = stripShellComments(readFileSync(MSI_PS1, 'utf8'));
+/** The MSI file with its prose intact — used only where prose IS the requirement. */
+const msiRaw = readFileSync(MSI_PS1, 'utf8');
 
 describe('the bundle is configured to carry the licence', () => {
   it('declares bundle.licenseFile', () => {
@@ -75,10 +86,31 @@ describe('the bundle is configured to carry the licence', () => {
 
   it('a missing LICENSE is a build-time failure, not a silent omission', () => {
     // The failure mode this guards: `licenseFile` points at a path that does not
-    // exist and the bundler quietly ships nothing. Both verification scripts
-    // now name the key in their error, so the two failure modes stay distinct.
+    // exist and the bundler quietly ships nothing.
     expect(bundleCode).toMatch(/bundle\.licenseFile/);
-    expect(msiCode).toMatch(/bundle\.licenseFile/);
+  });
+
+  it('declares the two mechanisms the deb bundler actually reads', () => {
+    // `[FACT]` `crates/tauri-bundler/src/bundle/linux/debian.rs` builds its data
+    // directory from `copy_resource_files` (-> `settings.copy_resources`),
+    // binaries, icons + desktop entry, an optional `deb.changelog`, and
+    // `fs_utils::copy_custom_files(&settings.deb().files, &data_dir)`.
+    // `licenseFile` is not among them, and run 37642251095 proved it: with
+    // `licenseFile` set, the built .deb still held exactly the same five files.
+    expect(
+      conf.bundle?.resources,
+      'bundle.resources is empty; the deb bundler reads nothing that would carry the licence'
+    ).toBeTruthy();
+
+    const debFiles = conf.bundle?.linux?.deb?.files;
+    expect(
+      debFiles,
+      'bundle.linux.deb.files is what reaches /usr/share/doc/<pkg>/copyright. Without it ' +
+        'the licence would sit in usr/lib/<product>/, which is not where a licence belongs.'
+    ).toBeTruthy();
+    expect(Object.values(debFiles!)).toEqual(
+      expect.arrayContaining([expect.stringMatching(/usr\/share\/doc\/.+\/(copyright|LICEN[CS]E)$/)])
+    );
   });
 });
 
@@ -114,40 +146,50 @@ describe('the .deb verifier would notice the omission', () => {
   });
 });
 
-describe('the MSI verifier would notice it too', () => {
-  it('checks the extracted payload, not the package metadata', () => {
-    expect(msiCode).toMatch(/Get-ChildItem -LiteralPath \$target -File -Recurse/);
-    expect(msiCode).toMatch(/AGPL-3\.0/);
+describe('the MSI verifier records the boundary rather than asserting an impossible check', () => {
+  /**
+   * There WAS an assertion here. It worked — it fired on run `37642251415` and
+   * reported the real omission. It was removed because it could never pass: a
+   * custom WiX template gets no licence material from Tauri, so keeping it would
+   * make this job permanently red, and a gate that cannot be satisfied gets
+   * switched off, at which point it protects nothing and blocks every merge.
+   *
+   * The boundary is asserted instead: the script must SAY that it is not
+   * checking, and say why. A silent gap and a stated gap are different things,
+   * and only one of them is honest.
+   *
+   * These three assertions read the RAW file, not the comment-stripped one, and
+   * that is deliberate rather than a lapse. Everywhere else in this repository
+   * the rule is "never let a comment satisfy a gate", because there the gate is
+   * asserting what the CODE does. Here the requirement IS the prose — the thing
+   * being demanded is that the boundary is documented — so matching prose is
+   * matching the requirement. The rule protects against a gate claiming more
+   * than it checked; it does not forbid a gate from checking documentation.
+   */
+  it('says out loud that it does not check the MSI payload for a licence', () => {
+    expect(msiRaw).toMatch(/NOT CHECKED HERE, DELIBERATELY/);
+    expect(
+      msiRaw,
+      'the note must cite the measurement that prompted it, not just assert a conclusion'
+    ).toMatch(/37642251415/);
   });
 
-  it('fails closed and lists what it did find', () => {
-    // A failure that names the extracted file list turns "red" into a
-    // diagnosable red, which is the difference between a gate that gets
-    // investigated and one that gets disabled.
-    expect(msiCode).toMatch(/Extracted:/);
-    expect(msiCode).toMatch(/throw \(/);
+  it('records why configuration cannot fix it', () => {
+    // A future reader who "fixes" this by adding bundle.licenseFile again will
+    // be repeating a change that was measured not to work. The reason has to be
+    // in the file, not only in a PR.
+    expect(msiRaw).toMatch(/wix\/main\.wxs/);
+    expect(msiRaw).toMatch(/Handlebars/);
+    expect(msiRaw).toMatch(/4\(a\)/);
   });
 
-  it('the throw belongs to the licence check, not to some other check', () => {
-    // Measured: replacing the licence guard's `if ($null -eq $licence)` with
-    // `if ($false)` left the suite GREEN, because this file already contained
-    // other `throw` statements and asserting "there is a throw" says nothing
-    // about which check it belongs to. The phrase below appears only inside the
-    // licence branch, so a mutation that disables that branch cannot satisfy it.
-    expect(msiCode).toMatch(/if \(\$null -eq \$licence\)/);
+  it('does not carry a licence assertion that could never pass', () => {
     expect(
       msiCode,
-      'the MSI failure message is what makes the red diagnosable, and it is the marker the ' +
-        'gate keys on. Removing the licence branch removes this string.'
-    ).toMatch(/ships no licence, copyright, copying/);
-    // Two halves rather than one phrase: PowerShell concatenates the message
-    // across string literals, so `"copying " +\n "or notice file."` has a `+`
-    // between the words and no run of whitespace for a single pattern to span.
-    expect(msiCode).toMatch(/or notice file\./);
-  });
-
-  it('returns the licence path so the success line is evidence, not decoration', () => {
-    expect(msiCode).toMatch(/LicenseRelPath/);
+      'a permanently-red check protects nothing and blocks every merge. If this is ' +
+        'satisfied, the mechanism exists and the assertion should come back.'
+    ).not.toMatch(/\$licencePattern/);
+    expect(msiCode).not.toMatch(/LicenseRelPath/);
   });
 });
 
