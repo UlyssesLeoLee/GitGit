@@ -40,7 +40,8 @@ const DOC = parse(
 ) as {
   jobs: Record<string, {
     needs?: string;
-    runsOn?: string;
+    /** The literal YAML key is `runs-on`. Not `runsOn` — see the note below. */
+    'runs-on'?: string;
     container?: { image?: string };
     outputs?: Record<string, string>;
     steps?: Array<{ name?: string; run?: string; uses?: string; with?: Record<string, unknown> }>;
@@ -120,6 +121,12 @@ describe('deb-install — it runs somewhere bare', () => {
     // The key is literally `runs-on`. Reading it as `runsOn` — the idiomatic
     // camelCase an interface would suggest — yields undefined, and an
     // assertion written against `undefined` fails on a workflow that is right.
+    //
+    // `[FACT]` This one is not hypothetical: the interface declared `runsOn`
+    // and the check read `job['runs-on']`, which `vitest` and `eslint` both
+    // accept silently because neither type-checks. Only `pnpm check`
+    // (svelte-check) rejected it, and that is the command CI runs and this
+    // file's author did not.
     expect(
       job?.['runs-on'],
       'runs-on must stay ubuntu-latest so the container is what executes'
