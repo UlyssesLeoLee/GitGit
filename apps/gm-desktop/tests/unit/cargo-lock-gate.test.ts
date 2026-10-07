@@ -54,6 +54,32 @@ const buildSteps = workflowFiles.flatMap((file) => {
 
 const scriptText = existsSync(SCRIPT) ? readFileSync(SCRIPT, 'utf8') : '';
 
+/**
+ * The script with its own prose removed.
+ *
+ * This is not defensive tidiness — it is the fix for a gate that read green
+ * while broken. The first version of the `--locked` assertion matched the raw
+ * file, and the mutation that deletes `--locked` from the cargo invocation
+ * **passed**, because the word also appears in the comment directly above it:
+ *
+ *     # `--locked` means "assert this lock will not change". ...
+ *     cargo metadata --locked --format-version 1 >/dev/null
+ *
+ * Remove the flag from the command and the comment still satisfies the pattern.
+ * The script explains itself at length — that is the point of it — so every
+ * assertion about what the script *does* reads this instead. A gate that reads
+ * green because of a sentence is worse than no gate, because it is a gate
+ * nobody can trust.
+ *
+ * Full-line comments only. Stripping trailing comments is unsound in shell: `#`
+ * is ordinary inside a quoted string, and deleting from a `#` to end-of-line
+ * without regard for quoting would silently change what a line means.
+ */
+const scriptCode = scriptText
+  .split('\n')
+  .filter((line) => !/^\s*#/.test(line))
+  .join('\n');
+
 describe('every bundle build proves it is using the committed lock', () => {
   it('found the bundler invocations (a scan that finds none passes vacuously)', () => {
     // Guards the guard. A path typo, a renamed workflow, or a `paths` typo
@@ -109,12 +135,16 @@ describe('the check itself', () => {
   it('asserts with --locked, which is the only thing that makes the check meaningful', () => {
     // Without `--locked`, `cargo metadata` would cheerfully update the lock and
     // exit 0 — which is precisely the behaviour being guarded against.
-    expect(scriptText).toMatch(/cargo metadata --locked/);
+    expect(
+      scriptCode,
+      'the cargo invocation must pass --locked. Without it cargo updates the lock and ' +
+        'exits 0, and the check becomes a report rather than a gate.'
+    ).toMatch(/cargo metadata --locked/);
   });
 
   it('fails closed rather than repairing', () => {
     expect(
-      scriptText,
+      scriptCode,
       'a gate that refreshes the lock on the runner would make the next build ' +
         'reproducible and the first one not, and the refresh is never committed'
     ).toMatch(/exit 1/);
@@ -123,7 +153,19 @@ describe('the check itself', () => {
   it('resolves the crate from its own location, so cwd cannot change the answer', () => {
     // Measured: invoked from an unrelated directory it still found the lock and
     // reported the same SHA-256.
-    expect(scriptText).toMatch(/BASH_SOURCE/);
+    expect(scriptCode).toMatch(/BASH_SOURCE/);
+  });
+
+  it('keeps the real commands after comment stripping', () => {
+    // The stripping above is a transformation, and a transformation that eats
+    // the code would make every assertion above vacuously true. These are the
+    // lines the gate depends on, checked on the SAME transformed text.
+    expect(scriptCode, 'stripping removed the cargo invocation').toMatch(/cargo metadata/);
+    expect(scriptCode, 'stripping removed the hash comparison').toMatch(/sha256sum/);
+    expect(
+      scriptCode.split('\n').filter((l) => l.trim() && !/^\s*#/.test(l)).length,
+      'stripping left no executable lines at all'
+    ).toBeGreaterThan(10);
   });
 
   it('is LF, because a CRLF shebang does not run on a Linux runner', () => {
