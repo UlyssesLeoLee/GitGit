@@ -291,7 +291,7 @@ Mock 日志确认 Rust 侧确实发出了 `Authorization: Bearer`，且未泄漏
 所以「AI 评审能否流式出字」已经不再是未知项；仍然未知的是**真实厂商端点**的
 行为：鉴权失败形态、限流响应、以及各家 SSE 方言与本仓解析器的差异。
 
-### P2 — 跨平台产物已在 CI 构建，但仍未签名、未在真机安装验证
+### P2 — 跨平台产物已在 CI 构建并安装验证；`.dmg` 未公证、GUI 从未运行过
 
 `tauri.conf.json` 声明了 `["msi","dmg","appimage","deb"]` 四种 target，
 此前只有 MSI 被构建过。现已新增 `.github/workflows/gm-desktop-bundle.yml`，
@@ -302,15 +302,50 @@ Mock 日志确认 Rust 侧确实发出了 `Authorization: Bearer`，且未泄漏
 | `.dmg` | `macos-latest` | `hdiutil imageinfo` + 只读挂载，断言 app 二进制 ≥ 1 MiB |
 | `.deb` | `ubuntu-latest` | `dpkg-deb --info` / `--contents`，版本必须与 `tauri.conf.json` 一致 |
 | `.appimage` | `ubuntu-latest` | ELF magic + `file` + 5 MiB 下限 |
+| `.deb`（第二道） | `ubuntu:24.04` 容器 | **真机安装**：`apt-get install ./pkg/*.deb` → `dpkg-query` 断言 `install ok installed` → `ldd` 无 `=> not found` → `desktop-file-validate` |
 
-`[FACT]` 三个 job 首次运行即全部通过。但**均未签名**，也**未在任何真实机器上
-安装运行过**：CI 只验证产物结构，不验证「装得上、跑得起来」。macOS 未做
-notarization。Windows 的 4 个 MSI 变体已有签名链路并在发布路径强制，但未配置
-证书前打 tag 会 fail-closed（见上一节）。
+`[FACT]` 四个 job 均已实测通过。`.dmg` 与 `.appimage` **均未签名**；macOS 未做
+notarization，会触发 Gatekeeper。Windows 的 4 个 MSI 变体已有签名链路并在发布
+路径强制，但未配置证书前打 tag 会 fail-closed（见上一节）。
 
-`[UNVERIFIED-FACT]` `.deb` 依赖 `bundle.linux.deb.depends` 为空数组，
-bundler 因此不写 `Depends:`，真实安装时不会拉取 webkit2gtk。校验脚本对此
-只打印 NOTE 而不失败，因为它属于本仓不拥有的配置决策。
+#### `.deb` 已在裸机安装通过（2026-10-07，run `37553686524`）
+
+`[FACT]` `deb installs and links on a stock Ubuntu` job 首次运行即通过。实测输出：
+
+```
+Setting up gitgit-desktop (0.1.0) ...
+    ok  gitgit-desktop -> /usr/bin/gm-desktop (31995040 B)
+    ok  127 libraries resolved
+    ok  /usr/share/applications/gitgit Desktop.desktop
+```
+
+**127 个共享库在 `ubuntu:24.04` 裸机上全部解析成功**，`ldd` 无一条 `=> not found`。
+这是该 job 存在的理由：若 `bundle.linux.deb.depends` 缺失或不全，`verify-bundle.sh`
+的**全部**结构校验依然会通过，而应用在一台干净机器上根本起不来。
+
+> 为什么必须是容器而不是 `ubuntu-latest`：`deb` **构建** job 在同一台 runner 上已经
+> 装了 `libwebkit2gtk-4.1-dev` 等开发依赖，缺依赖的包照样装得上。`ubuntu:24.04`
+> 上什么都没有，这才让它成为「用户真正拥有的那种机器」。
+
+> 这次 job 首推时**整组断言一条都没执行**：`container:` job 的每个 `run:` step 跑在
+> `/bin/sh`（ubuntu:24.04 上是 dash）而非 bash，`set -o pipefail` 在第 1 行就打死
+> 进程，失败信息却指向从未运行过的 `apt-get install` 一步。已由
+> `tests/unit/deb-install-gate.test.ts` 的全仓不变式「bash-only 语法不得落在解析为
+> `sh` / `pwsh` 的 step 里」覆盖。
+
+`[UNVERIFIED-FACT]` **GUI 仍然从未被观测运行过。** 该 job 刻意不启动窗口：webkit/GTK
+应用在无 dbus、无 seat、无硬件加速的容器里启动失败的原因与打包无关，而这类会误红的
+门禁最终只会被关掉。此边界写在 job 内并由门禁强制，防止它日后悄悄漂进 README。
+
+`[FACT]` `.deb` 依赖**不是**空数组：`tauri.conf.json` 的
+`bundle.linux.deb.depends` 声明了 `libwebkit2gtk-4.1-0` 与 `libgtk-3-0`
+（2026-10-05 起）。`verify-bundle.sh` 会把声明列表读回来，逐条断言控制文件里的
+`Depends:` 都写到了；缺一条、或列表为空，都是 `die`（硬失败），不再只是打印 NOTE。
+2026-10-07 的裸机安装是这一声明的外部验证：`apt` 为它拉入了 222 个包。
+
+> 此前此处记的是「依赖为空数组，bundler 不写 `Depends:`，校验脚本只打印 NOTE」。
+> 两处都已过时：配置在 2026-10-05 被补上并同时升级为硬失败。过时记述比没有记述更糟，
+> 它会让读者以为这条路径无人看管。
 
 ### P2 — 工作区根目录选择器未在真实窗口验证
 
