@@ -238,10 +238,35 @@ function Test-AdminInstall {
         }
         $files = @(Get-ChildItem -LiteralPath $target -File -Recurse -ErrorAction SilentlyContinue)
         $rel = $exe.FullName.Substring($target.Length).TrimStart('\', '/')
+
+        # AGPL-3.0 section 4(a): convey a copy of the Licence with every copy of
+        # the Program. Measured on release 404746754 before this check existed,
+        # the published .deb carried no licence text at all; the MSI was checked
+        # for the same omission by the same reasoning.
+        #
+        # The name is matched, not the directory. `bundle.licenseFile` hands the
+        # file to the bundler and where it lands in the MSI File table is the
+        # WiX/bundler's decision, so pinning one path would encode a guess about
+        # someone else's layout and go red on a compliant package. Requiring that
+        # SOME licence-bearing file be present is the actual requirement.
+        $licencePattern = '(?i)(^|[\\/])(license|licence|copying|copyright|notice)(\.[a-z]+)?$'
+        $licence = $files | Where-Object { $_.Name -match $licencePattern } | Select-Object -First 1
+        if ($null -eq $licence) {
+            $seen = ($files | ForEach-Object {
+                $_.FullName.Substring($target.Length).TrimStart('\', '/')
+            }) -join "`n    "
+            throw ("'$([System.IO.Path]::GetFileName($Path))' ships no licence, copyright, copying " +
+                   "or notice file.`nAGPL-3.0 section 4(a) requires a copy of the Licence with " +
+                   "every copy of the Program. Check bundle.licenseFile in tauri.conf.json still " +
+                   "points at a file that exists - the bundler drops a licenseFile that resolves " +
+                   "to nothing.`nExtracted:`n    $seen")
+        }
+
         return [pscustomobject]@{
-            ExeBytes  = $exe.Length
-            ExeRelPath = $rel
-            FileCount = $files.Count
+            ExeBytes       = $exe.Length
+            ExeRelPath     = $rel
+            FileCount      = $files.Count
+            LicenseRelPath = $licence.FullName.Substring($target.Length).TrimStart('\', '/')
         }
     } finally {
         if ($KeepExtract) {
@@ -287,6 +312,7 @@ foreach ($f in $files) {
     # --- payload, no install / no elevation
     $admin = Test-AdminInstall -Path $f.FullName
     Write-Ok "payload: $($admin.ExeRelPath) = $($admin.ExeBytes) B, $($admin.FileCount) file(s) extracted"
+    Write-Ok "licence: $($admin.LicenseRelPath)"
 
     # --- scope, read from the package itself
     $chain = Get-InstallDirChain -Path $f.FullName

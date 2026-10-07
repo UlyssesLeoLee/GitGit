@@ -54,6 +54,7 @@
     ],
     "publisher": "Ulysses",
     "homepage": "https://github.com/UlyssesLeoLee/GitGit",
+    "licenseFile": "../../../LICENSE",
     "resources": [],
     "windows": {
       "wix": {
