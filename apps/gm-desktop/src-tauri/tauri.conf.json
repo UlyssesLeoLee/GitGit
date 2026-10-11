@@ -54,7 +54,10 @@
     ],
     "publisher": "Ulysses",
     "homepage": "https://github.com/UlyssesLeoLee/GitGit",
-    "resources": [],
+    "licenseFile": "../../../LICENSE",
+    "resources": {
+      "../../../LICENSE": "LICENSE"
+    },
     "windows": {
       "wix": {
         "language": ["en-US", "zh-CN"],
@@ -71,7 +74,10 @@
         "depends": [
           "libwebkit2gtk-4.1-0",
           "libgtk-3-0"
-        ]
+        ],
+        "files": {
+          "../../../LICENSE": "usr/share/doc/gitgit-desktop/copyright"
+        }
       }
     }
   },

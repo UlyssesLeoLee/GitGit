@@ -367,6 +367,34 @@ ${CONTENTS}"
     [ -n "$DESKTOP_ENTRY" ] \
       || die "${ARTIFACT_NAME} contains no usr/share/applications/*.desktop: the freedesktop launch metadata was not generated."
     ok "freedesktop entry: $(printf '%s' "$DESKTOP_ENTRY" | awk '{ print $NF }')"
+
+    # ── AGPL-3.0 §4(a): convey a copy of the Licence with every copy of the
+    # Program. ─────────────────────────────────────────────────────────────────
+    # Measured on release 404746754 before this check existed: the published
+    # .deb contained exactly five files — the binary, one .desktop entry and
+    # three icons — and no licence text of any kind.
+    #
+    # The path is deliberately NOT pinned. `tauri.conf.json > bundle.licenseFile`
+    # hands the file to the bundler, and where a .deb "appropriate" copy lives is
+    # the bundler's decision (`/usr/share/doc/<pkg>/copyright` by Debian
+    # convention, `/usr/share/licenses/...` by some tools). Asserting one exact
+    # path would encode a guess about someone else's layout and turn red on a
+    # compliant package; asserting that NO licence file is present is the actual
+    # requirement and cannot be satisfied by a wrong guess.
+    #
+    # `dpkg-deb --contents` prints each entry with a leading `./`, which is why
+    # the first field is stripped before matching.
+    LICENSE_ENTRY=$(printf '%s\n' "$CONTENTS" \
+      | awk '{ p = $NF; sub(/^\.\//, "", p);
+               if (tolower(p) ~ /(^|\/)(licen[cs]e|copying|copyright|notice)(\.[a-z]+)?$/) { print p; exit } }')
+    if [ -z "$LICENSE_ENTRY" ]; then
+      echo "${CONTENTS}" | sed 's/^/    /' >&2
+      die "${ARTIFACT_NAME} ships no licence, copyright, copying or notice file.
+AGPL-3.0 section 4(a) requires a copy of the Licence with every copy of the
+Program. Check bundle.licenseFile in ${CONFIG} still points at a file that
+exists — the bundler silently drops a licenseFile that resolves to nothing."
+    fi
+    ok "licence: ${LICENSE_ENTRY}"
     # `|| true` because `grep -c` exits 1 on zero matches, and under `set -e`
     # that would abort the script with no message instead of printing 0.
     # Unreachable in practice — the usr/bin assertion above would have failed
