@@ -120,12 +120,12 @@
 </script>
 
 <section class="flex h-full w-full flex-col" data-testid="graph-route">
-  <header class="flex items-center gap-3 border-b border-slate-200 px-4 py-3 dark:border-slate-700">
+  <header class="flex items-center gap-3 border-b border-white/10 px-4 py-3 backdrop-blur-xl bg-white/5">
     <div class="flex-1">
-      <h1 class="text-lg font-semibold">{$catalog['graph.heading']}</h1>
+      <h1 class="dynamic-invert-heading text-xl font-bold">{$catalog['graph.heading']}</h1>
       <p class="text-xs text-slate-500 dark:text-slate-400">
         {$catalog['graph.subhead']}
-        <span class="ml-2 inline-flex items-center gap-1 rounded bg-slate-100 px-2 py-0.5 text-[10px] uppercase tracking-wider text-slate-600 dark:bg-slate-700 dark:text-slate-200">
+        <span class="ml-2 inline-flex items-center gap-1 rounded bg-white/20 border border-white/10 px-2 py-0.5 text-[10px] uppercase font-mono tracking-wider text-slate-700 dark:text-slate-200 backdrop-blur-md">
           {$graph.source}
         </span>
       </p>
@@ -164,9 +164,9 @@
   {:else}
     <div class="flex flex-1 overflow-hidden">
       <!-- Left: master list -->
-      <aside class="flex w-80 shrink-0 flex-col border-r border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-800">
-        <div class="border-b border-slate-200 px-4 py-2 text-xs uppercase tracking-wider text-slate-500 dark:border-slate-700">
-          {$catalog['graph.nodesTitle']} <span class="text-slate-700 dark:text-slate-200">{$stats.nodes}</span>
+      <aside class="flex w-80 shrink-0 flex-col border-r border-white/10 bg-white/10 dark:border-white/10 dark:bg-slate-900/25 backdrop-blur-2xl">
+        <div class="border-b border-white/10 px-4 py-2.5 text-xs uppercase font-mono tracking-wider text-slate-500">
+          {$catalog['graph.nodesTitle']} <span class="font-bold text-slate-700 dark:text-slate-200">{$stats.nodes}</span>
           <p class="mt-1 normal-case tracking-normal text-[11px] text-slate-500">
             {$filteredNodes.length} {$catalog['graph.matching']} "{query || '*'}"
           </p>

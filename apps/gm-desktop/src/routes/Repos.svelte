@@ -43,9 +43,9 @@
   }
 </script>
 
-<section class="space-y-4" aria-labelledby="repos-h">
-  <header class="flex flex-wrap items-end justify-between gap-3">
-    <h1 id="repos-h" class="text-2xl font-semibold">{$catalog['repos.heading']}</h1>
+<section class="space-y-5" aria-labelledby="repos-h">
+  <header class="flex flex-wrap items-end justify-between gap-3 pb-3 border-b border-white/10">
+    <h1 id="repos-h" class="dynamic-invert-heading text-3xl font-bold">{$catalog['repos.heading']}</h1>
     <div class="flex items-center gap-2">
       <input
         class="input w-56"

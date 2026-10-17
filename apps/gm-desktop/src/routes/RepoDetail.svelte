@@ -65,7 +65,7 @@
   <header class="flex flex-wrap items-end justify-between gap-3">
     <div>
       <a class="text-xs text-slate-500 hover:underline" href="#/repos">← {$catalog['repos.back']}</a>
-      <h1 id="detail-h" class="text-2xl font-semibold">
+      <h1 id="detail-h" class="dynamic-invert-heading text-3xl font-bold">
         <!--
           `[FACT]` Was `{#if detail}{detail.name}{:else}{common.loading}{/if}`,
           so the not-found path — where `detail` is null — showed a heading

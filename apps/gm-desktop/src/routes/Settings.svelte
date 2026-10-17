@@ -78,7 +78,9 @@
 </script>
 
 <section class="space-y-6" aria-labelledby="settings-h">
-  <h1 id="settings-h" class="text-2xl font-semibold">{$catalog['settings.heading']}</h1>
+  <header class="pb-3 border-b border-white/10">
+    <h1 id="settings-h" class="dynamic-invert-heading text-3xl font-bold">{$catalog['settings.heading']}</h1>
+  </header>
 
   <div class="grid gap-6 lg:grid-cols-2">
     <div class="card">

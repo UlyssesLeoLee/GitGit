@@ -95,13 +95,20 @@
   `stores/locale`, rather than being written from a component.
 -->
 
-<div class="flex h-screen w-screen overflow-hidden" data-testid="app-shell">
+<div class="relative flex h-screen w-screen overflow-hidden bg-transparent select-none" data-testid="app-shell">
+  <!-- Fine Art Ambient Dynamic Aura / Refraction Mesh for Pure Transparency -->
+  <div class="pointer-events-none fixed inset-0 overflow-hidden z-0 select-none opacity-40 dark:opacity-30">
+    <div class="absolute -top-[20%] -left-[10%] w-[50vw] h-[50vw] rounded-full bg-gradient-to-br from-emerald-400/20 via-teal-500/10 to-transparent blur-[120px]"></div>
+    <div class="absolute -bottom-[20%] -right-[10%] w-[60vw] h-[60vw] rounded-full bg-gradient-to-tl from-indigo-500/15 via-sky-400/10 to-transparent blur-[140px]"></div>
+    <div class="absolute top-[30%] left-[35%] w-[40vw] h-[40vw] rounded-full bg-gradient-to-r from-emerald-300/10 via-amber-300/5 to-transparent blur-[100px]"></div>
+  </div>
+
   <Sidebar />
 
-  <main class="flex flex-1 flex-col overflow-hidden" data-testid="main-panel">
+  <main class="relative z-10 flex flex-1 flex-col overflow-hidden bg-transparent" data-testid="main-panel">
     <ServerStatusBar />
 
-    <div class="flex-1 overflow-y-auto p-6" data-testid="page-host">
+    <div class="flex-1 overflow-y-auto p-6 transition-all duration-300" data-testid="page-host">
       {#if bootError}
         <ErrorBoundary>
           <div class="card max-w-prose">

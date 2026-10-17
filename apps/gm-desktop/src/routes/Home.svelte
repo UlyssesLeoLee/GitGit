@@ -74,13 +74,15 @@
 </script>
 
 <section class="space-y-6" aria-labelledby="home-h">
-  <header class="flex items-center justify-between">
-    <h1 id="home-h" class="text-2xl font-semibold">{$catalog['dashboard.heading']}</h1>
+  <header class="flex items-center justify-between pb-2 border-b border-white/10">
+    <h1 id="home-h" class="dynamic-invert-heading text-3xl font-bold">{$catalog['dashboard.heading']}</h1>
   </header>
 
   <div class="grid gap-6 lg:grid-cols-3">
     <div class="card lg:col-span-1">
-      <h2 class="mb-3 text-sm font-semibold">{$catalog['dashboard.bind']}</h2>
+      <h2 class="mb-3 text-sm font-semibold tracking-wide flex items-center gap-2">
+        <span class="dynamic-invert font-bold">{$catalog['dashboard.bind']}</span>
+      </h2>
       <label class="label" for="bind-input">host:port</label>
       <input
         id="bind-input"
@@ -104,25 +106,27 @@
         {/if}
       </div>
 
-      <dl class="mt-4 grid grid-cols-2 gap-2 text-xs text-slate-600 dark:text-slate-300">
-        <div>
+      <dl class="mt-4 grid grid-cols-2 gap-3 text-xs text-slate-600 dark:text-slate-300">
+        <div class="rounded-lg p-2.5 bg-white/10 dark:bg-white/5 border border-white/10">
           <dt class="label">{$catalog['dashboard.pid']}</dt>
-          <dd class="font-mono">{$server.pid || '—'}</dd>
+          <dd class="font-mono font-medium text-sm">{$server.pid || '—'}</dd>
         </div>
-        <div>
+        <div class="rounded-lg p-2.5 bg-white/10 dark:bg-white/5 border border-white/10">
           <dt class="label">{$catalog['dashboard.uptime']}</dt>
-          <dd class="font-mono">{formatUptime($server.uptime_secs)}</dd>
+          <dd class="font-mono font-medium text-sm">{formatUptime($server.uptime_secs)}</dd>
         </div>
-        <div class="col-span-2">
+        <div class="col-span-2 rounded-lg p-2.5 bg-white/10 dark:bg-white/5 border border-white/10">
           <dt class="label">{$catalog['dashboard.port']}</dt>
-          <dd class="font-mono break-all">{$server.bind || '—'}</dd>
+          <dd class="font-mono font-medium text-sm break-all">{$server.bind || '—'}</dd>
         </div>
       </dl>
     </div>
 
     <div class="card lg:col-span-2">
-      <div class="mb-2 flex items-center justify-between">
-        <h2 class="text-sm font-semibold">{$catalog['dashboard.recentLogs']}</h2>
+      <div class="mb-3 flex items-center justify-between">
+        <h2 class="text-sm font-semibold tracking-wide flex items-center gap-2">
+          <span class="dynamic-invert font-bold">{$catalog['dashboard.recentLogs']}</span>
+        </h2>
         <div class="flex gap-2">
           <button class="btn-secondary" type="button" onclick={refreshLogs} disabled={refreshing}>
             {$catalog['common.refresh']}
@@ -132,9 +136,9 @@
           </button>
         </div>
       </div>
-      <pre class="max-h-80 overflow-auto rounded-md bg-slate-950/90 p-3 text-xs leading-relaxed text-slate-100" data-testid="logs-pane">{#each logs as line, i (i)}{line}
+      <pre class="max-h-80 overflow-auto rounded-xl border border-white/15 bg-black/45 backdrop-blur-xl p-4 text-xs font-mono leading-relaxed text-emerald-300/90 shadow-inner" data-testid="logs-pane">{#each logs as line, i (i)}{line}
 {/each}</pre>
-      <p class="mt-1 text-xs text-slate-500">locale: {$locale}</p>
+      <p class="mt-2 text-xs font-mono opacity-60">locale: {$locale}</p>
     </div>
   </div>
 </section>

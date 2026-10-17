@@ -95,8 +95,8 @@
 </script>
 
 <section class="space-y-6" aria-labelledby="vault-h">
-  <header>
-    <h1 id="vault-h" class="text-2xl font-semibold">{$catalog['vault.heading']}</h1>
+  <header class="pb-3 border-b border-white/10">
+    <h1 id="vault-h" class="dynamic-invert-heading text-3xl font-bold">{$catalog['vault.heading']}</h1>
     <p class="mt-1 text-xs text-slate-500">{$catalog['vault.subhead']}</p>
   </header>
 
