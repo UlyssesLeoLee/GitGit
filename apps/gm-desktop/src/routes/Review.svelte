@@ -87,8 +87,8 @@
 </script>
 
 <section class="mx-auto max-w-3xl space-y-6" data-testid="review-page">
-  <header>
-    <h1 class="text-xl font-semibold" data-testid="review-heading">
+  <header class="pb-3 border-b border-white/10">
+    <h1 class="dynamic-invert-heading text-3xl font-bold" data-testid="review-heading">
       {$catalog['review.heading']}
     </h1>
     <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">

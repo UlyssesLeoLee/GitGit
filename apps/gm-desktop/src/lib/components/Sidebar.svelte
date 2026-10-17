@@ -32,20 +32,20 @@
 </script>
 
 <aside
-  class="flex h-full w-56 shrink-0 flex-col border-r border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-800"
+  class="flex h-full w-60 shrink-0 flex-col border-r border-white/20 bg-white/10 dark:border-white/10 dark:bg-slate-950/25 backdrop-blur-3xl shadow-[4px_0_30px_0_rgba(0,0,0,0.05)]"
   data-testid="sidebar"
 >
-  <div class="flex items-center gap-2 px-4 py-4 text-base font-semibold">
-    <span class="text-xl">🌿</span>
-    <span>{$catalog['common.appName']}</span>
+  <div class="flex items-center gap-2.5 px-5 py-5 text-base font-semibold border-b border-white/10">
+    <span class="text-xl filter drop-shadow-[0_0_12px_rgba(34,197,94,0.6)]">🌿</span>
+    <span class="dynamic-invert tracking-tight font-bold text-lg">{$catalog['common.appName']}</span>
   </div>
 
-  <nav class="flex-1 space-y-1 px-2" aria-label="primary">
+  <nav class="flex-1 space-y-1.5 px-3 py-3" aria-label="primary">
     {#each items as item (item.href)}
       {@const active = isActive(item, $activePath)}
       <a
         href={href(item.href)}
-        class="block rounded-md px-3 py-2 text-sm font-medium transition-colors hover:bg-slate-100 dark:hover:bg-slate-700"
+        class="group flex items-center rounded-xl px-3.5 py-2.5 text-sm font-medium transition-all duration-200 border border-transparent hover:border-white/20 hover:bg-white/15 dark:hover:bg-white/5 {active ? 'shadow-[0_4px_16px_rgba(34,197,94,0.15)]' : ''}"
         class:bg-accent-50={active}
         class:text-accent-700={active}
         class:dark:bg-slate-700={active}
@@ -53,13 +53,13 @@
         aria-current={active ? 'page' : undefined}
         data-testid={`nav-${item.labelKey}`}
       >
-        <span class="mr-2">{item.icon}</span>
-        <span>{$catalog[item.labelKey]}</span>
+        <span class="mr-2.5 text-base transition-transform duration-200 group-hover:scale-110">{item.icon}</span>
+        <span class="font-medium tracking-wide">{$catalog[item.labelKey]}</span>
       </a>
     {/each}
   </nav>
 
-  <div class="border-t border-slate-200 p-3 space-y-2 dark:border-slate-700">
+  <div class="border-t border-white/20 p-3.5 space-y-2 dark:border-white/10">
     <ThemeToggle />
     <LocaleSwitcher />
   </div>
