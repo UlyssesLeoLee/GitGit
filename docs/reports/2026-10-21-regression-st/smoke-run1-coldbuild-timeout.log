@@ -1,0 +1,2 @@
+[smoke] cargo build --locked --quiet (debug)
+
