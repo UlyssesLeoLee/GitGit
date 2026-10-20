@@ -1,0 +1,317 @@
+{
+  "tier": "it",
+  "started": "2026-10-21T07:44:30.8654039+09:00",
+  "ended": "2026-10-21T07:44:41.4481388+09:00",
+  "pass": 51,
+  "fail": 0,
+  "skip": 0,
+  "total": 51,
+  "cases": [
+    {
+      "name": "it.auth.anon.repos.status",
+      "outcome": "pass",
+      "detail": "expected=401 actual=401",
+      "durationSec": 0.002
+    },
+    {
+      "name": "it.auth.anon.repos.bodyContains(unauthenticated)",
+      "outcome": "pass",
+      "detail": "body first 200 chars: {\"error\":\"authentication required\",\"code\":\"unauthenticated\"}",
+      "durationSec": 0.001
+    },
+    {
+      "name": "it.auth.wrong.repos.status",
+      "outcome": "pass",
+      "detail": "expected=401 actual=401",
+      "durationSec": 0.0
+    },
+    {
+      "name": "it.auth.health.status",
+      "outcome": "pass",
+      "detail": "expected=200 actual=200",
+      "durationSec": 0.0
+    },
+    {
+      "name": "it.GET./api/health.status",
+      "outcome": "pass",
+      "detail": "expected=200 actual=200",
+      "durationSec": 0.0
+    },
+    {
+      "name": "it.GET./api/health.contains(\"status\":\"ok\")",
+      "outcome": "pass",
+      "detail": "needle=\"status\":\"ok\" body={\"status\":\"ok\",\"version\":\"0.1.0\",\"backend\":\"versioned\",\"vault_online\":true}",
+      "durationSec": 0.0
+    },
+    {
+      "name": "it.GET./api/health.contains(\"backend\":\"versioned\")",
+      "outcome": "pass",
+      "detail": "needle=\"backend\":\"versioned\" body={\"status\":\"ok\",\"version\":\"0.1.0\",\"backend\":\"versioned\",\"vault_online\":true}",
+      "durationSec": 0.0
+    },
+    {
+      "name": "it.GET./api/health.contains(\"vault_online\":true)",
+      "outcome": "pass",
+      "detail": "needle=\"vault_online\":true body={\"status\":\"ok\",\"version\":\"0.1.0\",\"backend\":\"versioned\",\"vault_online\":true}",
+      "durationSec": 0.0
+    },
+    {
+      "name": "it.GET./api/repos.status",
+      "outcome": "pass",
+      "detail": "expected=200 actual=200",
+      "durationSec": 0.0
+    },
+    {
+      "name": "it.GET./api/repos.shape=array",
+      "outcome": "pass",
+      "detail": "expected JSON array",
+      "durationSec": 0.0
+    },
+    {
+      "name": "it.GET./api/repos.arrayLen",
+      "outcome": "pass",
+      "detail": "expected=2 actual=2",
+      "durationSec": 0.0
+    },
+    {
+      "name": "it.GET./api/repos/does-not-exist.status",
+      "outcome": "pass",
+      "detail": "expected=404 actual=404",
+      "durationSec": 0.0
+    },
+    {
+      "name": "it.GET./api/repos/..%2Fescape.status",
+      "outcome": "pass",
+      "detail": "expected=400 actual=400",
+      "durationSec": 0.0
+    },
+    {
+      "name": "it.GET./api/repos/..%2Fescape.bodyContains(invalid repo name)",
+      "outcome": "pass",
+      "detail": "body first 200 chars: {\"error\":\"invalid repo name: ../escape\",\"code\":\"invalid_repo_name\"}",
+      "durationSec": 0.0
+    },
+    {
+      "name": "it.GET./api/repos/alpha/refs.status",
+      "outcome": "pass",
+      "detail": "expected=200 actual=200",
+      "durationSec": 0.0
+    },
+    {
+      "name": "it.GET./api/repos/alpha/refs.shape=array",
+      "outcome": "pass",
+      "detail": "expected JSON array",
+      "durationSec": 0.0
+    },
+    {
+      "name": "it.GET./api/repos/alpha/refs.arrayLen>=0",
+      "outcome": "pass",
+      "detail": "actual=0",
+      "durationSec": 0.0
+    },
+    {
+      "name": "it.GET./api/repos/alpha/log.status",
+      "outcome": "pass",
+      "detail": "expected=200 actual=200",
+      "durationSec": 0.0
+    },
+    {
+      "name": "it.GET./api/repos/alpha/log.shape=array",
+      "outcome": "pass",
+      "detail": "expected JSON array",
+      "durationSec": 0.0
+    },
+    {
+      "name": "it.GET./api/repos/alpha.status",
+      "outcome": "pass",
+      "detail": "expected=200 actual=200",
+      "durationSec": 0.0
+    },
+    {
+      "name": "it.GET./api/repos/alpha.contains(\"name\":\"alpha\")",
+      "outcome": "pass",
+      "detail": "needle=\"name\":\"alpha\" body={\"name\":\"alpha\",\"path\":\"C:\\\\Users\\\\leo19\\\\AppData\\\\Local\\\\Temp\\\\gitgit-it-5cd206c314de48ce8ba4a73fd07c62c3\\\\repos\\\\alpha.git\",\"head_ref\":\"refs/heads/master\",\"head_sha\":\"HEAD\",\"ref_count\":0,\"refs\":[],\"log\":[]}",
+      "durationSec": 0.0
+    },
+    {
+      "name": "it.GET./api/repos/alpha.contains(\"path\":)",
+      "outcome": "pass",
+      "detail": "needle=\"path\": body={\"name\":\"alpha\",\"path\":\"C:\\\\Users\\\\leo19\\\\AppData\\\\Local\\\\Temp\\\\gitgit-it-5cd206c314de48ce8ba4a73fd07c62c3\\\\repos\\\\alpha.git\",\"head_ref\":\"refs/heads/master\",\"head_sha\":\"HEAD\",\"ref_count\":0,\"refs\":[],\"log\":[]}",
+      "durationSec": 0.0
+    },
+    {
+      "name": "it.GET./api/repos/alpha.contains(\"refs\":)",
+      "outcome": "pass",
+      "detail": "needle=\"refs\": body={\"name\":\"alpha\",\"path\":\"C:\\\\Users\\\\leo19\\\\AppData\\\\Local\\\\Temp\\\\gitgit-it-5cd206c314de48ce8ba4a73fd07c62c3\\\\repos\\\\alpha.git\",\"head_ref\":\"refs/heads/master\",\"head_sha\":\"HEAD\",\"ref_count\":0,\"refs\":[],\"log\":[]}",
+      "durationSec": 0.0
+    },
+    {
+      "name": "it.GET./api/repos/alpha.contains(\"log\":)",
+      "outcome": "pass",
+      "detail": "needle=\"log\": body={\"name\":\"alpha\",\"path\":\"C:\\\\Users\\\\leo19\\\\AppData\\\\Local\\\\Temp\\\\gitgit-it-5cd206c314de48ce8ba4a73fd07c62c3\\\\repos\\\\alpha.git\",\"head_ref\":\"refs/heads/master\",\"head_sha\":\"HEAD\",\"ref_count\":0,\"refs\":[],\"log\":[]}",
+      "durationSec": 0.0
+    },
+    {
+      "name": "it.GET./api/vault/keys.status",
+      "outcome": "pass",
+      "detail": "expected=200 actual=200",
+      "durationSec": 0.0
+    },
+    {
+      "name": "it.GET./api/vault/keys.shape=array",
+      "outcome": "pass",
+      "detail": "expected JSON array",
+      "durationSec": 0.0
+    },
+    {
+      "name": "it.GET./api/vault/keys.arrayLen",
+      "outcome": "pass",
+      "detail": "expected=0 actual=0",
+      "durationSec": 0.0
+    },
+    {
+      "name": "it.POST./api/vault/keys/openai/versions.with-body.status",
+      "outcome": "pass",
+      "detail": "expected=200 actual=200",
+      "durationSec": 0.0
+    },
+    {
+      "name": "it.POST./api/vault/keys/openai/versions.with-body.contains(\"version\":1)",
+      "outcome": "pass",
+      "detail": "needle=\"version\":1 body={\"key\":\"openai\",\"version\":1}",
+      "durationSec": 0.0
+    },
+    {
+      "name": "it.POST./api/vault/keys/openai/versions.with-body.contains(\"key\":\"openai\")",
+      "outcome": "pass",
+      "detail": "needle=\"key\":\"openai\" body={\"key\":\"openai\",\"version\":1}",
+      "durationSec": 0.0
+    },
+    {
+      "name": "it.POST./api/vault/keys/openai/versions.with-body.status",
+      "outcome": "pass",
+      "detail": "expected=400 actual=400",
+      "durationSec": 0.0
+    },
+    {
+      "name": "it.POST./api/vault/keys/openai/versions.with-body.bodyContains(value)",
+      "outcome": "pass",
+      "detail": "body first 200 chars: {\"error\":\"http error: value must not be empty\",\"code\":\"bad_request\"}",
+      "durationSec": 0.0
+    },
+    {
+      "name": "it.POST./api/vault/keys/openai/versions.with-body.status",
+      "outcome": "pass",
+      "detail": "expected=200 actual=200",
+      "durationSec": 0.0
+    },
+    {
+      "name": "it.POST./api/vault/keys/openai/versions.with-body.contains(\"version\":2)",
+      "outcome": "pass",
+      "detail": "needle=\"version\":2 body={\"key\":\"openai\",\"version\":2}",
+      "durationSec": 0.0
+    },
+    {
+      "name": "it.GET./api/vault/keys/openai.status",
+      "outcome": "pass",
+      "detail": "expected=200 actual=200",
+      "durationSec": 0.0
+    },
+    {
+      "name": "it.GET./api/vault/keys/openai.contains(\"key\":\"openai\")",
+      "outcome": "pass",
+      "detail": "needle=\"key\":\"openai\" body={\"key\":\"openai\",\"value\":\"sk-openai-def\",\"current_version\":2,\"byte_len\":13,\"bytes_sha256\":\"ef39f16e0b2f3180dea6738da05dc6d896ea9ab8195e0c0b541581d608fb0189\",\"created_at_unix_ms\":1792536279669,\"change_note\":null}",
+      "durationSec": 0.0
+    },
+    {
+      "name": "it.GET./api/vault/keys/openai.contains(\"current_version\":2)",
+      "outcome": "pass",
+      "detail": "needle=\"current_version\":2 body={\"key\":\"openai\",\"value\":\"sk-openai-def\",\"current_version\":2,\"byte_len\":13,\"bytes_sha256\":\"ef39f16e0b2f3180dea6738da05dc6d896ea9ab8195e0c0b541581d608fb0189\",\"created_at_unix_ms\":1792536279669,\"change_note\":null}",
+      "durationSec": 0.0
+    },
+    {
+      "name": "it.GET./api/vault/keys/openai/versions.status",
+      "outcome": "pass",
+      "detail": "expected=200 actual=200",
+      "durationSec": 0.0
+    },
+    {
+      "name": "it.GET./api/vault/keys/openai/versions.contains(\"key\":\"openai\")",
+      "outcome": "pass",
+      "detail": "needle=\"key\":\"openai\" body={\"key\":\"openai\",\"versions\":[{\"version\":1,\"bytes_sha256\":\"476340dfab456e7c2d38b1faf6d29c92081fd08b7048db0ff8f5c2b80342aeb4\",\"byte_len\":13,\"created_at_unix_ms\":1792536279179,\"change_note\":null},{\"version\":2,\"bytes_sha256\":\"ef39f16e0b2f3180dea6738da05dc6d896ea9ab8195e0c0b541581d608fb0189\",\"byte_len\":13,\"created_at_unix_ms\":1792536279669,\"change_note\":null}]}",
+      "durationSec": 0.0
+    },
+    {
+      "name": "it.GET./api/vault/keys/openai/versions.contains(\"versions\":)",
+      "outcome": "pass",
+      "detail": "needle=\"versions\": body={\"key\":\"openai\",\"versions\":[{\"version\":1,\"bytes_sha256\":\"476340dfab456e7c2d38b1faf6d29c92081fd08b7048db0ff8f5c2b80342aeb4\",\"byte_len\":13,\"created_at_unix_ms\":1792536279179,\"change_note\":null},{\"version\":2,\"bytes_sha256\":\"ef39f16e0b2f3180dea6738da05dc6d896ea9ab8195e0c0b541581d608fb0189\",\"byte_len\":13,\"created_at_unix_ms\":1792536279669,\"change_note\":null}]}",
+      "durationSec": 0.0
+    },
+    {
+      "name": "it.GET./api/vault/keys/openai/versions.shape=object",
+      "outcome": "pass",
+      "detail": "expected JSON object",
+      "durationSec": 0.0
+    },
+    {
+      "name": "it.GET./api/vault/keys/openai/diff?base=1&head=2.status",
+      "outcome": "pass",
+      "detail": "expected=200 actual=200",
+      "durationSec": 0.0
+    },
+    {
+      "name": "it.GET./api/vault/keys/openai/diff?base=1&head=2.contains(\"base\":)",
+      "outcome": "pass",
+      "detail": "needle=\"base\": body={\"base\":{\"version\":1,\"bytes_sha256\":\"476340dfab456e7c2d38b1faf6d29c92081fd08b7048db0ff8f5c2b80342aeb4\",\"byte_len\":13,\"created_at_unix_ms\":1792536279179,\"change_note\":null},\"head\":{\"version\":2,\"bytes_sha256\":\"ef39f16e0b2f3180dea6738da05dc6d896ea9ab8195e0c0b541581d608fb0189\",\"byte_len\":13,\"created_at_unix_ms\":1792536279669,\"change_note\":null},\"object_changed\":true,\"file_size_delta\":0}",
+      "durationSec": 0.0
+    },
+    {
+      "name": "it.GET./api/vault/keys/openai/diff?base=1&head=2.contains(\"head\":)",
+      "outcome": "pass",
+      "detail": "needle=\"head\": body={\"base\":{\"version\":1,\"bytes_sha256\":\"476340dfab456e7c2d38b1faf6d29c92081fd08b7048db0ff8f5c2b80342aeb4\",\"byte_len\":13,\"created_at_unix_ms\":1792536279179,\"change_note\":null},\"head\":{\"version\":2,\"bytes_sha256\":\"ef39f16e0b2f3180dea6738da05dc6d896ea9ab8195e0c0b541581d608fb0189\",\"byte_len\":13,\"created_at_unix_ms\":1792536279669,\"change_note\":null},\"object_changed\":true,\"file_size_delta\":0}",
+      "durationSec": 0.0
+    },
+    {
+      "name": "it.GET./api/vault/keys/openai/diff?base=1&head=2.contains(\"object_changed\":)",
+      "outcome": "pass",
+      "detail": "needle=\"object_changed\": body={\"base\":{\"version\":1,\"bytes_sha256\":\"476340dfab456e7c2d38b1faf6d29c92081fd08b7048db0ff8f5c2b80342aeb4\",\"byte_len\":13,\"created_at_unix_ms\":1792536279179,\"change_note\":null},\"head\":{\"version\":2,\"bytes_sha256\":\"ef39f16e0b2f3180dea6738da05dc6d896ea9ab8195e0c0b541581d608fb0189\",\"byte_len\":13,\"created_at_unix_ms\":1792536279669,\"change_note\":null},\"object_changed\":true,\"file_size_delta\":0}",
+      "durationSec": 0.0
+    },
+    {
+      "name": "it.POST./api/vault/keys/openai/restore.with-body.status",
+      "outcome": "pass",
+      "detail": "expected=200 actual=200",
+      "durationSec": 0.0
+    },
+    {
+      "name": "it.POST./api/vault/keys/openai/restore.with-body.contains(\"new_version\":)",
+      "outcome": "pass",
+      "detail": "needle=\"new_version\": body={\"key\":\"openai\",\"target_version\":1,\"new_version\":3}",
+      "durationSec": 0.0
+    },
+    {
+      "name": "it.POST./api/vault/keys/openai/restore.with-body.status",
+      "outcome": "pass",
+      "detail": "expected=400 actual=400",
+      "durationSec": 0.0
+    },
+    {
+      "name": "it.POST./api/vault/keys/openai/restore.with-body.bodyContains(target_version)",
+      "outcome": "pass",
+      "detail": "body first 200 chars: {\"error\":\"http error: target_version must be >= 1\",\"code\":\"bad_request\"}",
+      "durationSec": 0.0
+    },
+    {
+      "name": "it.GET./api/vault/keys/nope.status",
+      "outcome": "pass",
+      "detail": "expected=200 actual=200",
+      "durationSec": 0.0
+    },
+    {
+      "name": "it.DELETE./api/vault/keys/openai.status",
+      "outcome": "pass",
+      "detail": "expected=204 actual=204",
+      "durationSec": 0.0
+    }
+  ]
+}
