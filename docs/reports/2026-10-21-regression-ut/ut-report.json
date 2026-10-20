@@ -1,0 +1,161 @@
+{
+  "tier": "ut",
+  "started": "2026-10-21T07:45:13.5064209+09:00",
+  "ended": "2026-10-21T07:46:15.4173751+09:00",
+  "pass": 20,
+  "fail": 5,
+  "skip": 0,
+  "total": 25,
+  "cases": [
+    {
+      "name": "ut.total.passed.matches_baseline",
+      "outcome": "fail",
+      "detail": "expected=186 actual=214 :: expected=186 (per baseline.ut.expectedPassed)",
+      "durationSec": 0.005
+    },
+    {
+      "name": "ut.total.failed.zero",
+      "outcome": "pass",
+      "detail": "expected=0 actual=0",
+      "durationSec": 0.0
+    },
+    {
+      "name": "ut.total.ignored.matches_baseline",
+      "outcome": "pass",
+      "detail": "expected=2 actual=2",
+      "durationSec": 0.0
+    },
+    {
+      "name": "ut.total_count.matches_sum_of_modules",
+      "outcome": "fail",
+      "detail": "expected=188 actual=216 :: expected sum-of-modules=188",
+      "durationSec": 0.002
+    },
+    {
+      "name": "ut.module.ai::anthropic.count_matches_baseline",
+      "outcome": "pass",
+      "detail": "expected=3 actual=3",
+      "durationSec": 0.0
+    },
+    {
+      "name": "ut.module.ai::diff.count_matches_baseline",
+      "outcome": "pass",
+      "detail": "expected=6 actual=6",
+      "durationSec": 0.0
+    },
+    {
+      "name": "ut.module.ai::openai.count_matches_baseline",
+      "outcome": "pass",
+      "detail": "expected=5 actual=5",
+      "durationSec": 0.0
+    },
+    {
+      "name": "ut.module.ai::prompt.count_matches_baseline",
+      "outcome": "pass",
+      "detail": "expected=3 actual=3",
+      "durationSec": 0.0
+    },
+    {
+      "name": "ut.module.ai::registry.count_matches_baseline",
+      "outcome": "pass",
+      "detail": "expected=6 actual=6",
+      "durationSec": 0.0
+    },
+    {
+      "name": "ut.module.ai::sanitize.count_matches_baseline",
+      "outcome": "pass",
+      "detail": "expected=20 actual=20",
+      "durationSec": 0.0
+    },
+    {
+      "name": "ut.module.ai::stream.count_matches_baseline",
+      "outcome": "pass",
+      "detail": "expected=11 actual=11",
+      "durationSec": 0.0
+    },
+    {
+      "name": "ut.module.ai::tests.count_matches_baseline",
+      "outcome": "pass",
+      "detail": "expected=3 actual=3",
+      "durationSec": 0.0
+    },
+    {
+      "name": "ut.module.remote::sync.count_matches_baseline",
+      "outcome": "pass",
+      "detail": "expected=5 actual=5",
+      "durationSec": 0.0
+    },
+    {
+      "name": "ut.module.remote::tests.count_matches_baseline",
+      "outcome": "pass",
+      "detail": "expected=15 actual=15",
+      "durationSec": 0.0
+    },
+    {
+      "name": "ut.module.repo::refs.count_matches_baseline",
+      "outcome": "pass",
+      "detail": "expected=7 actual=7",
+      "durationSec": 0.0
+    },
+    {
+      "name": "ut.module.repo::status.count_matches_baseline",
+      "outcome": "pass",
+      "detail": "expected=25 actual=25",
+      "durationSec": 0.0
+    },
+    {
+      "name": "ut.module.repo::store.count_matches_baseline",
+      "outcome": "pass",
+      "detail": "expected=6 actual=6",
+      "durationSec": 0.0
+    },
+    {
+      "name": "ut.module.server::api.count_matches_baseline",
+      "outcome": "fail",
+      "detail": "expected=17 actual=25 :: baseline=17 observed=25",
+      "durationSec": 0.0
+    },
+    {
+      "name": "ut.module.server::auth.count_matches_baseline",
+      "outcome": "fail",
+      "detail": "expected=4 actual=15 :: baseline=4 observed=15",
+      "durationSec": 0.0
+    },
+    {
+      "name": "ut.module.server::http.count_matches_baseline",
+      "outcome": "fail",
+      "detail": "expected=7 actual=9 :: baseline=7 observed=9",
+      "durationSec": 0.0
+    },
+    {
+      "name": "ut.module.server::smart.count_matches_baseline",
+      "outcome": "pass",
+      "detail": "expected=4 actual=4",
+      "durationSec": 0.0
+    },
+    {
+      "name": "ut.module.server::subprocess.count_matches_baseline",
+      "outcome": "pass",
+      "detail": "expected=5 actual=5",
+      "durationSec": 0.0
+    },
+    {
+      "name": "ut.module.server::vault.count_matches_baseline",
+      "outcome": "pass",
+      "detail": "expected=17 actual=17",
+      "durationSec": 0.0
+    },
+    {
+      "name": "ut.module.server::vault_versioned.count_matches_baseline",
+      "outcome": "pass",
+      "detail": "expected=19 actual=19",
+      "durationSec": 0.0
+    },
+    {
+      "name": "ut.cargo_exit_code.is_zero",
+      "outcome": "pass",
+      "detail": "expected=0 actual=0",
+      "durationSec": 0.0
+    }
+  ]
+}
