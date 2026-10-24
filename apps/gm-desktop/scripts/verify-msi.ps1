@@ -311,9 +311,9 @@ function Test-AdminInstall {
         }
         $licenceText = Get-Content -LiteralPath $licence.FullName -Raw -ErrorAction SilentlyContinue
         # Two phrases, not one. A file that merely MENTIONS the licence would
-        # satisfy a title-only check - this repository's own README.md contains
-        # "GNU AFFERO GENERAL PUBLIC LICENSE" twice - so the check also wants a
-        # phrase that only the licence text itself carries.
+        # satisfy a title-only check - this repository's own README.md carries
+        # the licence title twice - so the check also wants a phrase that only
+        # the licence text itself carries.
         if ($licenceText -notmatch 'GNU AFFERO GENERAL PUBLIC LICENSE' -or
             $licenceText -notmatch 'TERMS AND CONDITIONS') {
             throw ("the licence file '$($licence.Name)' installed by '$([System.IO.Path]::GetFileName($Path))' does " +
