@@ -1,0 +1,412 @@
+{
+  "$comment": "GitGit frontend dependency-advisory baseline — a RECORD of what is known, NOT an ignore list. Every entry below (open and resolved) carries the GHSA id, the module, the exact version that was found and the patched range, so scripts/frontend-advisory-check.ps1 can re-verify it against the npm advisory database on every run. An entry the npm database cannot corroborate is rejected by the checker and fails the build — that is what stops this file from being used to smuggle in a suppression. There is deliberately no 'ignore', 'allow' or 'waiver' list anywhere in this repository's frontend path: `pnpm audit --ignore` and `pnpm.overrides` pinning a vulnerable version are both forbidden, because a gate that can be silenced is not a gate. The checker fails on any advisory that is NOT in `open`; an advisory in `open` that no longer appears in the audit is reported as informational (it was resolved) and does not fail the build.",
+  "schemaVersion": "1.0",
+  "capturedAt": "2026-10-24",
+  "capturedFrom": {
+    "branch": "origin/dev",
+    "head": "255ab92",
+    "pnpm": "9.15.9",
+    "node": "22.19.0",
+    "os": "Windows 11 (PowerShell 7.6.8)",
+    "registry": "https://registry.npmjs.org",
+    "auditCommand": "corepack pnpm@9.15.9 --dir apps/<app> audit --json"
+  },
+  "apps": {
+    "gm-desktop": {
+      "auditExitCode": 0,
+      "counts": {
+        "total": 0,
+        "critical": 0,
+        "high": 0,
+        "moderate": 0,
+        "low": 0
+      },
+      "open": [],
+      "resolved": [
+        {
+          "id": "GHSA-68fv-2mgg-jv7q",
+          "npmAdvisoryId": 1241209,
+          "module": "source-map-js",
+          "severity": "high",
+          "version": "1.2.1",
+          "patchedVersions": ">=1.2.2",
+          "tree": "dev",
+          "resolvedOn": "2026-10-24",
+          "resolvedBy": "source-map-js 1.2.1 -> 1.2.2 (transitive, re-resolved via postcss and @vitest/coverage-v8)"
+        },
+        {
+          "id": "GHSA-587h-7wmj-h5pm",
+          "npmAdvisoryId": 1242659,
+          "module": "vite",
+          "severity": "high",
+          "version": "7.3.6",
+          "patchedVersions": ">=7.3.7",
+          "tree": "dev",
+          "resolvedOn": "2026-10-24",
+          "resolvedBy": "vite 7.3.6 -> 7.3.7"
+        },
+        {
+          "id": "GHSA-698v-4r3x-3vcv",
+          "npmAdvisoryId": 1242623,
+          "module": "vite",
+          "severity": "moderate",
+          "version": "7.3.6",
+          "patchedVersions": ">=7.3.7",
+          "tree": "dev",
+          "resolvedOn": "2026-10-24",
+          "resolvedBy": "vite 7.3.6 -> 7.3.7"
+        },
+        {
+          "id": "GHSA-r825-w8mm-5pxw",
+          "npmAdvisoryId": 1242652,
+          "module": "vite",
+          "severity": "moderate",
+          "version": "7.3.6",
+          "patchedVersions": ">=7.3.7",
+          "tree": "dev",
+          "resolvedOn": "2026-10-24",
+          "resolvedBy": "vite 7.3.6 -> 7.3.7"
+        },
+        {
+          "id": "GHSA-rq7h-c2jc-7f22",
+          "npmAdvisoryId": 1242731,
+          "module": "vite",
+          "severity": "moderate",
+          "version": "7.3.6",
+          "patchedVersions": ">=7.3.7",
+          "tree": "dev",
+          "resolvedOn": "2026-10-24",
+          "resolvedBy": "vite 7.3.6 -> 7.3.7"
+        },
+        {
+          "id": "GHSA-9jrq-w75r-8gcw",
+          "npmAdvisoryId": 1242725,
+          "module": "vite",
+          "severity": "low",
+          "version": "7.3.6",
+          "patchedVersions": ">=7.3.7",
+          "tree": "dev",
+          "resolvedOn": "2026-10-24",
+          "resolvedBy": "vite 7.3.6 -> 7.3.7"
+        },
+        {
+          "id": "GHSA-48c2-rrv3-qjmp",
+          "npmAdvisoryId": 1115556,
+          "module": "yaml",
+          "severity": "moderate",
+          "version": "2.8.0",
+          "patchedVersions": ">=2.8.3",
+          "tree": "dev",
+          "resolvedOn": "2026-10-24",
+          "resolvedBy": "yaml 2.8.0 -> 2.8.3"
+        },
+        {
+          "id": "GHSA-mrhx-c7xc-m3w5",
+          "npmAdvisoryId": 1243066,
+          "module": "zod",
+          "severity": "high",
+          "version": "3.25.76",
+          "patchedVersions": ">=4.6.6",
+          "tree": "runtime",
+          "resolvedOn": "2026-10-24",
+          "resolvedBy": "zod removed from dependencies — it was declared but imported nowhere, so no migration was needed",
+          "note": "This is the one advisory that was declared as a production dependency. A source-level import scan of src/ and tests/ found no import of 'zod' in any form (static, dynamic import(), require(), or a resolve alias), so Vite never bundled it. The fix was deleting a dead dependency, not a 3 -> 4 migration."
+        },
+        {
+          "id": "GHSA-rj75-hqrm-r3gf",
+          "npmAdvisoryId": 1241232,
+          "module": "postcss-selector-parser",
+          "severity": "moderate",
+          "version": "6.1.4",
+          "patchedVersions": ">=7.1.6",
+          "tree": "dev",
+          "resolvedOn": "2026-10-24",
+          "resolvedBy": "postcss-selector-parser 6.1.4 -> 7.1.7 via a pnpm.overrides pin",
+          "note": "tailwindcss@3.4.19 declares postcss-selector-parser ^6.0.10, and every 6.x release is inside the advisory's vulnerable range (<7.1.6), so no in-range version clears it. The pin moves the package to 7.1.7, which is inside the advisory's own patched range (>=7.1.6) — it is not a suppression, and `pnpm audit` reports no finding because the version is genuinely fixed, not because anything was ignored. The override is a forced major substitution (6.x -> 7.x) under a parent that declares ^6.0.10, so it was verified rather than assumed: the generated CSS is byte-identical before and after (sha256 unchanged), the build succeeds, and the full test suite stays green."
+        }
+      ]
+    },
+    "gm-console": {
+      "auditExitCode": 1,
+      "counts": {
+        "total": 15,
+        "critical": 3,
+        "high": 2,
+        "moderate": 9,
+        "low": 1
+      },
+      "open": [
+        {
+          "id": "GHSA-5gmw-xhrv-c9v3",
+          "npmAdvisoryId": 1241260,
+          "module": "tinypool",
+          "severity": "critical",
+          "version": "1.1.1",
+          "vulnerableVersions": "<=2.1.0",
+          "patchedVersions": ">=2.1.1",
+          "tree": "dev",
+          "roots": [
+            "@vitest/coverage-v8",
+            "vitest"
+          ],
+          "title": "Tinypool: Prototype Pollution gadget in worker options leads to Remote Code Execution"
+        },
+        {
+          "id": "GHSA-85c8-ppgw-ccpr",
+          "npmAdvisoryId": 1241261,
+          "module": "tinypool",
+          "severity": "critical",
+          "version": "1.1.1",
+          "vulnerableVersions": "<2.1.2",
+          "patchedVersions": ">=2.1.2",
+          "tree": "dev",
+          "roots": [
+            "@vitest/coverage-v8",
+            "vitest"
+          ],
+          "title": "Tinypool: Prototype Pollution Gadget to RCE in run() options"
+        },
+        {
+          "id": "GHSA-5xrq-8626-4rwp",
+          "npmAdvisoryId": 1139528,
+          "module": "vitest",
+          "severity": "critical",
+          "version": "2.1.9",
+          "vulnerableVersions": "<3.2.6",
+          "patchedVersions": ">=3.2.6",
+          "tree": "dev",
+          "roots": [
+            "@vitest/coverage-v8",
+            "vitest"
+          ],
+          "title": "When Vitest UI server is listening, arbitrary file can be read and executed"
+        },
+        {
+          "id": "GHSA-587h-7wmj-h5pm",
+          "npmAdvisoryId": 1242658,
+          "module": "vite",
+          "severity": "high",
+          "version": "5.4.21",
+          "vulnerableVersions": "<=6.4.3",
+          "patchedVersions": ">=6.4.4",
+          "tree": "dev",
+          "roots": [
+            "@vitejs/plugin-react",
+            "@vitest/coverage-v8",
+            "vite",
+            "vitest"
+          ],
+          "title": "launch-editor: `fs.existsSync()` existence check can be bypassed on Windows"
+        },
+        {
+          "id": "GHSA-fx2h-pf6j-xcff",
+          "npmAdvisoryId": 1123525,
+          "module": "vite",
+          "severity": "high",
+          "version": "5.4.21",
+          "vulnerableVersions": "<=6.4.2",
+          "patchedVersions": ">=6.4.3",
+          "tree": "dev",
+          "roots": [
+            "@vitejs/plugin-react",
+            "@vitest/coverage-v8",
+            "vite",
+            "vitest"
+          ],
+          "title": "vite: `server.fs.deny` bypass on Windows alternate paths"
+        },
+        {
+          "id": "GHSA-82fw-gwwq-j7x9",
+          "npmAdvisoryId": 1193684,
+          "module": "@vitest/mocker",
+          "severity": "moderate",
+          "version": "2.1.9",
+          "vulnerableVersions": ">=2.1.0 <4.1.11",
+          "patchedVersions": ">=4.1.11",
+          "tree": "dev",
+          "roots": [
+            "@vitest/coverage-v8",
+            "vitest"
+          ],
+          "title": "Vitest: Path Traversal / Arbitrary File Read via @vitest/mocker Redirect Mock"
+        },
+        {
+          "id": "GHSA-qxg6-89mg-rqv8",
+          "npmAdvisoryId": 1242767,
+          "module": "@vitest/mocker",
+          "severity": "moderate",
+          "version": "2.1.9",
+          "vulnerableVersions": ">=2.1.0-beta.7 <4.1.12",
+          "patchedVersions": ">=4.1.12",
+          "tree": "dev",
+          "roots": [
+            "@vitest/coverage-v8",
+            "vitest"
+          ],
+          "title": "Vitest: Code injection via unauthenticated manual mock registration"
+        },
+        {
+          "id": "GHSA-67mh-4wv8-2f99",
+          "npmAdvisoryId": 1102341,
+          "module": "esbuild",
+          "severity": "moderate",
+          "version": "0.21.5",
+          "vulnerableVersions": "<=0.24.2",
+          "patchedVersions": ">=0.25.0",
+          "tree": "dev",
+          "roots": [
+            "@vitejs/plugin-react",
+            "@vitest/coverage-v8",
+            "vite",
+            "vitest"
+          ],
+          "title": "esbuild enables any website to send any requests to the development server and read the response"
+        },
+        {
+          "id": "GHSA-4w7w-66w2-5vf9",
+          "npmAdvisoryId": 1116229,
+          "module": "vite",
+          "severity": "moderate",
+          "version": "5.4.21",
+          "vulnerableVersions": "<=6.4.1",
+          "patchedVersions": ">=6.4.2",
+          "tree": "dev",
+          "roots": [
+            "@vitejs/plugin-react",
+            "@vitest/coverage-v8",
+            "vite",
+            "vitest"
+          ],
+          "title": "Vite Vulnerable to Path Traversal in Optimized Deps `.map` Handling"
+        },
+        {
+          "id": "GHSA-698v-4r3x-3vcv",
+          "npmAdvisoryId": 1242622,
+          "module": "vite",
+          "severity": "moderate",
+          "version": "5.4.21",
+          "vulnerableVersions": "<=6.4.3",
+          "patchedVersions": ">=6.4.4",
+          "tree": "dev",
+          "roots": [
+            "@vitejs/plugin-react",
+            "@vitest/coverage-v8",
+            "vite",
+            "vitest"
+          ],
+          "title": "launch-editor: escapeCmdArgs() omits % escaping on Windows"
+        },
+        {
+          "id": "GHSA-r825-w8mm-5pxw",
+          "npmAdvisoryId": 1242651,
+          "module": "vite",
+          "severity": "moderate",
+          "version": "5.4.21",
+          "vulnerableVersions": "<=6.4.3",
+          "patchedVersions": ">=6.4.4",
+          "tree": "dev",
+          "roots": [
+            "@vitejs/plugin-react",
+            "@vitest/coverage-v8",
+            "vite",
+            "vitest"
+          ],
+          "title": "launch-editor: Editor CLI flag misinterpretation causing arbitrary command execution for some editors"
+        },
+        {
+          "id": "GHSA-rq7h-c2jc-7f22",
+          "npmAdvisoryId": 1242730,
+          "module": "vite",
+          "severity": "moderate",
+          "version": "5.4.21",
+          "vulnerableVersions": "<=6.4.3",
+          "patchedVersions": ">=6.4.4",
+          "tree": "dev",
+          "roots": [
+            "@vitejs/plugin-react",
+            "@vitest/coverage-v8",
+            "vite",
+            "vitest"
+          ],
+          "title": "Vite: Files outside `server.fs.allow` could be served when project paths match system paths on non-Windows machine"
+        },
+        {
+          "id": "GHSA-v6wh-96g9-6wx3",
+          "npmAdvisoryId": 1120784,
+          "module": "vite",
+          "severity": "moderate",
+          "version": "5.4.21",
+          "vulnerableVersions": "<=6.4.2",
+          "patchedVersions": ">=6.4.3",
+          "tree": "dev",
+          "roots": [
+            "@vitejs/plugin-react",
+            "@vitest/coverage-v8",
+            "vite",
+            "vitest"
+          ],
+          "title": "launch-editor: NTLMv2 hash disclosure via UNC path handling on Windows"
+        },
+        {
+          "id": "GHSA-82fw-gwwq-j7x9",
+          "npmAdvisoryId": 1193683,
+          "module": "vitest",
+          "severity": "moderate",
+          "version": "2.1.9",
+          "vulnerableVersions": ">=2.1.0 <4.1.11",
+          "patchedVersions": ">=4.1.11",
+          "tree": "dev",
+          "roots": [
+            "@vitest/coverage-v8",
+            "vitest"
+          ],
+          "title": "Vitest: Path Traversal / Arbitrary File Read via @vitest/mocker Redirect Mock"
+        },
+        {
+          "id": "GHSA-9jrq-w75r-8gcw",
+          "npmAdvisoryId": 1242724,
+          "module": "vite",
+          "severity": "low",
+          "version": "5.4.21",
+          "vulnerableVersions": "<=6.4.3",
+          "patchedVersions": ">=6.4.4",
+          "tree": "dev",
+          "roots": [
+            "@vitejs/plugin-react",
+            "@vitest/coverage-v8",
+            "vite",
+            "vitest"
+          ],
+          "title": "Vite: Cross origin script execution through Vite custom middleware"
+        }
+      ],
+      "resolved": [
+        {
+          "id": "GHSA-mrhx-c7xc-m3w5",
+          "npmAdvisoryId": 1243066,
+          "module": "zod",
+          "severity": "high",
+          "version": "3.25.76",
+          "patchedVersions": ">=4.6.6",
+          "tree": "runtime",
+          "resolvedOn": "2026-10-24",
+          "resolvedBy": "zod removed from dependencies — it was declared but imported nowhere, so no migration was needed",
+          "note": "Declared as a production dependency of gm-console but imported nowhere in src/ or tests/. react-hook-form and @hookform/resolvers were removed with it as the same dead form-validation stack; those two carry no advisory, so their removal is hygiene rather than a security fix."
+        },
+        {
+          "id": "GHSA-rj75-hqrm-r3gf",
+          "npmAdvisoryId": 1241232,
+          "module": "postcss-selector-parser",
+          "severity": "moderate",
+          "version": "6.1.4",
+          "patchedVersions": ">=7.1.6",
+          "tree": "dev",
+          "resolvedOn": "2026-10-24",
+          "resolvedBy": "postcss-selector-parser 6.1.4 -> 7.1.7 via a pnpm.overrides pin",
+          "note": "tailwindcss@3.4.19 declares postcss-selector-parser ^6.0.10, and every 6.x release is inside the advisory's vulnerable range (<7.1.6), so no in-range version clears it. The pin moves the package to 7.1.7, which is inside the advisory's own patched range (>=7.1.6) — it is not a suppression, and `pnpm audit` reports no finding because the version is genuinely fixed, not because anything was ignored. The override is a forced major substitution (6.x -> 7.x) under a parent that declares ^6.0.10, so it was verified rather than assumed: the generated CSS is byte-identical before and after (sha256 unchanged), the build succeeds, and the full test suite stays green."
+        }
+      ]
+    }
+  },
+  "rationale": "Captured 2026-10-24 by measuring `corepack pnpm@9.15.9 --dir apps/<app> audit --json` on the tree at 255ab92 with the dependency changes in this branch applied. gm-desktop measured 9 advisories before the change (0 critical / 3 high / 5 moderate / 1 low) and 0 after. gm-console measured 17 advisories before the change (3 critical / 3 high / 10 moderate / 1 low) and 15 after (3 critical / 2 high / 9 moderate / 1 low). Every entry in `open` was in the audit output at capture time; every entry in `resolved` was in the audit output before the change and is corroborated by the npm advisory database for the recorded version, so the checker can re-verify the whole file rather than take it on trust. `tree` records whether the advisory's dependency path starts at a production or a development dependency of the app's package.json; `roots` names those direct dependencies. Updating this file is a deliberate baseline change: the Rust-side sibling lane owns `scripts/advisory-baseline.json` for Cargo advisories and this file is the separate npm-side counterpart, never a superset of it. A gate that cannot pass gets switched off, which is why this is a ratchet (fail on anything new) rather than a hard gate (fail on anything present): gm-console still carries 15 open advisories, so a hard gate would have been red on its first run and would have been turned off. The ratchet only fails on a NEW advisory, which is the property worth protecting. Note that gm-desktop's open list is empty — that is a measurement, not an exemption: `pnpm audit` exits 0 there."
+}

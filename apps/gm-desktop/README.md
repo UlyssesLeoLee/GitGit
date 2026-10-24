@@ -21,12 +21,24 @@
 | 层 | 技术 |
 |---|---|
 | 桌面壳 | Tauri 2.x (`tauri = "2"`) |
-| 前端 | Svelte 5 + TypeScript (strict) + Vite 5 |
+| 前端 | Svelte 5 + TypeScript (strict) + Vite 7 |
 | 样式 | Tailwind CSS 3 |
-| 路由 | `svelte-spa-router` |
-| 表单 | `felte` + `zod` |
+| 路由 | 自研 hash 路由(`src/lib/router.ts` + `Router.svelte`) |
+| 表单 | 无第三方表单库 |
 | 测试 | `vitest` + `@testing-library/svelte` |
 | 后端 (Tauri Rust 侧) | `tokio` + `reqwest` + 复用 `gitgit` crate 内部模块 |
+
+> `[FACT]` **2026-10-24 更正**,原表有三行已不成立:
+> - `Vite 5` → 实际是 **Vite 7**(`"vite": "^7.3.7"`)。
+> - `svelte-spa-router` → 已被自研 hash 路由取代。该库引入 `afterUpdate`,
+>   而 Svelte 5 的 runes 模式禁止该 API,`vite build` 直接失败;它还用 URL hash
+>   驱动导航,而应用发的是普通 `<a href="/repos">` 锚点,两套契约对不上。
+>   替代品见 `src/lib/router.ts` 顶部的说明。
+> - `felte` + `zod` → **两者都不是依赖了**。源码级 import 扫描确认
+>   `src/` 与 `tests/` 里没有 `felte`、没有 `zod`、也没有 `useForm` 或 `<form>`;
+>   依赖表里那两条是没人用的死条目,已删除。其中 `zod` 曾带一条 HIGH 告警
+>   (`GHSA-mrhx-c7xc-m3w5`),修法是删掉它,不是做 zod 3 → 4 迁移。
+>   依据见 [`SECURITY.md`](../../SECURITY.md) 的 "Dependency advisories" 一节。
 
 ## 工作目录 / Layout
 

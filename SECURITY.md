@@ -117,25 +117,118 @@ on 2026-10-05 (`quick-xml` 0.38.4 twice, `rustls` 0.23.43) were cleared the
 same day by moving `rust-s3` to 0.38.0, `quick-xml` to 0.41.0, and `rustls` to
 0.23.45.
 
-Note that the gate covers Rust dependencies only. Measured on 2026-10-05, the two
-frontends carry their own advisories and have no equivalent CI gate:
+### The frontends have a gate now
 
-| Frontend | Advisories | Severity split |
-| --- | --- | --- |
-| `apps/gm-desktop` | 8 | 1 critical, 2 high, 5 moderate |
-| `apps/gm-console` | 10 | 1 critical, 2 high, 7 moderate |
+`[FACT]` Until 2026-10-24 the two frontends had **no** dependency-advisory CI
+gate: nothing in any workflow ran `pnpm audit`. The `frontend-audit` workflow
+closes that gap. It is a **ratchet**, not a hard gate — `pnpm audit` exits
+non-zero today, so a gate that failed on everything already present would have
+been red on its first run and would then have been switched off. That is not a
+hypothetical: the Rust-side unit-test count contract sat unenforced for 19 days
+for exactly this reason. The gate fails on any advisory that is **not** in
+`scripts/frontend-advisory-baseline.json`, and it names it.
 
-In `gm-desktop` every advisory sits in a devDependency chain — `vitest`,
-`@vitest/coverage-v8`, `vite`, `esbuild`, and `braces` under `tailwindcss` —
-and the production dependency list is only `@tauri-apps/api`, five Tauri
-plugins, `felte` and `zod`. None of it ships in the packaged application, so
-these are developer-machine risks (a hostile dev server, a Vite `fs.deny`
-bypass on Windows) rather than end-user exposure. `gm-console` additionally
-carries two `react-router@6.30.6` advisories that are in its runtime tree.
+`[FACT]` The baseline is a **record of what is known, not an ignore list**.
+Every entry in it carries the advisory id, the package, the measured version
+and the patched range, and the checker re-verifies each entry against the npm
+advisory database on every run — an entry the database does not corroborate is
+rejected and fails the build. There is no `pnpm audit --ignore` in this
+repository, no waiver list, and no `pnpm.overrides` entry pinning a vulnerable
+version. The checker parses the audit's JSON rather than grepping its text.
 
-The fixes are all major-version moves — `vitest` 2 -> 3 or 4, `vite` 5 -> 6,
-`react-router` 6 -> 7 — so each needs the frontend test suite re-verified
-rather than a lockfile edit, and `braces` has no patched 3.x release at all.
+`[FACT]` An advisory that has disappeared is reported as informational and does
+not fail the build — a fixed advisory is good news. The three verdicts are
+*new* (in the audit, absent from the baseline — fails and is named), *resolved*
+(in the baseline, gone from the audit — informational) and *fabricated* (in the
+baseline, but not in the npm advisory database — fails and is named).
+
+### Measured advisory state
+
+`[FACT]` Measured 2026-10-24 with `corepack pnpm@9.15.9 audit --json` over the
+committed lockfiles:
+
+| Frontend | Before this change | After | Severity split after |
+| --- | --- | --- | --- |
+| `apps/gm-desktop` | 9 | 0 | — |
+| `apps/gm-console` | 17 | 15 | 3 critical, 2 high, 9 moderate, 1 low |
+
+`[FACT]` The "before" column is the same command on the tree at `255ab92`:
+`gm-desktop` 9 (0 critical, 3 high, 5 moderate, 1 low), `gm-console` 17
+(3 critical, 3 high, 10 moderate, 1 low). The 2026-10-05 figures in earlier
+revisions of this file (8 and 10) were stale, and the counts below are
+measurements rather than carried-over numbers.
+
+### Which of these reach a user
+
+`[FACT]` All 15 remaining `gm-console` advisories sit in a devDependency
+chain, and `gm-desktop` has none. This is established from the audit's own
+dependency `paths` rather than from the `package.json` label: `pnpm audit
+--json` reports the chain each advisory arrives through, and the first hop
+after the project root names the direct dependency. For all 15 the first hop is
+`vite`, `vitest` or `@vitest/coverage-v8`, all devDependencies.
+
+`[FACT]` **`package.json` says what is declared; only an import says what
+ships.** A source-level import scan of `apps/gm-desktop/src` and
+`apps/gm-desktop/tests` finds that of the declared production dependencies only
+`@tauri-apps/api` (`core`, `event`) and `@tauri-apps/plugin-dialog` are
+imported anywhere; the other `@tauri-apps/plugin-*` packages are imported
+nowhere. The same scan of `apps/gm-console/src` and `apps/gm-console/tests`
+finds `zod`, `react-hook-form` and `@hookform/resolvers` imported nowhere.
+Vite bundles what is imported, so none of those packages ever reached a
+packaged artefact.
+
+`[FACT]` **`zod` was declared as a production dependency of both frontends and
+carried a HIGH advisory (GHSA-mrhx-c7xc-m3w5, memory exhaustion while
+validating oversized collections), but it was imported nowhere in either app's
+source or tests, so Vite never bundled it and it never reached a packaged
+artefact.** It was removed on 2026-10-24 — the fix was deleting a dead
+dependency, not a `zod` 3 → 4 migration. The same removal took
+`react-hook-form` and `@hookform/resolvers` in `gm-console` and `felte` in
+`gm-desktop`; those carry no advisory, so their removal is hygiene rather than
+a security fix.
+
+`[FACT]` `gm-console`'s `react-router` is `7.18.4` (the `6.30.6` advisories
+are gone — the 6 → 7 upgrade was done before this change), and it carries no
+advisory.
+
+### What was closed, and what still blocks
+
+`[FACT]` Closed in `gm-desktop`: `vite` 7.3.6 → 7.3.7 (1 high, 4 moderate,
+1 low), `yaml` 2.8.0 → 2.8.3 (1 moderate), `source-map-js` 1.2.1 → 1.2.2
+(1 high), `postcss-selector-parser` 6.1.4 → 7.1.7 (1 moderate), and `zod`
+removed (1 high). Each was backed by a green test suite — `gm-desktop` runs
+35 test files / 533 tests.
+
+`[FACT]` `postcss-selector-parser` needed a `pnpm.overrides` pin to reach its
+patched range: `tailwindcss@3` declares `^6.0.10`, and every 6.x release is
+inside the advisory's vulnerable range (`<7.1.6`), so no in-range version
+clears it. The pin moves the package to `7.1.7`, which is inside the
+advisory's **own patched range** (`>=7.1.6`). It is therefore not a
+suppression — `pnpm audit` reports no finding because the version is genuinely
+fixed, not because anything was ignored. It is a forced major substitution
+(6.x → 7.x) under a parent that declares `^6.0.10`, so it was verified rather
+than assumed: the generated CSS is byte-identical before and after (same
+SHA-256), the build succeeds, and the test suite stays green.
+
+`[FACT]` `braces` is no longer an open advisory. `GHSA-vfj7-8cjw-p6xm` — the
+one this file previously cited as "no patched 3.x release at all" — was
+**withdrawn on 2026-10-23** (published 2026-09-18). The advisory that still
+exists, `GHSA-grv7-fg5c-xmjg`, applies to versions below 3.0.3, and this
+repository pins `braces` 3.0.3, so it does not apply. The tailwind 3 → 4
+migration that was justified by `braces` is therefore no longer required by any
+advisory; it may still be wanted on other grounds.
+
+`[FACT]` The 15 remaining `gm-console` advisories all need a major-version
+move that this change deliberately did not make: `vitest` 2.1.9 → 3.2.6 or
+4.1.11 (1 critical, 1 moderate), `tinypool` 1.1.1 → 2.1.2 (2 critical),
+`vite` 5.4.21 → 6.4.4 (2 high, 5 moderate, 1 low), `@vitest/mocker` 2.1.9 →
+4.1.11 or 4.1.12 (2 moderate) and `esbuild` 0.21.5 → 0.25.0 (1 moderate).
+Each of those is the last release of its line, so no patch-level bump exists:
+`vite` 5.4.21, `vitest` 2.1.9, `@vitest/coverage-v8` 2.1.9, `@vitest/mocker`
+2.1.9, `tinypool` 1.1.1 and `esbuild` 0.21.5 are all the newest of their major
+versions. Moving them is the toolchain upgrade the runbook at
+`docs/plan/gm-console-toolchain-upgrade.md` describes, and it needs the full
+test suite re-verified rather than a lockfile edit.
 
 ## Reporting something that is not a vulnerability
 
