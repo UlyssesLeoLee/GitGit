@@ -61,12 +61,25 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
                 .max_file_size(1024 * 1024)
                 .build(),
         )
-        .plugin(tauri_plugin_notification::init())
-        .plugin(tauri_plugin_clipboard_manager::init())
+        // Only the plugins the frontend actually calls are registered.
+        //
+        // `[FACT]` The frontend imports exactly one Tauri plugin package:
+        // `@tauri-apps/plugin-dialog`, used by `src/lib/stores/worktreeRoot.ts`
+        // for the working-tree root picker. Measured over every `.ts` /
+        // `.svelte` file under `src/`, the other six plugin packages
+        // (`fs`, `shell`, `opener`, `clipboard-manager`, `notification`,
+        // `log`) are imported zero times, and the only raw
+        // `plugin:<name>|<command>` invocations in `src/` are the four
+        // `plugin:dialog|*` cases in the test mock.
+        //
+        // Registering a plugin the webview cannot call links it into the
+        // shipped binary for nothing. `tests/unit/capability-surface-gate.test.ts`
+        // asserts that the set of plugins registered here and the set
+        // granted in `capabilities/default.json` cannot drift apart, with
+        // `log` as the single documented exception: the backend writes its
+        // own log lines through `tauri-plugin-log`, which is a Rust-side
+        // facility and needs no webview capability.
         .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_shell::init())
-        .plugin(tauri_plugin_opener::init())
-        .plugin(tauri_plugin_fs::init())
         .setup(|app| setup_app(app))
         .invoke_handler(tauri::generate_handler![
             commands::server::server_status,

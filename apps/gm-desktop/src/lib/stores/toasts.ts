@@ -1,9 +1,11 @@
 /**
- * Toast / notification store. The Svelte layer surfaces success and
- * error toasts here; the underlying `tauri-plugin-notification`
- * additionally fires OS notifications when the app is backgrounded
- * (driven by individual call sites; the store itself just keeps an
- * in-app ledger).
+ * Toast store. The Svelte layer surfaces success and error toasts here;
+ * the store keeps an in-app ledger and nothing else.
+ *
+ * There is no OS notification. The desktop app does not register
+ * `tauri-plugin-notification` and grants it no capability
+ * (`tests/unit/capability-surface-gate.test.ts` asserts that), and no call
+ * site asks for one.
  */
 
 import { writable } from 'svelte/store';
