@@ -9,8 +9,8 @@
     "os": "Windows 11 (git-bash + PowerShell 5.1)"
   },
   "ut": {
-    "expectedTotal": 188,
-    "expectedPassed": 186,
+    "expectedTotal": 216,
+    "expectedPassed": 214,
     "expectedFailed": 0,
     "expectedIgnored": 2,
     "ignoredTest": "server::vault::tests::minio_vault_e2e_roundtrip and server::vault_versioned::tests::minio_vault_versioned_e2e (both require a running minIO server)",
@@ -23,14 +23,16 @@
       "ai::sanitize": 20,
       "ai::stream": 11,
       "ai::tests": 3,
+      "cli::tests": 3,
+      "config::tests": 4,
       "remote::sync": 5,
       "remote::tests": 15,
       "repo::refs": 7,
       "repo::status": 25,
       "repo::store": 6,
-      "server::api": 17,
-      "server::auth": 4,
-      "server::http": 7,
+      "server::api": 25,
+      "server::auth": 15,
+      "server::http": 9,
       "server::smart": 4,
       "server::subprocess": 5,
       "server::vault": 17,
@@ -38,7 +40,7 @@
     },
     "command": "cargo test --quiet",
     "timeoutSec": 600,
-    "rationale": "Per-module values are passed+ignored counts as the tier reports them. Re-agreed 2026-10-03 after the tier became runnable on this box: the previous numbers (76/75/1, written 2026-09-21 in d36d8c4) had drifted because they were cross-checked by hand with grep and never re-run -- server::vault_versioned alone grew from 9 to 13 #[test] fns after that commit, and the ai:: modules did not exist yet. Corroborated two ways: the tier's own parse of `cargo test` and cargo's own summary line both report 122 passed / 2 ignored / 0 failed. Re-agreed again 2026-10-05 after the minIO fixture landed and the two #[ignore]d minIO tests became runnable for the first time; the previous numbers were stale in two separate ways, both verified by running the tier rather than by grepping. (1) +20: `remote::sync` (5) and `remote::tests` (15) were missing from perModule entirely because T8 added src/remote/ without re-agreeing this file, which is why the tier had been red on dev. (2) +5: `server::vault` 12 -> 17, the regression tests added alongside classify_s3_read. Every perModule value above is now a real count taken from `cargo test --locked --lib`, where 149 test lines matched and cargo's own summary line reads 147 passed / 2 ignored / 0 failed; the perModule values sum to exactly 149. The 2 ignored tests stay `#[ignore]` on purpose: they need a running minIO, and no CI workflow is guaranteed to have a container runtime, so they are exercised by scripts/verify-minio-vault.ps1 instead. Re-agreed a third time 2026-10-05 alongside the ai::stream transport (T9 layer 1): ai::sanitize 17 -> 20 plus a new ai::stream entry at 11, totals 149/147 -> 163/161. Verified by running the tier rather than by grepping: 163 test lines matched `cargo test --locked --lib`, the perModule values sum to exactly 163, and cargo's own summary line reads 161 passed / 2 ignored / 0 failed. This is a count contract, not a coverage gate: it will go red whenever a test is legitimately added, so re-agree it in the same commit that adds the tests. Re-agreed a fourth time 2026-10-05 for T4 (working-tree status and diff): a new repo::status module adds 25 tests, 163/161 -> 188/186. Verified by running the tier rather than by grepping: cargo test --locked on branch feat/t4-status-diff (base 72dbb52 = origin/dev) prints 'running 188 tests' and '186 passed; 0 failed; 2 ignored', and the perModule values sum to exactly 188. The 2 ignored minIO tests are unchanged. These 25 land in the root gitgit crate; the 12 frontend tests in apps/gm-desktop/tests/unit/worktree.test.ts are a separate vitest target and are not counted by this file."
+    "rationale": "Per-module values are passed+ignored counts as the tier reports them. Re-agreed 2026-10-03 after the tier became runnable on this box: the previous numbers (76/75/1, written 2026-09-21 in d36d8c4) had drifted because they were cross-checked by hand with grep and never re-run -- server::vault_versioned alone grew from 9 to 13 #[test] fns after that commit, and the ai:: modules did not exist yet. Corroborated two ways: the tier's own parse of `cargo test` and cargo's own summary line both report 122 passed / 2 ignored / 0 failed. Re-agreed again 2026-10-05 after the minIO fixture landed and the two #[ignore]d minIO tests became runnable for the first time; the previous numbers were stale in two separate ways, both verified by running the tier rather than by grepping. (1) +20: `remote::sync` (5) and `remote::tests` (15) were missing from perModule entirely because T8 added src/remote/ without re-agreeing this file, which is why the tier had been red on dev. (2) +5: `server::vault` 12 -> 17, the regression tests added alongside classify_s3_read. Every perModule value above is now a real count taken from `cargo test --locked --lib`, where 149 test lines matched and cargo's own summary line reads 147 passed / 2 ignored / 0 failed; the perModule values sum to exactly 149. The 2 ignored tests stay `#[ignore]` on purpose: they need a running minIO, and no CI workflow is guaranteed to have a container runtime, so they are exercised by scripts/verify-minio-vault.ps1 instead. Re-agreed a third time 2026-10-05 alongside the ai::stream transport (T9 layer 1): ai::sanitize 17 -> 20 plus a new ai::stream entry at 11, totals 149/147 -> 163/161. Verified by running the tier rather than by grepping: 163 test lines matched `cargo test --locked --lib`, the perModule values sum to exactly 163, and cargo's own summary line reads 161 passed / 2 ignored / 0 failed. This is a count contract, not a coverage gate: it will go red whenever a test is legitimately added, so re-agree it in the same commit that adds the tests. Re-agreed a fourth time 2026-10-05 for T4 (working-tree status and diff): a new repo::status module adds 25 tests, 163/161 -> 188/186. Verified by running the tier rather than by grepping: cargo test --locked on branch feat/t4-status-diff (base 72dbb52 = origin/dev) prints 'running 188 tests' and '186 passed; 0 failed; 2 ignored', and the perModule values sum to exactly 188. The 2 ignored minIO tests are unchanged. These 25 land in the root gitgit crate; the 12 frontend tests in apps/gm-desktop/tests/unit/worktree.test.ts are a separate vitest target and are not counted by this file. Re-agreed a fifth time 2026-10-21, after a 3-lane parallel regression sweep on dev @ 3a9bbdc (UT / IT / ST lanes; the reports live in docs/reports/2026-10-21-regression-ut/, -it/ and -st/). The implementation was green throughout: cargo's own summary line reads 'test result: ok. 214 passed; 0 failed; 2 ignored', the tier's own parse agrees, and the 216 per-test lines matched the perModule buckets exactly. What was stale was this file: 28 tests had landed on dev since the previous re-agreement (f690486, 2026-10-05) without re-agreeing the contract, so the tier was correctly reporting drift rather than a defect. Attribution by git history, not by grep: 1621bc5 (fix(security): /api requires auth, the credential is external, and the console can sign in) added 8 #[test] fns to src/server/api.rs, 11 to src/server/auth.rs, 2 to src/server/http.rs and created src/config.rs's 4 tests, while e2553c5 (fix(security): the CLI no longer exposes itself to the network by default) created src/cli.rs's 3 tests. Corroborated two ways, as every prior re-agreement was: the tier's own per-module parse, and an independent count of #[test] in the source (src/server/auth.rs 15, src/server/api.rs 25, src/server/http.rs 9, src/cli.rs 3, src/config.rs 4), which matches the tier's buckets exactly. The reverse check holds too: at the original capture commit 151957d those same files held 4/17/7/0/0 #[test] fns, i.e. exactly the numbers this file carried until now, so the previous numbers were correct for their commit and the code simply grew since. Totals 188/186 -> 216/214. The 2 ignored minIO tests are unchanged. The `it` block needed no change in the same sweep: the IT lane confirmed it byte-identical to its capture and 51/51 green."
   },
   "it": {
     "description": "HTTP-level integration tests against a running gitgit server, hitting /api/* via curl. Distinct from ULYS-123's in-process axum oneshot tests in that these run against a real bound socket.",
@@ -65,10 +67,10 @@
   },
   "st": {
     "description": "End-to-end smoke: real git client against the HTTP smart protocol. Wraps scripts/smoke.ps1 unchanged.",
-    "command": "pwsh scripts/smoke.ps1",
-    "timeoutSec": 180,
+    "command": "pwsh scripts/regression-st.ps1 -Bind 127.0.0.1:<port>",
+    "timeoutSec": 600,
     "minAssertions": 7,
-    "rationale": "smoke.ps1 asserts: (1) build OK, (2) server ready, (3) first clone, (4) push to main, (5) feature branch push, (6) second clone + merge, (7) unauth push rejected. 7 step-level checks plus negative-auth fallbacks."
+    "rationale": "The tier asserts 12 greppable milestones individually (build, init-repo, server ready, first clone, default branch, initial commit, push main, feature branch, feature push, second clone, merge commit, negative-auth push rejected) plus 3 aggregate cases (PASS banner, smoke exit code, milestone count) -- 15 cases in total. minAssertions = 7 is a FLOOR, deliberately below the milestone count, and is not the number of milestones: the tier already asserts each milestone individually, so the floor cannot hide a missing milestone. Keep it at 7: with -SkipBuild the build milestone is recorded as a skip and is excluded from the count, so a floor of 12 would make the -SkipBuild path red. timeoutSec 600 mirrors the build timeout smoke.ps1 actually applies (Invoke-External -TimeoutSec 600); the tier's own $TimeoutSec parameter is not wired to anything."
   },
   "orchestrator": {
     "command": "pwsh scripts/regression.ps1",
