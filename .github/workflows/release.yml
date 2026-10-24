@@ -35,11 +35,24 @@
 #
 # WHAT IT DELIBERATELY DOES NOT DO
 # ================================
-# No signing, no notarization, no auto-updater manifest. All four MSI
-# variants and the .dmg are unsigned (see README "已知未决问题"), and
+# No notarization, no auto-updater manifest. The `.dmg` is not notarised
+# and will trigger Gatekeeper (see README "已知未决问题"), and
 # `tauri-plugin-updater` is not registered in `lib.rs`. A release that
 # produced a `latest.json` would advertise an update channel that no
 # install can actually use.
+#
+# [FACT] It DOES sign. The `msi` job calls `sign-msi.ps1 -Required`, and the
+# release body refuses to be created at all unless the staged MSI manifest
+# records a signature. So this file cannot produce an unsigned release, and
+# the only artefact it ships unsigned is the `.dmg`.
+#
+# [TBD] That is in tension with the title the draft-release job still uses,
+# which says "(unsigned draft)". This file does not resolve it: either the
+# title is stale (a certificate-backed release is the only supported
+# outcome), or the enforcement is (an unsigned draft is a supported outcome,
+# loudly labelled). Which of the two is the product is a commercial decision,
+# not an engineering one. The note on the draft-release job records the
+# contradiction in full.
 #
 # TAGGING RULES, AND WHY THEY ARE ENFORCED
 # =========================================
@@ -257,8 +270,77 @@ jobs:
     needs: verify-tag
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    # Published so the `deb-install` job below can name the artifact it tests
+    # without re-reading the manifest, exactly as `gm-desktop-bundle.yml`'s
+    # `deb` job does. A glob would match the `-manifest` artifact too.
+    outputs:
+      version: ${{ steps.meta.outputs.version }}
     steps:
       - uses: actions/checkout@v4
+
+      # The `deb-install` job below is a copy of the one in
+      # `gm-desktop-bundle.yml`. A copy is a liability: two files claiming to
+      # prove the same thing drift apart, and the drift stays invisible until
+      # the release path stops proving it. So the copy's fidelity is checked
+      # here rather than promised in a comment.
+      #
+      # [FACT] It compares the two job definitions as they are on disk. The
+      # checked-out `release.yml` IS the file this workflow is running, so
+      # the comparison is against the code that will actually execute, not
+      # against a copy of it somewhere else.
+      #
+      # Comments are ignored, exactly as `tests/unit/deb-install-gate.test.ts`
+      # ignores them: a gate that a comment can satisfy is worse than no gate,
+      # because it reads green. Everything else - the container image, the
+      # job-level shell, every `run:` body - must match line for line.
+      #
+      # It runs here, before the build, because it costs seconds and the
+      # build costs minutes.
+      - name: The ported install proof still matches the CI job it was ported from
+        run: |
+          python3 - <<'PY'
+          import difflib
+          import re
+          import sys
+
+          JOB = "deb-install"
+          RELEASE = ".github/workflows/release.yml"
+          CI = ".github/workflows/gm-desktop-bundle.yml"
+          BLOCKS = {}
+
+          for path in [RELEASE, CI]:
+              fh = open(path, encoding="utf-8")
+              lines = fh.read().splitlines()
+              fh.close()
+              start = -1
+              for i in range(len(lines)):
+                  if lines[i] == "  " + JOB + ":":
+                      start = i
+                      break
+              if start < 0:
+                  sys.exit("::error::no " + JOB + " job in " + path)
+              end = len(lines)
+              for j in range(start + 1, len(lines)):
+                  if re.match(r"^  [A-Za-z0-9_-]+:[ \t]*$", lines[j]):
+                      end = j
+                      break
+              kept = []
+              for line in lines[start:end]:
+                  stripped = line.strip()
+                  if stripped.startswith("#") or stripped == "":
+                      continue
+                  kept.append(line.rstrip())
+              BLOCKS[path] = kept
+
+          ci = BLOCKS[CI]
+          release = BLOCKS[RELEASE]
+          if release != ci:
+              print("::error::the " + JOB + " job in release.yml has drifted from the one in gm-desktop-bundle.yml")
+              for line in difflib.unified_diff(ci, release, "gm-desktop-bundle.yml", "release.yml", lineterm=""):
+                  print(line)
+              sys.exit(1)
+          print("    ok  release.yml " + JOB + " matches gm-desktop-bundle.yml (" + str(len(ci)) + " lines compared)")
+          PY
 
       - name: Install pnpm
         uses: pnpm/action-setup@v4
@@ -299,10 +381,36 @@ jobs:
             --target deb \
             --dir apps/gm-desktop/src-tauri/target/release/bundle/deb
 
+      # The version comes from the manifest `verify-bundle.sh` wrote beside
+      # the bundle, so the artifact name cannot drift from what was actually
+      # built, and the `deb-install` job below can name the artifact it tests
+      # without re-reading it. The same step, in the same place, as
+      # `gm-desktop-bundle.yml`'s `deb` job.
+      - name: Read bundle metadata
+        id: meta
+        run: |
+          set -euo pipefail
+          manifest="apps/gm-desktop/src-tauri/target/release/bundle/deb/manifest.json"
+          if [ ! -f "$manifest" ]; then
+            echo "::error::no bundle manifest at $manifest"
+            exit 1
+          fi
+          version=$(jq -r '.version // empty' "$manifest")
+          if [ -z "$version" ]; then
+            echo "::error::$manifest records no version"
+            cat "$manifest"
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "deb built, version=${version}" >> "$GITHUB_STEP_SUMMARY"
+
       - name: Upload the .deb
         uses: actions/upload-artifact@v4
         with:
-          name: gm-desktop-deb
+          # Named by version, like the CI workflow's, because the `deb-install`
+          # job below names it the same way. A glob would also match the
+          # `-manifest` artifact.
+          name: gm-desktop-deb-${{ steps.meta.outputs.version }}
           path: apps/gm-desktop/src-tauri/target/release/bundle/deb/*.deb
           if-no-files-found: error
           retention-days: 30
@@ -322,6 +430,171 @@ jobs:
           path: apps/gm-desktop/src-tauri/target/release/bundle/deb/deb-manifest.json
           if-no-files-found: error
           retention-days: 30
+
+  # ---------------------------------------------------------------------------
+  # Linux — the .deb installed FOR REAL, on the release path
+  # ---------------------------------------------------------------------------
+  # WHY A CONTAINER, AND WHY IT IS NOT PART OF THE `deb` JOB
+  # ======================================================
+  # [FACT] Everything `deb` already checks is structural. `verify-bundle.sh`
+  # parses the control fields, compares the version to `tauri.conf.json`,
+  # requires a plausible `usr/bin/<bin>` and a freedesktop `.desktop` entry.
+  # It never installs anything, so it cannot find out whether the package
+  # installs on a machine that does not already have the GTK/WebKit stack.
+  #
+  # [INFERENCE] Running the install on the hosted `ubuntu-latest` runner would
+  # prove almost nothing, and the reason is worth stating because it is not
+  # obvious: the `deb` job installs libwebkit2gtk-4.1-dev and friends ON THAT
+  # MACHINE, so a package with a missing dependency would still install
+  # happily. `ubuntu:24.04` has none of it. The container is what makes this a
+  # test rather than a restatement of what the build already proved.
+  #
+  # It is a separate job with `needs: deb` rather than steps inside `deb`,
+  # because the build machine is the wrong machine — see above — and because a
+  # job-level `container:` applies to every step, retro-fitting it would have
+  # meant moving the whole release build into a minimal image that lacks the
+  # toolchain. The `needs:` does weaken the independence argued for in the
+  # AppImage comment below, and deliberately: if the .deb was not built there
+  # is nothing to install, and `skipped` says that honestly where a red would
+  # not.
+  #
+  # WHY IT IS A COPY, AND HOW THE COPY IS KEPT HONEST
+  # ================================================
+  # `gm-desktop-bundle.yml` already has this job. This file cannot call it:
+  # that workflow has no `workflow_call` trigger, and adding one is a change
+  # to a workflow this file does not own. So the job is copied — and a copy
+  # that drifts is worse than no copy at all, because it keeps looking like
+  # a proof while proving something else.
+  #
+  # So the copy is checked, not trusted. The `deb` job above compares this
+  # job's definition with the CI workflow's, line for line, ignoring
+  # comments, and fails the release if they differ. The two definitions are
+  # otherwise identical: same container image, same job-level shell, same
+  # `run:` bodies, same assertions.
+  deb-install:
+    name: deb installs and links on a stock Ubuntu
+    needs: deb
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    container:
+      image: ubuntu:24.04
+    # [FACT] A job with `container:` runs every `run:` step under `/bin/sh`,
+    # not the bash that a job on a hosted Ubuntu image gets. On ubuntu:24.04
+    # `sh` is dash.
+    #
+    # [FACT] That is not a stylistic difference. These steps die on their
+    # first line, before any assertion runs:
+    #   /__w/_temp/<uuid>.sh: 1: set: Illegal option -o pipefail
+    #   ##[error]Process completed with exit code 2.
+    # and the last step additionally uses `<(...)` process substitution, which
+    # dash has no syntax for at all. Observed on run 37551742758; the job
+    # reported `apt-get install` as the failing step while in fact the package
+    # was never touched.
+    #
+    # So `shell: bash` is set once here, at job level, rather than per step:
+    # a step added to this job later inherits it instead of silently reverting
+    # to dash. `tests/unit/deb-install-gate.test.ts` enforces that in the CI
+    # workflow; here the drift check in the `deb` job above enforces that this
+    # copy stays identical to that one.
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: gm-desktop-deb-${{ needs.deb.outputs.version }}
+          path: pkg
+
+      - name: Install it the way a user would, letting apt resolve Depends
+        run: |
+          set -euo pipefail
+          export DEBIAN_FRONTEND=noninteractive
+          apt-get update
+          # `apt-get install ./pkg/*.deb`, NOT `dpkg -i`. `dpkg -i` refuses to
+          # configure a package whose dependencies are unmet and leaves it
+          # unpacked and half-registered; resolving them is what someone
+          # installing from a repo or an .deb URL actually gets, so that is
+          # what is under test. `apt-get -f install` afterwards would repair a
+          # broken `dpkg -i` and hide exactly the defect being looked for.
+          apt-get install -y --no-install-recommends ./pkg/*.deb
+
+      - name: It is registered, and the binary it names is really there
+        run: |
+          set -euo pipefail
+          pkg=$(dpkg-deb --info pkg/*.deb \
+            | awk '/^[[:space:]]*Package:/ { sub(/^[^:]*:[[:space:]]*/, ""); print; exit }')
+          if [ -z "$pkg" ]; then
+            echo "::error::the .deb declares no Package: field"
+            exit 1
+          fi
+          status=$(dpkg-query -W -f='${Status}' "$pkg")
+          if [ "$status" != "install ok installed" ]; then
+            echo "::error::$pkg reports '$status' after install, not 'install ok installed'"
+            exit 1
+          fi
+          bin=$(dpkg -L "$pkg" | awk '/^\/usr\/bin\// { print; exit }')
+          if [ -z "$bin" ]; then
+            echo "::error::$pkg installs no /usr/bin entry, so nothing can launch it"
+            exit 1
+          fi
+          if [ ! -x "$bin" ]; then
+            echo "::error::$bin is not executable after install"
+            exit 1
+          fi
+          echo "    ok  $pkg -> $bin ($(wc -c < "$bin") B)"
+          printf '%s' "$bin" > /tmp/gitgit-bin
+          printf '%s' "$pkg"  > /tmp/gitgit-pkg
+
+      - name: Every shared library the binary needs was actually pulled in
+        run: |
+          set -euo pipefail
+          bin=$(cat /tmp/gitgit-bin)
+          # The decisive assertion, and the one that makes this job worth its
+          # runner minutes.
+          #
+          # If `bundle.linux.deb.depends` were empty or incomplete, `ldd` prints
+          # `=> not found` for every library that was never installed. The app
+          # would then fail to start on a clean machine while EVERY structural
+          # check in `verify-bundle.sh` still passed — which is precisely the
+          # failure the deb job is unable to see.
+          missing=$(ldd "$bin" | grep 'not found' || true)
+          if [ -n "$missing" ]; then
+            echo "::error::$bin has unresolved shared libraries after a clean install."
+            echo "Either bundle.linux.deb.depends is missing an entry, or the image"
+            echo "could not satisfy it. Unresolved:"
+            echo "$missing"
+            exit 1
+          fi
+          echo "    ok  $(ldd "$bin" | grep -c '=>') libraries resolved"
+
+      - name: The freedesktop entry a package manager would show is valid
+        run: |
+          set -euo pipefail
+          export DEBIAN_FRONTEND=noninteractive
+          apt-get install -y --no-install-recommends desktop-file-utils
+          pkg=$(cat /tmp/gitgit-pkg)
+          # `dpkg -L` then a loop rather than `| head -1`: a pipe into `head`
+          # closes early and hands the producer a SIGPIPE status, which under
+          # `pipefail` turns a successful lookup into a red step.
+          entry=""
+          while IFS= read -r f; do
+            case "$f" in *.desktop) entry="$f"; break ;; esac
+          done < <(dpkg -L "$pkg")
+          if [ -z "$entry" ]; then
+            echo "::error::$pkg installs no .desktop entry, so no menu or file association is created"
+            exit 1
+          fi
+          desktop-file-validate "$entry"
+          echo "    ok  $entry"
+
+      # NOT CHECKED HERE, DELIBERATELY: that the window actually opens.
+      # A webkit/GTK application under `xvfb-run` on a container with no dbus,
+      # no seat and no hardware fails for reasons that have nothing to do with
+      # packaging, and a gate that goes red for those reasons gets switched
+      # off. What is proven above is the part packaging controls: the package
+      # installs on a machine with nothing preinstalled, its dependency list is
+      # sufficient to link the binary, and its launch metadata is well-formed.
+      # "[UNVERIFIED-FACT] The GUI has still never been observed running."
 
   appimage:
     name: appimage (unsigned)
@@ -418,6 +691,29 @@ jobs:
         working-directory: apps/gm-desktop
         run: pnpm install --frozen-lockfile
 
+      # The same lock gate the three Unix targets in this file run, in the
+      # same place: immediately before the build, so a lock that needs
+      # refreshing is caught before a fifteen-minute bundler run rather than
+      # after it.
+      #
+      # `build-msi.ps1` only WARNS when the build rewrote `Cargo.lock` — it
+      # reports it and leaves the file alone — so without this step a release
+      # MSI can be built from a lock that was re-resolved on the runner, and
+      # the shipped installer is then not the one the commit describes.
+      #
+      # `shell: bash` is not optional here. A `windows-latest` runner's
+      # default shell is pwsh, and `bash apps/...` under pwsh is not a shell
+      # invocation at all: pwsh looks for a file named `bash`, fails to find
+      # it, and never runs the script.
+      #
+      # [FACT] The script needs `bash`, `sha256sum` and `cargo`. All three
+      # are present on a `windows-latest` runner: Git for Windows provides the
+      # shell and coreutils, and the runner image provides the Rust
+      # toolchain — the same one `build-msi.ps1` goes on to use.
+      - name: Prove the committed lock is what this build will use
+        shell: bash
+        run: bash apps/gm-desktop/scripts/assert-lock-current.sh
+
       # `build-msi.ps1 -Scope both` is what keeps the per-user and
       # per-machine installers from overwriting each other: the bundler
       # names both `product_version_arch_lang.msi`, so the second write
@@ -495,7 +791,10 @@ jobs:
   # ---------------------------------------------------------------------------
   draft-release:
     name: attach to a draft release
-    needs: [verify-tag, dmg, deb, appimage, msi]
+    # `deb-install` is in this list so the release cannot be created without
+    # the proof that the .deb it would publish actually installs on a stock
+    # Ubuntu. The artefact that ships is the one that has to be proven.
+    needs: [verify-tag, dmg, deb, deb-install, appimage, msi]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -558,6 +857,28 @@ jobs:
       # `draft: true` is the entire safety property of this workflow. The
       # release exists and is inspectable, and nobody outside the
       # repository can reach it until a human publishes it.
+      #
+      # [TBD] The title below says "(unsigned draft)" and this workflow
+      # cannot produce an unsigned draft. Both are true at once:
+      #
+      #   * the `msi` job signs with `-Required`, so with no certificate
+      #     configured the job is red and NO release is produced at all;
+      #   * the step above refuses to attach a release whose MSI manifest
+      #     records no signature, and the notice it writes into the body
+      #     says "**Signed.**".
+      #
+      # So the name advertises an outcome the pipeline cannot reach, and the
+      # body describes one it cannot produce. Which side gives way is not
+      # decided here, because it is not an engineering question:
+      #
+      #   (a) signing is required -> the "(unsigned draft)" name is stale
+      #       and should go;
+      #   (b) signing is optional -> an unsigned draft is a supported
+      #       outcome, loudly labelled, which is what the name implies.
+      #
+      # What IS settled here, and holds under either answer: the release must
+      # not describe itself as something it is not. That is what the
+      # manifest-derived notice and the fail-closed check above enforce.
       - name: Create the draft release
         id: draft
         uses: softprops/action-gh-release@v2

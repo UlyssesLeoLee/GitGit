@@ -347,6 +347,37 @@ Setting up gitgit-desktop (0.1.0) ...
 > 两处都已过时：配置在 2026-10-05 被补上并同时升级为硬失败。过时记述比没有记述更糟，
 > 它会让读者以为这条路径无人看管。
 
+### P2 — 发布路径自 2026-10-06 起未再运行，此后新增的门禁均未被执行过
+
+`[FACT]` `release.yml` 一共只运行过两次，且都在 2026-10-06：run `37469291624`（成功）
+与 `37464092079`（失败），两次的 tag 都是 `v0.1.0`。
+
+`[UNVERIFIED-FACT]` 因此，2026-10-06 之后加进这条路径的每一道门禁都**只是配置好了、
+从未被执行过**：MSI 签名强制（#34，`-Required`）、manifest↔资产对应校验（#36）、
+`Cargo.lock` 门禁（#38），以及 2026-10-24 才补进 `release.yml` 的 `.deb` 裸机安装证明
+（`deb-install` job）。它们写在文件里，但一次都没有在真实的 release run 里被求值过；
+它们能不能通过，未知。
+
+`[FACT]` 仓库当前配置了 **0 个** GitHub secrets（`gh api repos/UlyssesLeoLee/GitGit/actions/secrets`
+→ `total_count: 0`）。所以今天推 tag，`msi` job 会在签名一步直接变红，`draft-release`
+（`needs:` 依赖它）不会运行，**不会产出任何 release**。这是设计意图（见上面 P1 一节），
+但直接后果就是：这条路径上的门禁至今没有一次在真实运行中被求值。
+
+`[FACT]` 现存 draft release `404746754`（tag `v0.1.0`）构建自 commit `64741bb`
+（2026-10-06），**早于 PR #41**（`31afa4b`，2026-10-24，把 AGPL-3.0 许可证装进每个装得下
+它的安装包）。该 draft 的四个 target 产物（`.dmg` / `.deb` / `.AppImage` / 4 个 MSI 变体，
+共 7 个安装包）**均不含任何一份 AGPL-3.0 许可证副本**：其中的 `.deb` 已被下载并手工解包，
+里面只有 5 个文件（二进制、一个 `.desktop`、三个图标），没有任何 licence / copyright /
+copying / notice 文件（记录在 PR #41 的提交说明里）；另外三个 target 则是在 `64741bb`
+上**根本不存在**能装进许可证的机制——那时的 `tauri.conf.json` 既没有 `licenseFile`，
+也没有 `bundle.linux.deb.files` 之类的映射。
+
+`[FACT]` 该 draft **没有发布**：`draft=true`、`published=null`，未认证访问其资产返回 404。
+因此它不构成当前存在的暴露面。
+
+`[PROPOSAL]` 处理方式是**用新的 release 取代它**（supersede），而不是删除：删除会抹掉这次
+构建存在过的证据，而这份证据正是本节记录的内容。本次核查**没有**发布、删除或修改该 draft。
+
 ### P2 — 工作区根目录选择器未在真实窗口验证
 
 对话框在 `invoke` 边界被 stub 掉，真实 Tauri 窗口下的行为未验证。
