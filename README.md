@@ -378,6 +378,27 @@ copying / notice 文件（记录在 PR #41 的提交说明里）；另外三个 
 `[PROPOSAL]` 处理方式是**用新的 release 取代它**（supersede），而不是删除：删除会抹掉这次
 构建存在过的证据，而这份证据正是本节记录的内容。本次核查**没有**发布、删除或修改该 draft。
 
+#### 手动运行（`workflow_dispatch`）此前构建的是分支，不是 tag
+
+`[FACT]` 2026-10-24：这条路径的手动触发方式此前**装错了树**。`release.yml` 里每个 job 的
+`actions/checkout@v4` 都没有 `ref:`，而没有 `ref:` 时 checkout 取的是**触发本次运行的那个 ref**。
+tag push 时那恰好是 tag，所以 tag 通路是「碰巧对的」；`workflow_dispatch` 时那是操作员选的
+**分支**，而 `tag` 输入只被 preflight 读了一次。于是：
+
+- 四个构建 job 编译的是**分支**的树，release 却挂着 tag 的名字；
+- 版本校验拿**分支**的 `tauri.conf.json` 去比对 **tag** 的名字——一个树里的数字和另一个树里的
+  名字作比较，它可以在产物来自另一棵树的情况下依然显示绿色；
+- release 正文写的是分支名（`Automated draft for ${{ github.ref_name }}`）；
+- 并发组以 `github.ref` 为键，所以「dispatch tag X」和「push tag X」落在**不同**的组里，
+  可以同时对同一个 tag 跑。
+
+`[FACT]` 该缺陷由 commit `d2142d5` 修复：tag 现在被解析一次并作为 job output 发布，每个 job 都按它
+checkout，release 正文与并发组也都指向它。修法与证据见该 commit。
+
+`[UNVERIFIED-FACT]` 修好之后，这条路径**依然没有在真实 release run 里跑过**——本节上面的
+结论不变：推 tag 会先在 `msi` 的签名一步变红，而 `workflow_dispatch` 属于对外可见的发布动作，
+本轮没有做。
+
 ### P2 — 工作区根目录选择器未在真实窗口验证
 
 对话框在 `invoke` 边界被 stub 掉，真实 Tauri 窗口下的行为未验证。
