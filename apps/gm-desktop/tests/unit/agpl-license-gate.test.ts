@@ -74,6 +74,8 @@ const stripShellComments = (text: string): string =>
     .join('\n');
 
 const bundleCode = stripShellComments(readFileSync(BUNDLE_SH, 'utf8'));
+/** The bundle script with its prose intact — used only where prose IS the requirement. */
+const bundleRaw = readFileSync(BUNDLE_SH, 'utf8');
 const msiCode = stripShellComments(readFileSync(MSI_PS1, 'utf8'));
 /** The MSI file with its prose intact — used only where prose IS the requirement. */
 const msiRaw = readFileSync(MSI_PS1, 'utf8');
@@ -92,6 +94,41 @@ const sourceDigest = (path: string): string =>
   createHash('sha256')
     .update(readFileSync(path, 'utf8').replace(/\r\n/g, '\n').replace(/\r/g, '\n'))
     .digest('hex');
+
+/**
+ * The body of one `case` branch of verify-bundle.sh.
+ *
+ * The assertions below are about what a branch DOES, so they are made against
+ * the branch rather than against the file as a whole: a phrase printed by a
+ * different branch must not be able to satisfy an assertion about this one.
+ * The branch is labelled `<label>)` at two-space indent and ends at its `;;`.
+ *
+ * The newline after the label is part of the pattern on purpose. The argument
+ * parser has branches of the same names (`  deb)      EXT="deb" ;;`), and a
+ * pattern that matched those would assert against the wrong code.
+ */
+const caseBranch = (code: string, label: string): string => {
+  const start = code.indexOf(`\n  ${label})\n`);
+  expect(start, `could not find the '${label}' branch in verify-bundle.sh`).toBeGreaterThan(-1);
+  const end = code.indexOf('\n    ;;', start);
+  expect(end, `could not find the end of the '${label}' branch in verify-bundle.sh`).toBeGreaterThan(
+    start
+  );
+  return code.slice(start, end);
+};
+
+/**
+ * The body of one shell function, so that an assertion about a helper is made
+ * against that helper and not against a phrase that happens to appear
+ * somewhere else in the file.
+ */
+const shellFunction = (code: string, name: string): string => {
+  const start = code.indexOf(`${name}() {`);
+  expect(start, `could not find the shell function '${name}' in verify-bundle.sh`).toBeGreaterThan(-1);
+  const end = code.indexOf('\n}', start);
+  expect(end, `could not find the end of the shell function '${name}'`).toBeGreaterThan(start);
+  return code.slice(start, end + 2);
+};
 
 describe('the bundle is configured to carry the licence', () => {
   it('maps the licence into the package data dir through deb.files', () => {
@@ -187,7 +224,7 @@ describe('the bundle is configured to carry the licence', () => {
     // remediation string that names a key measured to be a no-op for that target
     // is a defect in its own right, so the string is asserted — it is executable
     // text, not a comment.
-    const remediation = bundleCode.match(/die "\$\{ARTIFACT_NAME\} ships no licence[\s\S]*?"/);
+    const remediation = bundleCode.match(/die "\$\{ARTIFACT_NAME\} ships no copy of the Licence[\s\S]*?"/);
     expect(
       remediation,
       'could not find the no-licence failure message in verify-bundle.sh'
@@ -208,19 +245,54 @@ describe('the .deb verifier would notice the omission', () => {
     expect(bundleCode).toMatch(/dpkg-deb --contents/);
   });
 
-  it('fails closed when no licence-bearing file is present', () => {
+  it('extracts the package, because the decision is about the bytes in a file', () => {
+    // A listing carries names; the licence is a text. `--contents` is still
+    // used, but only to print the package layout when the check fails - the
+    // decision itself is made on the extracted tree.
+    const deb = caseBranch(bundleCode, 'deb');
+    expect(
+      deb,
+      'the deb branch does not extract the package, so it cannot read the licence content'
+    ).toMatch(/dpkg-deb --extract/);
+  });
+
+  it('decides on the licence CONTENT, not on the file name', () => {
+    // The .deb is the one target that CAN carry the copy of the Licence, so
+    // this is the load-bearing check of the three. A name-only decision here
+    // would report a dependency's copyright file as the product's licence -
+    // the exact false green the AppImage branch used to produce.
+    //
+    // This assertion exists because the AppImage and dmg branches assert
+    // their own content-based decision while this branch did not: reverting
+    // the deb branch to a name-only check left every other test in this file
+    // green. A gate that stops guarding the one case it was built for is
+    // worse than no gate, because it reads as coverage.
+    const deb = caseBranch(bundleCode, 'deb');
+    expect(
+      deb,
+      'the deb branch does not use the content-based licence helper'
+    ).toContain('LICENSE_ENTRY=$(find_product_licence "$DEB_EXTRACT_DIR" || true)');
+    // The candidates that were rejected are reported, because their presence
+    // is exactly what made the name-only check report the wrong file.
+    expect(deb).toContain('report_rejected_licences "$DEB_EXTRACT_DIR"');
+  });
+
+  it('fails closed when no copy of the Licence is present', () => {
     // The assertions below are made against the FAILURE MESSAGE rather than
     // against the file as a whole. The file mentions the licence and the AGPL
     // section in several places - the AppImage diagnostic among them - and an
     // assertion that cannot tell those apart is satisfied by whichever one
     // happens to be left, which is a gate that checks something other than
     // what it claims to check.
-    const remediation = bundleCode.match(/die "\$\{ARTIFACT_NAME\} ships no licence[\s\S]*?"/);
+    const remediation = bundleCode.match(/die "\$\{ARTIFACT_NAME\} ships no copy of the Licence[\s\S]*?"/);
     expect(
       remediation,
       'could not find the no-licence failure message in verify-bundle.sh'
     ).not.toBeNull();
-    expect(remediation![0]).toMatch(/licence, copyright, copying or notice file/);
+    // The message has to say WHY a name is not enough, because that is the
+    // defect this check exists to catch: the package can carry a dependency's
+    // copyright file and no copy of the Licence at all.
+    expect(remediation![0]).toMatch(/A file whose NAME looks like a licence does not count/);
     // AGPL cited by section, so the requirement is checkable by a reader who
     // does not take this repository's word for it.
     expect(remediation![0]).toMatch(/AGPL-3\.0/);
@@ -240,7 +312,23 @@ describe('the .deb verifier would notice the omission', () => {
   it('ignores files that are merely adjacent to a licence name', () => {
     // `README` in a `doc/` directory is not a licence. A pattern loose enough to
     // accept it would let a package pass without conveying anything.
-    expect(bundleCode).toMatch(/\(licen\[cs\]e\|copying\|copyright\|notice\)/);
+    //
+    // The claim is about the pattern the script applies, so the assertion is
+    // made against the function that applies it: a phrase elsewhere in the
+    // file must not be able to satisfy it.
+    const candidates = shellFunction(bundleCode, 'list_licence_candidates');
+    expect(candidates).toMatch(/-iname 'licen\[cs\]e\*'/);
+    expect(candidates).toMatch(/-iname 'copying\*'/);
+    expect(candidates).toMatch(/-iname 'copyright\*'/);
+    expect(candidates).toMatch(/-iname 'notice\*'/);
+    // Every glob is anchored at the FIRST character of the name, so a file
+    // whose name merely CONTAINS a licence word - `my-licence.txt`, `README`
+    // - is not a candidate. A wildcard-prefixed glob would make it one.
+    expect(
+      candidates,
+      'a licence candidate may be matched by a wildcard-prefixed glob, so a file whose name ' +
+        'merely contains a licence word becomes a candidate'
+    ).not.toMatch(/-iname '\*/);
   });
 });
 
@@ -345,16 +433,82 @@ describe('the two targets with no licence mechanism are measured, not assumed', 
    * and where it leaves it is not something to guess at.
    */
   it('the AppImage verify step extracts the image and reports what it carries', () => {
-    expect(bundleCode).toMatch(/--appimage-extract/);
-    expect(bundleCode).toMatch(/NO LICENCE FILE in the AppImage/);
+    const appimage = caseBranch(bundleCode, 'appimage');
+    expect(appimage).toMatch(/--appimage-extract/);
+    // Two distinct absences, because they mean different things: a
+    // licence-shaped file that is NOT the Licence is a dependency's file
+    // being mistaken for one, and no licence-shaped file at all is an image
+    // that never had one.
+    expect(appimage).toMatch(/NO COPY OF THE LICENCE in the AppImage/);
+    expect(appimage).toMatch(/NO LICENCE-SHAPED FILE in the AppImage/);
     // The report has to say WHY it can be empty, or a reader will treat the
     // absence as a mystery rather than as a known gap.
-    expect(bundleCode).toMatch(/reads neither/);
+    expect(appimage).toMatch(/reads neither/);
+  });
+
+  it('the AppImage report decides on the licence CONTENT, not on the file name', () => {
+    const appimage = caseBranch(bundleCode, 'appimage');
+    // A name only finds candidates; the content decides which one is the
+    // Licence.
+    expect(
+      appimage,
+      'the AppImage branch does not use the content-based licence helper'
+    ).toContain('APPIMAGE_LICENCE=$(find_product_licence "$APPIMAGE_ROOT" || true)');
+    // And the path that is reported is the one the helper returned - relative
+    // to the extracted root - rather than a path cut out of a `find` listing.
+    expect(appimage).toContain('ok "licence: ${APPIMAGE_LICENCE}"');
+    // The rejected candidates are reported too: their presence is exactly
+    // what made the name-only check report the wrong file.
+    expect(appimage).toContain('report_rejected_licences "$APPIMAGE_ROOT"');
+  });
+
+  it('the AppImage licence report is a diagnostic, never an assertion', () => {
+    const appimage = caseBranch(bundleCode, 'appimage');
+    const start = appimage.indexOf('APPIMAGE_LICENCE=$(find_product_licence');
+    expect(start, 'the AppImage branch does not use the content-based licence helper').toBeGreaterThan(
+      -1
+    );
+    const end = appimage.indexOf('rm -rf "$APPIMAGE_EXTRACT_DIR"');
+    expect(end, 'could not find the end of the AppImage licence block').toBeGreaterThan(start);
+    const licenceBlock = appimage.slice(start, end);
+    // `die` must not appear in the licence block. An assertion here could
+    // never pass - no configuration puts a copy of the Licence in an AppImage
+    // - and a gate that cannot be satisfied gets switched off, at which point
+    // it protects nothing.
+    expect(
+      licenceBlock,
+      'the AppImage licence block calls die; it must stay a diagnostic'
+    ).not.toMatch(/\bdie\b/);
   });
 
   it('the dmg verify step reports what the mounted image carries', () => {
-    expect(bundleCode).toMatch(/--eula/);
-    expect(bundleCode).toMatch(/no licence file inside the mounted image/);
+    const dmg = caseBranch(bundleCode, 'dmg');
+    expect(dmg).toMatch(/--eula/);
+    // The same two absences as the AppImage, for the same reason.
+    expect(dmg).toMatch(/NO COPY OF THE LICENCE inside the mounted image/);
+    expect(dmg).toMatch(/NO LICENCE-SHAPED FILE inside the mounted image/);
+  });
+
+  it('the dmg report decides on the licence CONTENT, not on the file name', () => {
+    const dmg = caseBranch(bundleCode, 'dmg');
+    expect(
+      dmg,
+      'the dmg branch does not use the content-based licence helper'
+    ).toContain('DMG_LICENCE=$(find_product_licence "$MOUNT_DIR" || true)');
+    expect(dmg).toContain('ok "licence: ${DMG_LICENCE}"');
+    expect(dmg).toContain('report_rejected_licences "$MOUNT_DIR"');
+  });
+
+  it('the dmg licence report is a diagnostic, never an assertion', () => {
+    const dmg = caseBranch(bundleCode, 'dmg');
+    const start = dmg.indexOf('DMG_LICENCE=$(find_product_licence');
+    expect(start, 'the dmg branch does not use the content-based licence helper').toBeGreaterThan(-1);
+    // The licence block runs to the end of the branch.
+    const licenceBlock = dmg.slice(start);
+    expect(
+      licenceBlock,
+      'the dmg licence block calls die; it must stay a diagnostic'
+    ).not.toMatch(/\bdie\b/);
   });
 
   it('the dmg verify step accepts the licence the image now carries', () => {
@@ -373,6 +527,92 @@ describe('the two targets with no licence mechanism are measured, not assumed', 
       bundleCode,
       'the dmg mount does not answer the Software License Agreement the image carries'
     ).toMatch(/\{ yes \|\| true; \} \| head -n \d+ \| hdiutil attach/);
+  });
+});
+
+describe('the licence check decides on content, not on the file name', () => {
+  /**
+   * A file whose NAME looks like a licence is not a licence.
+   *
+   * [FACT] Measured on the AppImage this repository builds: it contains
+   * `usr/share/doc/libwayland-egl1/copyright`, which is the copyright file of
+   * a BUNDLED LIBRARY. The name-only check printed
+   *
+   *     ok  licence: usr/share/doc/libwayland-egl1/copyright
+   *
+   * and the artefact carried no copy of the Licence at all. The name is a way
+   * to find candidates; the content decides which candidate is the Licence.
+   */
+  it('finds candidates by an anchored name pattern', () => {
+    const candidates = shellFunction(bundleCode, 'list_licence_candidates');
+    // `find` matches the pattern against the file's own name, and `-iname`
+    // makes it case-insensitive on every platform.
+    expect(candidates).toMatch(/find "\$1" -type f/);
+    expect(candidates).toMatch(/-iname 'licen\[cs\]e\*'/);
+    expect(candidates).toMatch(/-iname 'copying\*'/);
+    expect(candidates).toMatch(/-iname 'copyright\*'/);
+    expect(candidates).toMatch(/-iname 'notice\*'/);
+    // No wildcard-prefixed glob: a file whose name merely CONTAINS a licence
+    // word is not a candidate.
+    expect(
+      candidates,
+      'a licence candidate may be matched by a wildcard-prefixed glob, so a file whose name ' +
+        'merely contains a licence word becomes a candidate'
+    ).not.toMatch(/-iname '\*/);
+  });
+
+  it('accepts a candidate only when it carries the AGPL text', () => {
+    const carries = shellFunction(bundleCode, 'carries_agpl');
+    // `grep -F`, so the phrases are taken literally - a regular expression
+    // would read the parentheses in them.
+    expect(carries).toMatch(/grep -q -F "\$AGPL_TITLE"/);
+    expect(carries).toMatch(/grep -q -F "\$AGPL_SECTION"/);
+  });
+
+  it('defines the two phrases it greps for', () => {
+    expect(bundleCode).toMatch(/^AGPL_TITLE='GNU AFFERO GENERAL PUBLIC LICENSE'$/m);
+    expect(bundleCode).toMatch(/^AGPL_SECTION='TERMS AND CONDITIONS'$/m);
+  });
+
+  it('reports only a candidate that carries the Licence, relative to the root', () => {
+    const finder = shellFunction(bundleCode, 'find_product_licence');
+    expect(
+      finder,
+      'find_product_licence does not test the candidate content'
+    ).toContain('carries_agpl "$candidate"');
+    expect(
+      finder,
+      'find_product_licence does not report a path relative to the root it was given'
+    ).toContain('"${candidate#"$root"/}"');
+  });
+
+  it('needs BOTH phrases, because the repository README is a decoy', () => {
+    // [FACT] This repository's own README mentions the licence by name, so a
+    // title-only check would accept it as the Licence. The section heading is
+    // what a decoy does not carry.
+    const readme = readFileSync(join(REPO_ROOT, 'README.md'), 'utf8');
+    expect(
+      readme,
+      'the README no longer mentions the licence title, so the two-phrase rule is no longer ' +
+        'exercised by a real decoy'
+    ).toContain('GNU AFFERO GENERAL PUBLIC LICENSE');
+    expect(
+      readme,
+      'the README carries the AGPL section heading too, so the two-phrase rule cannot tell the ' +
+        'decoy from the Licence'
+    ).not.toContain('TERMS AND CONDITIONS');
+
+    // And both phrases really are in the Licence, or the check could never
+    // pass on a correct artefact.
+    const licence = readFileSync(join(REPO_ROOT, 'LICENSE'), 'utf8');
+    expect(licence).toContain('GNU AFFERO GENERAL PUBLIC LICENSE');
+    expect(licence).toContain('TERMS AND CONDITIONS');
+  });
+
+  it('records the measurement that produced the content-based decision', () => {
+    // The script has to say which file was mistaken for the Licence, or a
+    // reader has no way to know the check was ever wrong.
+    expect(bundleRaw).toMatch(/usr\/share\/doc\/libwayland-egl1\/copyright/);
   });
 });
 
@@ -409,8 +649,18 @@ describe('both scripts are shell/powershell text a pattern can misread', () => {
  * `{{license}}`, and by the dmg bundler, which passes it to create-dmg as
  * `--eula`.
  *
+ * [FACT] A file whose NAME looks like a licence is not a licence. The
+ * AppImage this repository builds contains
+ * `usr/share/doc/libwayland-egl1/copyright`, which is the copyright file of a
+ * BUNDLED LIBRARY, and the name-only check reported it as the product's
+ * licence. All three targets now decide on CONTENT: a candidate counts only
+ * when it carries BOTH the AGPL title and the AGPL section heading, because
+ * this repository's own README carries the title and would satisfy a
+ * title-only check.
+ *
  * [INFERENCE] The AppImage still ships no licence, and that is now measured
  * rather than assumed: the verify step extracts the image and reports the
- * file list. Closing that gap needs either a bundler change or a post-build
- * repack, neither of which this change attempts.
+ * licence-shaped files it found and whether each of them carries the Licence.
+ * Closing that gap needs either a bundler change or a post-build repack,
+ * neither of which this change attempts.
  */

@@ -182,6 +182,68 @@ file_size() {
 }
 
 # ---------------------------------------------------------------------------
+# Is there a copy of THE LICENCE in there?
+# ---------------------------------------------------------------------------
+#
+# A file whose NAME looks like a licence is not a licence.
+#
+# [FACT] Measured on the AppImage this repository builds: it contains
+# `usr/share/doc/libwayland-egl1/copyright`, which is the copyright file of a
+# BUNDLED LIBRARY. A name-only check reported that as the product's licence:
+#
+#     ok  licence: usr/share/doc/libwayland-egl1/copyright
+#
+# The name is only a way to find candidates. What decides whether an artefact
+# complies is whether one of them carries the AGPL-3.0 text.
+#
+# TWO phrases, not one. The title alone is not enough either: a document that
+# merely mentions the licence would satisfy it, and this repository's own
+# README.md contains the title twice. "TERMS AND CONDITIONS" is the AGPL's own
+# section heading, and no dependency's copyright file carries it.
+AGPL_TITLE='GNU AFFERO GENERAL PUBLIC LICENSE'
+AGPL_SECTION='TERMS AND CONDITIONS'
+
+# Every licence-shaped file under a root, one per line. `find` is given
+# `-iname` so the pattern is case-insensitive on every platform.
+list_licence_candidates() {
+  find "$1" -type f \
+    \( -iname 'licen[cs]e*' -o -iname 'copying*' -o -iname 'copyright*' -o -iname 'notice*' \) \
+    2>/dev/null || true
+}
+
+# Does this file carry the AGPL-3.0 text? `grep -F` so the phrases are taken
+# literally; a regular expression would read the parentheses in them.
+carries_agpl() {
+  grep -q -F "$AGPL_TITLE" "$1" 2>/dev/null && grep -q -F "$AGPL_SECTION" "$1" 2>/dev/null
+}
+
+# The path, relative to the root, of a licence-bearing file that carries the
+# AGPL-3.0 text. Non-zero exit if there is none.
+find_product_licence() {
+  local root="$1" candidate
+  while IFS= read -r candidate; do
+    [ -n "$candidate" ] || continue
+    if carries_agpl "$candidate"; then
+      printf '%s\n' "${candidate#"$root"/}"
+      return 0
+    fi
+  done < <(list_licence_candidates "$root")
+  return 1
+}
+
+# The candidates that were found but did NOT carry the licence, so a reader
+# can see what was there and why it did not count.
+report_rejected_licences() {
+  local root="$1" candidate
+  while IFS= read -r candidate; do
+    [ -n "$candidate" ] || continue
+    if ! carries_agpl "$candidate"; then
+      echo "    not the product's licence: ${candidate#"$root"/}"
+    fi
+  done < <(list_licence_candidates "$root")
+}
+
+# ---------------------------------------------------------------------------
 # Inputs
 # ---------------------------------------------------------------------------
 command -v jq >/dev/null 2>&1 \
@@ -395,22 +457,32 @@ ${CONTENTS}"
     # package; requiring that SOME licence-bearing file is present is the actual
     # requirement and cannot be satisfied by a wrong guess.
     #
-    # `dpkg-deb --contents` prints each entry with a leading `./`, which is why
-    # the first field is stripped before matching.
-    LICENSE_ENTRY=$(printf '%s\n' "$CONTENTS" \
-      | awk '{ p = $NF; sub(/^\.\//, "", p);
-               if (tolower(p) ~ /(^|\/)(licen[cs]e|copying|copyright|notice)(\.[a-z]+)?$/) { print p; exit } }')
+    # The package is EXTRACTED rather than read from a listing, because the
+    # decision is about content: a .deb can carry a bundled library's
+    # copyright file, and a name-only check would call that the product's
+    # licence. See `find_product_licence` above.
+    DEB_EXTRACT_DIR=$(mktemp -d)
+    trap 'rm -rf "$DEB_EXTRACT_DIR"' EXIT
+    dpkg-deb --extract "$ARTIFACT" "$DEB_EXTRACT_DIR" \
+      || die "could not extract ${ARTIFACT_NAME}, so the licence content cannot be checked."
+    LICENSE_ENTRY=$(find_product_licence "$DEB_EXTRACT_DIR" || true)
     if [ -z "$LICENSE_ENTRY" ]; then
       echo "${CONTENTS}" | sed 's/^/    /' >&2
-      die "${ARTIFACT_NAME} ships no licence, copyright, copying or notice file.
+      report_rejected_licences "$DEB_EXTRACT_DIR" >&2
+      die "${ARTIFACT_NAME} ships no copy of the Licence.
 AGPL-3.0 section 4(a) requires a copy of the Licence with every copy of the
-Program. Check bundle.linux.deb.files in ${CONFIG} still maps a
-usr/share/doc/... destination at a source that exists. It is destination ->
-source, not source -> destination (run 37644440552 measured the build failing
-on the reversed spelling), and it is that map — not bundle.licenseFile — that
-the deb bundler actually reads."
+Program. A file whose NAME looks like a licence does not count: the package may
+carry a dependency's copyright file and no copy of the Licence at all. Check
+bundle.linux.deb.files in ${CONFIG} still maps a usr/share/doc/... destination
+at a source that exists. It is destination -> source, not source -> destination
+(run 37644440552 measured the build failing on the reversed spelling), and it
+is that map - not bundle.licenseFile - that the deb bundler actually reads."
     fi
     ok "licence: ${LICENSE_ENTRY}"
+    # The candidates that are NOT the product's licence are reported rather
+    # than ignored, because their presence is exactly what made a name-only
+    # check report the wrong file.
+    report_rejected_licences "$DEB_EXTRACT_DIR"
     # `|| true` because `grep -c` exits 1 on zero matches, and under `set -e`
     # that would abort the script with no message instead of printing 0.
     # Unreachable in practice — the usr/bin assertion above would have failed
@@ -480,14 +552,39 @@ the deb bundler actually reads."
     APPIMAGE_PATH=$(cd "$(dirname "$ARTIFACT")" && pwd)/$(basename "$ARTIFACT")
     APPIMAGE_EXTRACT_DIR=$(mktemp -d)
     if ( cd "$APPIMAGE_EXTRACT_DIR" && "$APPIMAGE_PATH" --appimage-extract >/dev/null 2>&1 ); then
-        APPIMAGE_FILE_COUNT=$(find "$APPIMAGE_EXTRACT_DIR/squashfs-root" -type f 2>/dev/null | wc -l | tr -d ' ')
-        APPIMAGE_LICENCE=$(find "$APPIMAGE_EXTRACT_DIR/squashfs-root" -type f \
-            \( -iname 'licen[cs]e*' -o -iname 'copying*' -o -iname 'copyright*' -o -iname 'notice*' \) \
-            2>/dev/null | head -1 || true)
+        APPIMAGE_ROOT="$APPIMAGE_EXTRACT_DIR/squashfs-root"
+        APPIMAGE_FILE_COUNT=$(find "$APPIMAGE_ROOT" -type f 2>/dev/null | wc -l | tr -d ' ')
+        # The decision is about CONTENT, not about the name of a file. The
+        # AppImage this repository builds carries
+        # `usr/share/doc/libwayland-egl1/copyright`, which is the copyright
+        # file of a BUNDLED LIBRARY, and the name-only check that used to
+        # stand here reported it as the product's licence:
+        #
+        #     ok  licence: usr/share/doc/libwayland-egl1/copyright
+        #
+        # The image carried no copy of the Licence at all. See
+        # `find_product_licence` above.
+        APPIMAGE_LICENCE=$(find_product_licence "$APPIMAGE_ROOT" || true)
         if [ -n "$APPIMAGE_LICENCE" ]; then
-            ok "licence: ${APPIMAGE_LICENCE#*/squashfs-root/}"
+            ok "licence: ${APPIMAGE_LICENCE}"
+            # The candidates that are NOT the product's licence are reported
+            # as well, because their presence is exactly what made the
+            # name-only check report the wrong file.
+            report_rejected_licences "$APPIMAGE_ROOT"
         else
-            echo "    NO LICENCE FILE in the AppImage (${APPIMAGE_FILE_COUNT} file(s) in the image)."
+            # Two absences, and they mean different things. A licence-shaped
+            # file that does not carry the Licence is a dependency's file
+            # being mistaken for one; no licence-shaped file at all is an
+            # image that never had one. The count is what tells them apart.
+            APPIMAGE_CANDIDATE_COUNT=$(list_licence_candidates "$APPIMAGE_ROOT" | grep -c . || true)
+            if [ "$APPIMAGE_CANDIDATE_COUNT" -gt 0 ]; then
+                echo "    NO COPY OF THE LICENCE in the AppImage (${APPIMAGE_FILE_COUNT} file(s) in the image)."
+                echo "    ${APPIMAGE_CANDIDATE_COUNT} licence-shaped file(s) were found, and none of them carries"
+                echo "    the AGPL-3.0 text:"
+                report_rejected_licences "$APPIMAGE_ROOT"
+            else
+                echo "    NO LICENCE-SHAPED FILE in the AppImage (${APPIMAGE_FILE_COUNT} file(s) in the image)."
+            fi
             echo "    [FACT] crates/tauri-bundler/src/bundle/linux/appimage/ reads neither"
             echo "    bundle.licenseFile nor bundle.resources, so there is no configuration"
             echo "    that puts one there. This is an open AGPL-3.0 section 4(a) gap for the"
@@ -598,13 +695,29 @@ $(find "${APP_PATH}/Contents" -maxdepth 2 -print 2>/dev/null | head -20)"
     # without guessing, so it reports what the mounted image actually holds.
     # Until a run prints it, whether a copy is left INSIDE the image is
     # [UNVERIFIED-FACT].
-    DMG_LICENCE=$(find "$MOUNT_DIR" -maxdepth 4 \
-        \( -iname 'licen[cs]e*' -o -iname 'copying*' -o -iname 'copyright*' -o -iname 'notice*' \) \
-        2>/dev/null | head -1 || true)
+    #
+    # The decision is about CONTENT, for the same reason as the deb branch: a
+    # mounted image can carry a dependency's copyright file, and a name-only
+    # check would call that the product's licence. See `find_product_licence`
+    # above.
+    DMG_LICENCE=$(find_product_licence "$MOUNT_DIR" || true)
     if [ -n "$DMG_LICENCE" ]; then
-        ok "licence: ${DMG_LICENCE#${MOUNT_DIR}/}"
+        ok "licence: ${DMG_LICENCE}"
+        # The candidates that are NOT the product's licence are reported as
+        # well, so a reader can see what was there and why it did not count.
+        report_rejected_licences "$MOUNT_DIR"
     else
-        echo "    no licence file inside the mounted image."
+        # Two absences, and they mean different things: a licence-shaped file
+        # that does not carry the Licence, or no licence-shaped file at all.
+        DMG_CANDIDATE_COUNT=$(list_licence_candidates "$MOUNT_DIR" | grep -c . || true)
+        if [ "$DMG_CANDIDATE_COUNT" -gt 0 ]; then
+            echo "    NO COPY OF THE LICENCE inside the mounted image."
+            echo "    ${DMG_CANDIDATE_COUNT} licence-shaped file(s) were found, and none of them carries"
+            echo "    the AGPL-3.0 text:"
+            report_rejected_licences "$MOUNT_DIR"
+        else
+            echo "    NO LICENCE-SHAPED FILE inside the mounted image."
+        fi
         echo "    [FACT] the dmg bundler passes bundle.licenseFile to create-dmg as --eula,"
         echo "    so the licence is presented when the image is mounted. Whether create-dmg"
         echo "    also leaves a copy inside the image is what this line measures."
