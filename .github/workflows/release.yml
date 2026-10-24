@@ -61,6 +61,38 @@
 # a release named 1.0.0 containing a 0.1.0 build, and the mismatch is only
 # discoverable by a user who downloads it. The check runs before any
 # building, so a mistyped tag costs seconds rather than a 15-minute job.
+#
+# WHICH TAG A RUN BUILDS, AND WHY IT IS PINNED
+# =============================================
+# This file has two triggers, and they used to build two different things.
+#
+# [FACT] Every job checked out with `actions/checkout@v4` and no `ref:`. With
+# no `ref:`, checkout resolves the ref that TRIGGERED the run. On a tag push
+# that is the tag, so the tag path worked — by accident, not by design. On a
+# `workflow_dispatch` it is the BRANCH the operator picked, and the `tag`
+# input was read by the preflight and by nothing else.
+#
+# The consequences were not subtle. The four build jobs compiled the
+# dispatched branch's tree while the release was labelled with a tag; and the
+# version check compared the BRANCH's `tauri.conf.json` against the TAG's
+# name, so it could go green while the artifact came from a different tree
+# than the tag it claimed. A number read out of one tree, compared with a
+# name read out of another.
+#
+# So the tag is now resolved ONCE, before anything is checked out, and every
+# checkout in this file is pinned to it:
+#
+#   * `verify-tag` resolves it with `apps/gm-desktop/scripts/
+#     resolve-release-tag.sh` and publishes it as the job output `tag`;
+#   * every job below checks out `needs.verify-tag.outputs.tag`;
+#   * the release body and the concurrency group name that tag.
+#
+# The script is a file rather than a `run:` block because a `run:` block is
+# text that only a workflow ever reads: nothing can execute it, so nothing
+# can prove it resolves the tag rather than merely appearing to. The script
+# is executed by `apps/gm-desktop/tests/unit/release-tag-resolution.test.ts`
+# with each event shape below, and it is the one definition this workflow and
+# that test share.
 name: release
 
 on:
@@ -81,7 +113,29 @@ permissions:
   contents: write  # required to create a draft release and upload assets
 
 concurrency:
-  group: release-${{ github.ref }}
+  # The group has to name the TAG. The old key was `github.ref`, which is
+  # wrong in both directions: on a dispatch it is the BRANCH, so a dispatch
+  # of tag X and a push of tag X landed in DIFFERENT groups and could run
+  # against the same tag at the same time, while two dispatches of two
+  # different tags from one branch serialised against each other for no
+  # reason.
+  #
+  # The tag cannot be taken from `needs.verify-tag.outputs.tag` here: the
+  # group is evaluated at workflow level, where no job has run and no job
+  # output exists. It has to come from the EVENT, and the event carries the
+  # same two sources the resolver reads:
+  #
+  #   * `workflow_dispatch` -> the operator's `tag` input;
+  #   * `push`               -> `github.ref_name`, which on a tag push IS the
+  #                             tag.
+  #
+  # The `|| 'untagged-dispatch'` arm is not decoration. `inputs.tag` is
+  # empty when an operator sends an empty string, and an empty string is
+  # FALSY in a GitHub expression, so without that arm the group would fall
+  # through to `github.ref_name` and name the branch. Such a run is red
+  # anyway — the resolver refuses an empty tag — but a group that names the
+  # branch says the wrong thing even when it says it about a failed run.
+  group: release-${{ github.event_name == 'workflow_dispatch' && (inputs.tag || 'untagged-dispatch') || github.ref_name }}
   # A tag push is rare and deliberate. Cancelling one in flight would leave
   # a half-populated draft release behind, which is worse than waiting.
   cancel-in-progress: false
@@ -96,8 +150,36 @@ jobs:
     timeout-minutes: 5
     outputs:
       version: ${{ steps.check.outputs.version }}
+      # The TAG, not just its version. Every job below checks out
+      # `needs.verify-tag.outputs.tag`, so the tree that is built is the
+      # tag's tree — on a dispatch exactly as much as on a tag push.
+      tag: ${{ steps.tag.outputs.tag }}
     steps:
-      - uses: actions/checkout@v4
+      # THE ORDER OF THE FIRST THREE STEPS IS THE FIX
+      # ==============================================
+      # The tag has to be resolved BEFORE anything is checked out, because
+      # what is checked out IS the tag: with no `ref:`, `actions/checkout`
+      # resolves the ref that TRIGGERED the run, and on a `workflow_dispatch`
+      # that is the branch the operator picked and not the tag the operator
+      # named. A `run:` block is its own process, so the resolved tag has
+      # to be published as a step output for the next step to read it.
+      #
+      # That leaves one problem: the resolver is a file in the repository,
+      # and the repository is not on disk until something checks it out. So
+      # the resolver is fetched on its own, first, from the commit the
+      # EVENT names — never from the tag, because the tag is the thing
+      # being resolved. Nothing is built from this checkout; it exists to
+      # put one file on disk, and it is the only checkout in this file that
+      # is not pinned to the tag.
+      #
+      # `github.sha` on a dispatch is the head commit of the branch the
+      # operator selected, and `github.ref` on a tag push is the tag
+      # itself. Both name a commit rather than a branch, so no checkout in
+      # this file resolves to a branch.
+      - name: Fetch the tag resolver
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.sha || github.ref }}
 
       - name: Resolve the tag
         id: tag
@@ -111,24 +193,33 @@ jobs:
         #      assigns is gone when the next step starts, which is how
         #      `ref` came to be unbound downstream (see the note on the
         #      step below).
+        #
+        # The resolution itself is NOT in this step. It is in
+        # `apps/gm-desktop/scripts/resolve-release-tag.sh`, and it has to
+        # be: a `run:` block is text that only a workflow ever reads, so
+        # nothing can execute it and nothing can prove that it resolves
+        # the tag rather than merely appearing to. The script is executed
+        # by `apps/gm-desktop/tests/unit/release-tag-resolution.test.ts`
+        # with each of the event shapes below, and it is the one
+        # definition this workflow and that test share.
+        #
+        # `GITHUB_REF` is the runner's own variable and is not passed
+        # here: it is the one input that cannot be forged by the operator,
+        # and on a tag push it is the tag.
         env:
           EVENT_NAME: ${{ github.event_name }}
           INPUT_TAG: ${{ inputs.tag }}
-        run: |
-          set -euo pipefail
-          # On `workflow_dispatch` there is no tag in the ref, so the name
-          # comes from the input. On a tag push it is the ref itself.
-          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
-            ref="$INPUT_TAG"
-          else
-            ref="${GITHUB_REF#refs/tags/}"
-          fi
-          case "$ref" in
-            v*) ;;
-            *) echo "::error::'$ref' is not a v-prefixed tag"; exit 1 ;;
-          esac
-          echo "ref=$ref" >> "$GITHUB_OUTPUT"
-          echo "building $ref" >> "$GITHUB_STEP_SUMMARY"
+        run: bash apps/gm-desktop/scripts/resolve-release-tag.sh
+
+      - name: Check out the tag
+        uses: actions/checkout@v4
+        with:
+          # The tag, resolved above and validated before it was used. This
+          # is the checkout that makes the rest of this job honest: the
+          # comparison below reads the TAG's `tauri.conf.json` and not the
+          # branch's, so the version it compares was read out of the same
+          # tree the artifacts are built from.
+          ref: ${{ steps.tag.outputs.tag }}
 
       - name: Compare against tauri.conf.json
         id: check
@@ -140,7 +231,7 @@ jobs:
         # the guarded branches below could run. Nothing was wrong with the
         # tag, and the workflow reported that by reporting nothing.
         env:
-          REF: ${{ steps.tag.outputs.ref }}
+          REF: ${{ steps.tag.outputs.tag }}
         run: |
           set -euo pipefail
           declared=$(jq -r '.version' apps/gm-desktop/src-tauri/tauri.conf.json)
@@ -195,6 +286,11 @@ jobs:
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
+        with:
+          # The tag the preflight resolved, not the ref that triggered this
+          # run. See the header: on a dispatch the triggering ref is a
+          # branch, and a build from a branch is not a build of the tag.
+          ref: ${{ needs.verify-tag.outputs.tag }}
 
       - name: Install pnpm
         uses: pnpm/action-setup@v4
@@ -277,6 +373,11 @@ jobs:
       version: ${{ steps.meta.outputs.version }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          # The tag the preflight resolved, not the ref that triggered this
+          # run. See the header: on a dispatch the triggering ref is a
+          # branch, and a build from a branch is not a build of the tag.
+          ref: ${{ needs.verify-tag.outputs.tag }}
 
       # The `deb-install` job below is a copy of the one in
       # `gm-desktop-bundle.yml`. A copy is a liability: two files claiming to
@@ -285,9 +386,16 @@ jobs:
       # here rather than promised in a comment.
       #
       # [FACT] It compares the two job definitions as they are on disk. The
-      # checked-out `release.yml` IS the file this workflow is running, so
-      # the comparison is against the code that will actually execute, not
-      # against a copy of it somewhere else.
+      # checked-out `release.yml` IS the file this workflow is running on a
+      # tag push, so the comparison is against the code that will actually
+      # execute, not against a copy of it somewhere else.
+      #
+      # On a `workflow_dispatch` the checked-out tree is the TAG's tree, not
+      # the dispatched branch's, because every job now checks out the
+      # resolved tag (see the header). So the comparison there is between
+      # the two files as they exist in the tree the artifacts are built
+      # from — which is the tree whose consistency matters, and the tree a
+      # reader of that tag's source will read.
       #
       # Comments are ignored, exactly as `tests/unit/deb-install-gate.test.ts`
       # ignores them: a gate that a comment can satisfy is worse than no gate,
@@ -603,6 +711,11 @@ jobs:
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
+        with:
+          # The tag the preflight resolved, not the ref that triggered this
+          # run. See the header: on a dispatch the triggering ref is a
+          # branch, and a build from a branch is not a build of the tag.
+          ref: ${{ needs.verify-tag.outputs.tag }}
 
       - name: Install pnpm
         uses: pnpm/action-setup@v4
@@ -674,6 +787,11 @@ jobs:
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
+        with:
+          # The tag the preflight resolved, not the ref that triggered this
+          # run. See the header: on a dispatch the triggering ref is a
+          # branch, and a build from a branch is not a build of the tag.
+          ref: ${{ needs.verify-tag.outputs.tag }}
 
       - name: Install pnpm
         uses: pnpm/action-setup@v4
@@ -799,6 +917,11 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
+        with:
+          # The tag the preflight resolved, not the ref that triggered this
+          # run. See the header: on a dispatch the triggering ref is a
+          # branch, and a build from a branch is not a build of the tag.
+          ref: ${{ needs.verify-tag.outputs.tag }}
 
       # `pattern: gm-desktop-*` rather than naming each artifact: the
       # bundle workflow decides its own artifact names, and a hard-coded
@@ -883,12 +1006,16 @@ jobs:
         id: draft
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ needs.verify-tag.outputs.version && format('v{0}', needs.verify-tag.outputs.version) || github.ref_name }}
+          # The tag the preflight resolved. `github.ref_name` was here, and
+          # on a dispatch it is the BRANCH the operator picked, so the
+          # release would have been tagged with a version while its body
+          # advertised a branch.
+          tag_name: ${{ needs.verify-tag.outputs.tag }}
           name: 'gitgit Desktop ${{ needs.verify-tag.outputs.version }} (unsigned draft)'
           draft: true
           prerelease: false
           body: |
-            Automated draft for `${{ github.ref_name }}`.
+            Automated draft for `${{ needs.verify-tag.outputs.tag }}`.
 
             ${{ steps.signing.outputs.notice }}
 
