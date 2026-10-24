@@ -521,7 +521,28 @@ the deb bundler actually reads."
     }
     trap cleanup EXIT
 
-    hdiutil attach -readonly -nobrowse -mountpoint "$MOUNT_DIR" "$ARTIFACT" >/dev/null \
+    # `bundle.licenseFile` puts the AGPL into the image as a Software License
+    # Agreement: create-dmg embeds it as UDIF EULA resources (TEXT/styl/STR# in
+    # the image's resource fork). A disk image carrying an SLA cannot be
+    # mounted until the agreement is accepted, and a non-interactive runner has
+    # nobody to accept it, so hdiutil cancels the attach with
+    # "hdiutil: attach canceled".
+    #
+    # Measured rather than guessed: the attach succeeded on every run before
+    # `bundle.licenseFile` was set, and was cancelled 0.05 s after starting on
+    # every run after it - 0.05 s, not a timeout, which is what a refusal to
+    # prompt looks like.
+    #
+    # Answering the agreement is not a workaround. It accepts the licence this
+    # repository ships, on our own artifact, and every check below still reads
+    # the mounted image.
+    #
+    # `{ yes || true; }` rather than a bare `yes |`: `yes` dies of SIGPIPE when
+    # hdiutil stops reading it, and under `set -o pipefail` that 141 would
+    # become the pipeline's status and be mistaken for the attach having
+    # failed. The `head` bounds the input so that a hdiutil which never reads
+    # stdin at all cannot leave `yes` blocked on a full pipe forever.
+    { yes || true; } | head -n 64 | hdiutil attach -readonly -nobrowse -mountpoint "$MOUNT_DIR" "$ARTIFACT" >/dev/null \
       || die "could not mount ${ARTIFACT_NAME} read-only. Failing closed: an image we cannot open proves nothing. (If this is the runner refusing to mount rather than a bad artifact, that is a finding, not something to work around silently.)"
     MOUNTED=1
     ok "mounted read-only at ${MOUNT_DIR}"

@@ -356,6 +356,24 @@ describe('the two targets with no licence mechanism are measured, not assumed', 
     expect(bundleCode).toMatch(/--eula/);
     expect(bundleCode).toMatch(/no licence file inside the mounted image/);
   });
+
+  it('the dmg verify step accepts the licence the image now carries', () => {
+    // `bundle.licenseFile` reaches the dmg bundler, which hands it to
+    // create-dmg as `--eula`, and create-dmg embeds it as UDIF EULA resources.
+    // A disk image with a Software License Agreement cannot be mounted until
+    // the agreement is accepted, so a non-interactive runner has to accept it
+    // - measured: the attach succeeded on every run before `bundle.licenseFile`
+    // was set and was cancelled 0.05 s after starting on every run after it.
+    //
+    // The exact shape is asserted, because each part of it is load-bearing:
+    // `{ yes || true; }` keeps `yes`'s SIGPIPE death (141) out of the pipeline
+    // status under `set -o pipefail`, and the `head` bounds the input so that
+    // a hdiutil which never reads stdin cannot leave `yes` blocked forever.
+    expect(
+      bundleCode,
+      'the dmg mount does not answer the Software License Agreement the image carries'
+    ).toMatch(/\{ yes \|\| true; \} \| head -n \d+ \| hdiutil attach/);
+  });
 });
 
 describe('both scripts are shell/powershell text a pattern can misread', () => {
