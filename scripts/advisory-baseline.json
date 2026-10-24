@@ -1,0 +1,65 @@
+{
+  "$comment": "GitGit advisory baseline — the committed 'known-bad' contract that scripts/check-advisories.ps1 must satisfy. Plain `cargo audit` exits 0 when the only findings are unmaintained / unsound / yanked, so an advisory in those three classes passes CI without a word; this baseline is what turns that silence into a red build. Updating any entry here is a deliberate baseline change, not a silent drift, and the commit that changes it has to say why. Same discipline, and same rationale-field convention, as scripts/regression-baseline.json.",
+  "schemaVersion": "1.0",
+  "capturedAt": "2026-10-24",
+  "capturedFrom": {
+    "branch": "origin/dev",
+    "head": "a0337a0",
+    "cargoAudit": "cargo-audit 0.22.2",
+    "advisoryDb": {
+      "advisoryCount": 1352,
+      "lastCommit": "21d909e4c8bd4e14c7aea58bf980c881a0053ab1",
+      "path": "E:/DevCache/cargo/advisory-db"
+    },
+    "rustToolchain": "cargo 1.98.1",
+    "os": "Windows 11 (PowerShell 7)"
+  },
+  "scopes": {
+    "root": {
+      "lockfile": "Cargo.lock",
+      "rationale": "[FACT] Measured 2026-10-24 with cargo-audit 0.22.2 against the advisory database at E:/DevCache/cargo/advisory-db (1352 advisories, last commit 21d909e4c8bd4e14c7aea58bf980c881a0053ab1): `cargo audit --file Cargo.lock` reports 0 vulnerabilities and 0 warnings over 240 crate dependencies. The list is empty because the root lock's only finding was closed in this lane, not because the scan was skipped: tokio 1.53.1 carried RUSTSEC-2026-0386 (`AsyncFd::new` and related constructors violate I/O safety`, unsound, disclosed 2026-10-13, patched: >= 1.51.6, < 1.52.0 and >= 1.53.3) and tokio is now 1.53.3. An empty list is still recorded rather than omitted, because the checker fails on ANY advisory that is not in the baseline — a root lock that grows a new finding has to go red through the same machinery that guards the Tauri lock. Re-agree whenever the root lock's dependency set changes.",
+      "advisories": []
+    },
+    "tauri": {
+      "lockfile": "apps/gm-desktop/src-tauri/Cargo.lock",
+      "rationale": "[FACT] Measured 2026-10-24 with cargo-audit 0.22.2 against the same advisory database: `cargo audit --file apps/gm-desktop/src-tauri/Cargo.lock` reports 0 vulnerabilities and 5 warnings over 645 crate dependencies. It reported 13 before this lane. Eight are gone: tokio 1.53.1 -> 1.53.3 (RUSTSEC-2026-0386, unsound); clipboard-win 5.4.1 -> 5.4.3 and yoke-derive 0.8.3 -> 0.8.4, both yanked releases replaced by un-yanked ones the parent constraints already allow (arboard requires clipboard-win ^5.3.1, yoke 0.8.3 requires yoke-derive ^0.8.2); and the five `unic-*` crates (unic-char-property, unic-char-range, unic-common, unic-ucd-ident, unic-ucd-version, all unmaintained) left the tree entirely when tauri moved 2.11.5 -> 2.12.5, because tauri-utils moved to 2.10.2 and its urlpattern requirement moved to ^0.6, which no longer depends on unic-ucd-ident at all. The five that remain each carry a `note` naming the exact constraint that blocks them; none of them has a fixed release upstream (four have patched = [], and glib's fix, >= 0.20.0, is not reachable from any published tauri 2.x dependency graph). This is a ratchet, not a cleanup: the point is that the NEXT advisory to land here turns the build red until somebody re-agrees this file.",
+      "advisories": [
+        {
+          "id": "RUSTSEC-2024-0370",
+          "package": "proc-macro-error",
+          "version": "1.0.4",
+          "kind": "unmaintained",
+          "note": "Reachable only through the gtk 0.18 line: glib-macros 0.18.5 and gtk3-macros 0.18.2 both require proc-macro-error ^1.0, and gtk 0.18.2 requires glib ^0.18. Both macro crates drop proc-macro-error at their 0.19.0 release, but nothing in this graph can reach 0.19.0: every published tauri (2.x through 2.12.5), tao (through 0.37.2), muda (through 0.21.2) and tray-icon (through 0.26.1) release requires gtk ^0.18, so the resolver has no gtk to offer other than 0.18.x. Same gtk-0.18 blocker as glib below. The advisory has no patched version (patched = []), and proc-macro-error's only release is 1.0.4, which is also the only version the ^1.0 requirement can select."
+        },
+        {
+          "id": "RUSTSEC-2024-0429",
+          "package": "glib",
+          "version": "0.18.5",
+          "kind": "unsound",
+          "note": "Fixed in glib >= 0.20.0. glib 0.18.5 is what gtk 0.18.2 requires (glib ^0.18), and gtk 0.18.2 is what this graph resolves to: every published tauri (2.x through 2.12.5), tao (through 0.37.2), muda (through 0.21.2) and tray-icon (through 0.26.1) release requires gtk ^0.18. cargo's own resolver rejects the bump with: failed to select a version for the requirement `glib = \"^0.18\"` — candidate versions found which didn't match: 0.20.0 — required by package `gtk v0.18.2`. crates.io publishes no gtk 0.20.x at all; the next gtk release after 0.18.2 is 0.19.0, which requires glib ^0.22 and is accepted by no published tauri 2.x release. glib is a Linux-only transitive dependency of tauri/gtk, so this advisory does not affect the Windows build."
+        },
+        {
+          "id": "RUSTSEC-2026-0371",
+          "package": "zbus_names",
+          "version": "4.3.4",
+          "kind": "unmaintained",
+          "note": "Reachable only through zbus 5.19.0. zbus 6.0.0 and 6.1.0 drop zbus_names, zvariant and zvariant_derive together, but zbus 6 is unreachable: tauri-plugin-opener 2.5.5 requires zbus ^5.9 (and every published tauri-plugin-opener release, through 3.0.0-alpha.3, requires zbus ^5.9), while notify-rust 4.18.x requires zbus ^5. cargo's own resolver rejects zbus 6.1.0 with: failed to select a version for the requirement `zbus = \"^5.9\"` — candidate versions found which didn't match: 6.1.0 — required by package `tauri-plugin-opener v2.5.5`. The advisory has no patched version (patched = [])."
+        },
+        {
+          "id": "RUSTSEC-2026-0370",
+          "package": "zvariant",
+          "version": "5.15.0",
+          "kind": "unmaintained",
+          "note": "Same zbus 5 chain as zbus_names: zbus 5.19.0 requires zvariant ^5.14.0, and zvariant 5.15.0 requires zvariant_derive ^5.15.0. zbus 6.x drops zvariant entirely, but zbus 6 is unreachable because tauri-plugin-opener 2.5.5 requires zbus ^5.9 and notify-rust 4.18.x requires zbus ^5. No patched version (patched = [])."
+        },
+        {
+          "id": "RUSTSEC-2026-0372",
+          "package": "zvariant_derive",
+          "version": "5.15.0",
+          "kind": "unmaintained",
+          "note": "Same zbus 5 chain as zbus_names: it arrives through zvariant 5.15.0, which requires zvariant_derive ^5.15.0 (5.15.0 and 5.15.1 are the two releases in that line, and both are unmaintained). zbus 6.x drops the whole zvariant/zvariant_derive pair, but zbus 6 is unreachable because tauri-plugin-opener 2.5.5 requires zbus ^5.9 and notify-rust 4.18.x requires zbus ^5. No patched version (patched = [])."
+        }
+      ]
+    }
+  }
+}
