@@ -55,7 +55,31 @@ tauri-plugin-fs = "2"
 # The updater plugin requires a sidecar manifest at the configured
 # endpoint; we ship a stub endpoint in `tauri.conf.json` so the binary
 # compiles even when no real release channel is configured.
-tauri-plugin-updater = "2"
+#
+# The `zip` feature is OFF, and that is a security decision rather than a
+# preference. It pulls `zip` 4.x, which carries three advisories with no
+# fixed release available to us:
+#
+#   RUSTSEC-2026-0367  SUID/SGID bits applied during ZIP extraction
+#   RUSTSEC-2026-0368  ZipArchive::extract follows symlinks out of the
+#                      destination directory
+#   RUSTSEC-2026-0369  ZipStreamReader::extract applies Unix permissions
+#                      through symlinks without confining the target
+#
+# All three are fixed in `zip` >= 9.0.0, and every published
+# `tauri-plugin-updater` release - through 2.14.0 - requires `zip = "^4"`,
+# so no version of the plugin can select a fixed one. Cargo's own advice for
+# an unfixable advisory is to remove the vulnerable code, and that is
+# possible here because this repository has no updater at all: there is no
+# release channel, and no code in `src/` calls `check_update` or
+# `install_update`. The feature was carrying a reachable-looking attack
+# surface for a mechanism that does not exist.
+#
+# `rustls-tls` and `system-proxy` are kept explicitly so that turning the
+# default features off does not quietly downgrade this plugin's transport to
+# anything weaker. Re-enabling `zip` re-introduces the three advisories, and
+# the `cargo audit` job will say so.
+tauri-plugin-updater = { version = "2", default-features = false, features = ["rustls-tls", "system-proxy"] }
 
 # Async runtime + utilities.
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "process", "sync", "io-util", "fs"] }
