@@ -128,15 +128,19 @@ describe('the bundle is configured to carry the licence', () => {
       ).toBe(true);
     }
 
-    // And every SOURCE has to be the AGPL text, resolved the way the bundler
-    // resolves it: relative to the config's own directory. A map that is right in
-    // shape but empty-handed is exactly the omission this gate exists for.
+    // And every SOURCE has to BE the repository's licence, not something that
+    // merely mentions it. A title-only check is satisfied by the repository
+    // README, which contains "GNU AFFERO GENERAL PUBLIC LICENSE" twice - that
+    // decoy was caught by mutation, not by reading the assertion.
+    const licenceBytes = readFileSync(join(REPO_ROOT, 'LICENSE'));
     for (const src of Object.values(debFiles!)) {
       const abs = resolve(dirname(CONF), src);
       expect(existsSync(abs), `deb.files source '${src}' does not exist, so the build fails`).toBe(true);
-      expect(readFileSync(abs, 'utf8'), `deb.files source '${src}' is not the AGPL text`).toMatch(
-        /GNU AFFERO GENERAL PUBLIC LICENSE/
-      );
+      expect(
+        readFileSync(abs).equals(licenceBytes),
+        `deb.files source '${src}' is not the repository's LICENSE file, so the package would ship ` +
+          'something that is not the Licence'
+      ).toBe(true);
     }
   });
 
@@ -299,8 +303,10 @@ describe('the MSI installer carries the licence, and the verifier proves it', ()
     // out of the administrative install.
     expect(msiCode).toMatch(/\^\(licen\[cs\]e\|copying\|copyright\|notice\)/);
     // And a file with a licence-shaped name is not a licence, so the contents
-    // are checked too.
+    // are checked too - by TWO phrases, because this repository's README
+    // contains the licence title and would satisfy a title-only check.
     expect(msiCode).toMatch(/GNU AFFERO GENERAL PUBLIC LICENSE/);
+    expect(msiCode).toMatch(/TERMS AND CONDITIONS/);
     expect(msiCode).toMatch(/MinLicenceBytes/);
   });
 
