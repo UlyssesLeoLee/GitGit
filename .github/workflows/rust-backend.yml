@@ -3,9 +3,11 @@
 # Three required jobs:
 #   * `test`        — cargo fmt / clippy / test --all-targets / test --doc / release build.
 #   * `audit`       — RUSTSEC advisory scan over Cargo.lock.
-#   * `integration` — scripts/regression-it.ps1 + scripts/regression-st.ps1:
-#                     a real `git` client pushing over real HTTP to a live
-#                     `gitgit serve`, plus HTTP-level /api/* assertions.
+#   * `integration` — scripts/regression-ut.ps1 + scripts/regression-it.ps1
+#                     + scripts/regression-st.ps1: the committed unit-test
+#                     count contract, a real `git` client pushing over real
+#                     HTTP to a live `gitgit serve`, and HTTP-level /api/*
+#                     assertions.
 #
 # The minIO e2e test is marked `#[ignore]`, so minIO coverage lives in a
 # separate self-hosted runner workflow (out of scope for V0.1). The
@@ -38,6 +40,27 @@ on:
       - 'Cargo.lock'
       - 'scripts/**'
       - '.github/workflows/rust-backend.yml'
+  schedule:
+    # The advisory database grows on its own schedule, so a scan that only
+    # runs when the source changes evaluates "no known vulnerabilities"
+    # only as often as the source happens to change.
+    #
+    # [FACT] Between 2026-10-05 and 2026-10-24 the `audit` job did not run
+    # on dev once: nothing touched `src/**`, `Cargo.toml`, `Cargo.lock` or
+    # `scripts/**` in that window. Nine advisories landed in the root
+    # `Cargo.lock` in the meantime (rustls 0.23.45, rustls-webpki 0.103.15,
+    # webpki-roots 1.0.9, quinn-proto 0.11.17) and the gate was not green -
+    # it was not running. The first push that touched `scripts/**` turned
+    # it red immediately.
+    #
+    # A weekly scan is the cheapest way to make the gap between "the
+    # database grew" and "we found out" bounded by a week instead of by
+    # whenever the next source change lands.
+    #
+    # 04:17 UTC on Mondays. The odd minute is deliberate: every scheduled
+    # workflow in the world fires at :00, and the queue at a round hour is
+    # the slowest moment of the week.
+    - cron: '17 4 * * 1'
 
 concurrency:
   group: rust-backend-${{ github.ref }}
@@ -46,6 +69,10 @@ concurrency:
 jobs:
   test:
     name: fmt + clippy + test
+    # The weekly schedule exists to re-evaluate the advisory database, not
+    # to re-run the whole suite; `audit` is the job that needs a clock.
+    # This job and `integration` already run on every push and PR.
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -145,6 +172,10 @@ jobs:
     # continue-on-error, no `|| true`. A failure here fails the workflow and
     # blocks merge to dev/main.
     name: ST + IT regression (real git over HTTP)
+    # See the note on the `test` job: the weekly schedule runs the audit
+    # job only. This one is the most expensive job in the file and its
+    # value is per-change, not per-week.
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -174,6 +205,47 @@ jobs:
           git config --global user.email "ci@gitgit.local"
           git config --global user.name  "gitgit ci"
           git config --global init.defaultBranch main
+
+      - name: Fetch cargo dependencies (warms the registry for --offline)
+        # The UT tier runs `cargo test --offline`, which cannot download
+        # anything. On a runner whose `~/.cargo` registry cache is cold that
+        # fails before a single test runs, so the registry has to be
+        # populated first. `cargo fetch --locked` does that and fails loudly
+        # if Cargo.lock would have to change. The IT/ST tiers build online,
+        # so this step exists for the UT tier alone.
+        run: cargo fetch --locked
+
+      - name: UT — unit-test regression tier (test-count contract)
+        # scripts/regression-ut.ps1 asserts cargo's own test counts against
+        # the committed baseline in scripts/regression-baseline.json:
+        # ut.expectedTotal / ut.expectedPassed / ut.expectedIgnored, plus
+        # every entry of the ut.perModule map. Any drift — a test added,
+        # removed or renamed without re-agreeing the baseline — fails the
+        # tier with exit 1 and fails this job.
+        #
+        # No continue-on-error, no `|| true`: a count gate that cannot fail
+        # protects nothing. This tier exists because the contract drifted
+        # silently before — 28 tests landed on dev between 2026-10-05 and
+        # 2026-10-21 with no baseline re-agreement, and nobody noticed.
+        #
+        # The `test` job runs the same tests via `cargo test --all-targets`,
+        # but it asserts nothing about how MANY there are; the count
+        # contract lives here.
+        #
+        # Runs FIRST among the regression tiers on purpose. The tier builds
+        # into <repo>/target-regression/ (its own CARGO_TARGET_DIR override,
+        # kept for the documented Windows multi-workspace reason), and that
+        # is the same directory the IT and ST tiers build into — so this
+        # tier's compile is the job's one cold compile and the IT tier then
+        # reuses it. Pointing the tier at the job's cached target/ instead
+        # would split the job into two cold compiles.
+        #
+        # -TimeoutSec 1200: the tier's window covers compile AND run, and on
+        # CI the target dir is cold, so the default 600s is tight on a slow
+        # runner. This widens the window only; it touches none of the count
+        # assertions, and the job's own timeout-minutes is still the outer
+        # bound.
+        run: pwsh -NoProfile -File scripts/regression-ut.ps1 -TimeoutSec 1200
 
       - name: IT — HTTP integration tier
         run: pwsh -NoProfile -File scripts/regression-it.ps1

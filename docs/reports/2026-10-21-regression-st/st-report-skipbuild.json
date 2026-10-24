@@ -1,0 +1,101 @@
+{
+  "tier": "st",
+  "started": "2026-10-21T07:49:17.1522034+09:00",
+  "ended": "2026-10-21T07:49:40.4784357+09:00",
+  "pass": 14,
+  "fail": 0,
+  "skip": 1,
+  "total": 15,
+  "cases": [
+    {
+      "name": "st.milestone.build",
+      "outcome": "skip",
+      "detail": "-SkipBuild was set: the tier did not build, so there is no build step to assert",
+      "durationSec": 0.0
+    },
+    {
+      "name": "st.milestone.init_repo",
+      "outcome": "pass",
+      "detail": "pattern=init-repo matched",
+      "durationSec": 0.011
+    },
+    {
+      "name": "st.milestone.server_ready",
+      "outcome": "pass",
+      "detail": "pattern=server ready matched",
+      "durationSec": 0.001
+    },
+    {
+      "name": "st.milestone.first_clone",
+      "outcome": "pass",
+      "detail": "pattern=git clone \\(first\\) matched",
+      "durationSec": 0.001
+    },
+    {
+      "name": "st.milestone.default_branch",
+      "outcome": "pass",
+      "detail": "pattern=default branch = matched",
+      "durationSec": 0.0
+    },
+    {
+      "name": "st.milestone.initial_commit",
+      "outcome": "pass",
+      "detail": "pattern=initial commit on matched",
+      "durationSec": 0.0
+    },
+    {
+      "name": "st.milestone.push_main",
+      "outcome": "pass",
+      "detail": "pattern=push -u origin matched",
+      "durationSec": 0.0
+    },
+    {
+      "name": "st.milestone.feature_branch",
+      "outcome": "pass",
+      "detail": "pattern=checkout -b feature matched",
+      "durationSec": 0.0
+    },
+    {
+      "name": "st.milestone.feature_push",
+      "outcome": "pass",
+      "detail": "pattern=git push.*origin feature|push -u origin feature matched",
+      "durationSec": 0.001
+    },
+    {
+      "name": "st.milestone.second_clone",
+      "outcome": "pass",
+      "detail": "pattern=git clone \\(second\\) for merge matched",
+      "durationSec": 0.0
+    },
+    {
+      "name": "st.milestone.merge_commit",
+      "outcome": "pass",
+      "detail": "pattern=merge commit verified in log matched",
+      "durationSec": 0.0
+    },
+    {
+      "name": "st.milestone.negative_auth_push_rejected",
+      "outcome": "pass",
+      "detail": "pattern=unauthenticated push|received expected auth challenge|push correctly rejected matched",
+      "durationSec": 0.0
+    },
+    {
+      "name": "st.verdict.pass_marker",
+      "outcome": "pass",
+      "detail": "pattern=gitgit MVP smoke test: PASS matched",
+      "durationSec": 0.0
+    },
+    {
+      "name": "st.smoke_exit_code.is_zero",
+      "outcome": "pass",
+      "detail": "expected=0 actual=0",
+      "durationSec": 0.003
+    },
+    {
+      "name": "st.milestone_count.meets_baseline",
+      "outcome": "pass",
+      "detail": "present=11 baseline.min=7",
+      "durationSec": 0.0
+    }
+  ]
+}

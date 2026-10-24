@@ -26,9 +26,13 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-. (Join-Path $PSScriptRoot 'lib\regression-common.ps1')
+# Forward slash, not `lib\regression-common.ps1`: on Linux a backslash is a
+# legal filename character rather than a separator, so the dot-source would
+# look for a file literally named `scripts\lib\regression-common.ps1`,
+# fail, and kill the tier before it ever ran. Same idiom as the IT/ST tiers.
+. (Join-Path $PSScriptRoot 'lib/regression-common.ps1')
 
-$baselinePath = Join-Path (Get-RepoRoot) 'scripts\regression-baseline.json'
+$baselinePath = Join-Path (Get-RepoRoot) 'scripts/regression-baseline.json'
 if (-not (Test-Path $baselinePath)) {
     Write-Fail "baseline not found at $baselinePath"
     exit 2
@@ -115,7 +119,14 @@ try {
     # Write a tiny bash script — much easier to reason about than
     # embedded quoting in a PowerShell here-string that goes through
     # Start-Process argument parsing.
-    $shPath = Join-Path $env:TEMP ("gitgit-regression-ut-{0}.sh" -f ([guid]::NewGuid().ToString('N')))
+    #
+    # Get-ScratchTempRoot, not $env.TEMP: PowerShell on Linux leaves
+    # $env:TEMP unset, and `Join-Path $null` is a terminating
+    # parameter-binding error ("cannot bind argument to parameter 'Path',
+    # because it is null"), so the tier would die before cargo ever ran.
+    # The helper falls back to $env.TMP and then to the runtime temp dir.
+    # Same idiom as the IT tier.
+    $shPath = Join-Path (Get-ScratchTempRoot) ("gitgit-regression-ut-{0}.sh" -f ([guid]::NewGuid().ToString('N')))
     $exitCodePath = Join-Path (Get-LogRoot) 'ut-exitcode.txt'
     $shBody = "#!/usr/bin/env bash`n" +
               "set -u`n" +

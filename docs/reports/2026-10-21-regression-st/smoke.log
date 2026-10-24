@@ -1,0 +1,45 @@
+[smoke] cargo build --locked --quiet (debug)
+[smoke] starting server on 127.0.0.1:18198 (log: C:\Users\leo19\AppData\Local\Temp\gitgit-smoke-502d75c17a0c4085b1231fc7a6044375.log)
+[smoke] gitgit init-repo regression
+[smoke] waiting for http://127.0.0.1:18198/repos/regression.git/info/refs?service=git-upload-pack
+[smoke] server ready
+[smoke] git clone (first)
+[smoke]   Cloning into 'C:\Users\leo19\AppData\Local\Temp\gitgit-smoke-192737b6961a4cc994a9c1ba5f06d084\clone1'...
+[smoke]   warning: You appear to have cloned an empty repository.
+[smoke] default branch = master
+[smoke] create + commit hello.txt on master
+[smoke]   [master (root-commit) 7382f3e] initial commit on master
+[smoke]    1 file changed, 1 insertion(+)
+[smoke]    create mode 100644 hello.txt
+[smoke] git push -u origin master
+[smoke]   branch 'master' set up to track 'origin/master'.
+[smoke]   To http://127.0.0.1:18198/repos/regression.git
+[smoke]    * [new branch]      master -> master
+[smoke] git checkout -b feature
+[smoke]   Switched to a new branch 'feature'
+[smoke]   [feature 5785308] feature branch commit
+[smoke]    1 file changed, 1 insertion(+)
+[smoke]    create mode 100644 feature.txt
+[smoke] git push -u origin feature
+[smoke]   branch 'feature' set up to track 'origin/feature'.
+[smoke]   To http://127.0.0.1:18198/repos/regression.git
+[smoke]    * [new branch]      feature -> feature
+[smoke] git clone (second) for merge verification
+[smoke]   Cloning into 'C:\Users\leo19\AppData\Local\Temp\gitgit-smoke-192737b6961a4cc994a9c1ba5f06d084\clone2'...
+[smoke] fetch + merge origin/feature into master
+[smoke]   Merge made by the 'ort' strategy.
+[smoke]    feature.txt | 1 +
+[smoke]    1 file changed, 1 insertion(+)
+[smoke]    create mode 100644 feature.txt
+[smoke] merge commit verified in log
+[smoke] negative auth: push without creds must fail
+[smoke]   push-output: error: RPC failed; HTTP 401 curl 22 The requested URL returned error: 401
+[smoke]   push-output: send-pack: unexpected disconnect while reading sideband packet
+[smoke]   push-output: fatal: the remote end hung up unexpectedly
+[smoke]   push-output: Everything up-to-date
+[smoke]   push correctly rejected (exit=1)
+[smoke] stopping server (pid=51568)
+
+========================================
+  gitgit MVP smoke test: PASS
+========================================

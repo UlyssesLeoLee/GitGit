@@ -1,0 +1,101 @@
+{
+  "tier": "st",
+  "started": "2026-10-21T07:27:05.3539294+09:00",
+  "ended": "2026-10-21T07:37:09.3028677+09:00",
+  "pass": 1,
+  "fail": 14,
+  "skip": 0,
+  "total": 15,
+  "cases": [
+    {
+      "name": "st.milestone.build",
+      "outcome": "pass",
+      "detail": "pattern=cargo build --locked --quiet matched",
+      "durationSec": 0.017
+    },
+    {
+      "name": "st.milestone.init_repo",
+      "outcome": "fail",
+      "detail": "pattern=init-repo did not match actual=<[smoke] cargo build --locked --quiet (debug)\r\n\r\n>",
+      "durationSec": 0.004
+    },
+    {
+      "name": "st.milestone.server_ready",
+      "outcome": "fail",
+      "detail": "pattern=server ready did not match actual=<[smoke] cargo build --locked --quiet (debug)\r\n\r\n>",
+      "durationSec": 0.0
+    },
+    {
+      "name": "st.milestone.first_clone",
+      "outcome": "fail",
+      "detail": "pattern=git clone \\(first\\) did not match actual=<[smoke] cargo build --locked --quiet (debug)\r\n\r\n>",
+      "durationSec": 0.001
+    },
+    {
+      "name": "st.milestone.default_branch",
+      "outcome": "fail",
+      "detail": "pattern=default branch = did not match actual=<[smoke] cargo build --locked --quiet (debug)\r\n\r\n>",
+      "durationSec": 0.0
+    },
+    {
+      "name": "st.milestone.initial_commit",
+      "outcome": "fail",
+      "detail": "pattern=initial commit on did not match actual=<[smoke] cargo build --locked --quiet (debug)\r\n\r\n>",
+      "durationSec": 0.0
+    },
+    {
+      "name": "st.milestone.push_main",
+      "outcome": "fail",
+      "detail": "pattern=push -u origin did not match actual=<[smoke] cargo build --locked --quiet (debug)\r\n\r\n>",
+      "durationSec": 0.0
+    },
+    {
+      "name": "st.milestone.feature_branch",
+      "outcome": "fail",
+      "detail": "pattern=checkout -b feature did not match actual=<[smoke] cargo build --locked --quiet (debug)\r\n\r\n>",
+      "durationSec": 0.0
+    },
+    {
+      "name": "st.milestone.feature_push",
+      "outcome": "fail",
+      "detail": "pattern=git push.*origin feature|push -u origin feature did not match actual=<[smoke] cargo build --locked --quiet (debug)\r\n\r\n>",
+      "durationSec": 0.001
+    },
+    {
+      "name": "st.milestone.second_clone",
+      "outcome": "fail",
+      "detail": "pattern=git clone \\(second\\) for merge did not match actual=<[smoke] cargo build --locked --quiet (debug)\r\n\r\n>",
+      "durationSec": 0.0
+    },
+    {
+      "name": "st.milestone.merge_commit",
+      "outcome": "fail",
+      "detail": "pattern=merge commit verified in log did not match actual=<[smoke] cargo build --locked --quiet (debug)\r\n\r\n>",
+      "durationSec": 0.0
+    },
+    {
+      "name": "st.milestone.negative_auth_push_rejected",
+      "outcome": "fail",
+      "detail": "pattern=unauthenticated push|received expected auth challenge|push correctly rejected did not match actual=<[smoke] cargo build --locked --quiet (debug)\r\n\r\n>",
+      "durationSec": 0.002
+    },
+    {
+      "name": "st.verdict.pass_marker",
+      "outcome": "fail",
+      "detail": "pattern=gitgit MVP smoke test: PASS did not match actual=<[smoke] cargo build --locked --quiet (debug)\r\n\r\n>",
+      "durationSec": 0.0
+    },
+    {
+      "name": "st.smoke_exit_code.is_zero",
+      "outcome": "fail",
+      "detail": "expected=0 actual=1 :: smoke.ps1 exit=1",
+      "durationSec": 0.004
+    },
+    {
+      "name": "st.milestone_count.meets_baseline",
+      "outcome": "fail",
+      "detail": "present=2 baseline.min=7",
+      "durationSec": 0.001
+    }
+  ]
+}

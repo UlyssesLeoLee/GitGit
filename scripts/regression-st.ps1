@@ -16,6 +16,12 @@
     Baseline assertions are derived from scripts/regression-baseline.json
     (`st.minAssertions`). The script counts positive markers and fails
     if any expected marker is missing.
+
+.PARAMETER SkipBuild
+    If set, do not run `cargo build` first -- smoke.ps1 is told to use the
+    binary that is already in the per-worktree target dir. Useful when CI
+    has already produced the binary, and the only way out of smoke.ps1's
+    hard-coded 600 s build timeout.
 #>
 
 [CmdletBinding()]
@@ -67,8 +73,17 @@ $sw = [System.Diagnostics.Stopwatch]::StartNew()
 # blaming the working directory, which sends you looking in the wrong
 # place. $PID's own image is guaranteed present and version-exact.
 $selfExe = (Get-Process -Id $PID).Path
+# `-SkipBuild` has to reach smoke.ps1, because smoke.ps1 is where the build
+# actually happens. The orchestrator forwards the flag to every tier
+# (scripts/regression.ps1) and smoke.ps1 honours it -- but this tier used to
+# declare the switch and then drop it on the floor, so `-SkipBuild` still ran
+# a full `cargo build --locked` with smoke.ps1's hard-coded 600 s timeout.
+# That timeout is short enough to bite on a cold debug build when several
+# lanes build at once, and there was no way to opt out of it.
+$smokeArgs = @('-NoProfile','-File',$smokePath,'-Bind',$Bind,'-RepoName',$RepoName)
+if ($SkipBuild) { $smokeArgs += '-SkipBuild' }
 $proc = Start-Process -FilePath $selfExe `
-    -ArgumentList @('-NoProfile','-File',$smokePath,'-Bind',$Bind,'-RepoName',$RepoName) `
+    -ArgumentList $smokeArgs `
     -NoNewWindow -PassThru -Wait `
     -RedirectStandardOutput $logFile `
     -RedirectStandardError  "$logFile.err"
@@ -100,6 +115,18 @@ $milestones = @(
     @{ Name='merge_commit';                  Pattern='merge commit verified in log' },
     @{ Name='negative_auth_push_rejected';   Pattern='unauthenticated push|received expected auth challenge|push correctly rejected' }
 )
+
+# The `build` milestone is conditional on the tier actually building. With
+# -SkipBuild there is no build step in the smoke log to match: asserting it
+# would fail a run that was told not to build, and calling it a pass would
+# claim a build that never happened. It is a skip -- the same shape the IT
+# tier already uses for "the operator said do not build, and here is what
+# that means".
+if ($SkipBuild) {
+    $milestones = @($milestones | Where-Object { $_.Name -ne 'build' })
+    Skip-Case -Run $run -Name 'st.milestone.build' `
+        -Reason '-SkipBuild was set: the tier did not build, so there is no build step to assert'
+}
 
 foreach ($m in $milestones) {
     Assert-Match -Run $run -Name "st.milestone.$($m.Name)" `
