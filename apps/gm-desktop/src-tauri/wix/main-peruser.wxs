@@ -6,7 +6,7 @@
   wix/main.wxs. Edit the source template and re-run the script; the six
   edits it applies are listed both there and in the script's docstring.
 
-  SOURCE-SHA256: abcc23cd73e375ca68efd9317c9dc6c8a27d757e73896d01d55a2427c2172b1f
+  SOURCE-SHA256: 8932b4c7566efe9f02118c104f4c1bac5566ab3f93b48011360a98d833f34881
   The SHA-256 of wix/main.wxs as this file was generated from. It is here so
   that a stale generated file cannot go unnoticed: the build only checks that
   this file EXISTS (apps/gm-desktop/scripts/build-msi.ps1), not that it
@@ -188,8 +188,14 @@
                                Name="Path" Type="string" Value="[INSTALLDIR]" KeyPath="yes" />
                 <File Id="Path" Source="{{main_binary_path}}" Checksum="yes"/>
                 {{#if license}}
-                <!-- AGPL-3.0 section 4(a): a copy of the Licence must travel with
-                     every copy of the Program. The source is the RTF the bundler
+                <!-- AGPL-3.0 section 4: a copy of the Licence must travel with
+                     every copy of the Program ("give all recipients a copy of
+                     this License along with the Program"). Section 4 has no
+                     lettered subsections - the older "section 4(a)" citation
+                     named a clause that does not exist. Object-code recipients
+                     are covered through section 6, which applies sections 4
+                     and 5 to them.
+                     The source is the RTF the bundler
                      generated from bundle.licenseFile, and the same value already
                      drives the WixUILicenseRtf variable above, so the licence
                      reaches the recipient twice: as the install-time licence
