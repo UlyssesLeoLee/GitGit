@@ -178,6 +178,41 @@ jobs:
             exit "$status"
           fi
 
+      - name: Advisory ratchet (baseline)
+        # The step above is the plain gate and it is untouched: `cargo audit`
+        # still runs as-is and still fails on vulnerabilities. What it does
+        # NOT do is fail on anything else — cargo-audit exits 0 when the only
+        # findings are `unmaintained`, `unsound` or `yanked`. So an advisory
+        # in those three classes passes this job without a word.
+        #
+        # [FACT] That is not hypothetical here. The repository has already
+        # paid for this exact shape once: 28 tests landed on dev between
+        # 2026-10-05 and 2026-10-21 with no re-agreement of the unit-test
+        # count contract in scripts/regression-baseline.json, and nobody
+        # noticed.
+        #
+        # This step is the ratchet, and it is ADDITIVE. It compares
+        # `cargo audit --json` against the committed baseline in
+        # scripts/advisory-baseline.json and fails on any advisory that is not
+        # in the baseline, naming it. Nothing here adds an `--ignore`, an
+        # audit.toml ignore list, or a `-D warnings` gate, and nothing here
+        # replaces the plain `cargo audit` above.
+        #
+        # [FACT] The checker PARSES cargo audit's JSON. It does not grep the
+        # text output for an advisory ID: a substring match can be satisfied
+        # by that ID appearing in a description, a URL or a comment, which is
+        # the same class of false pass this repository has already hit.
+        #
+        # An advisory that DISAPPEARS is good news and does not fail this
+        # step — it is reported as information and the baseline is asked to be
+        # re-agreed. Only an advisory that APPEARS fails.
+        #
+        # The advisory database is the one the step above already fetched.
+        # `dtolnay/rust-toolchain` puts cargo under $CARGO_HOME, and
+        # cargo-audit clones the database to $CARGO_HOME/advisory-db, which
+        # is where the checker looks for it by default.
+        run: pwsh -NoProfile -File scripts/check-advisories.ps1 -Scope root
+
   integration:
     # Real end-to-end gate: real git client over real HTTP, plus HTTP-level
     # assertions against a live `gitgit serve`. This is a hard gate — no
