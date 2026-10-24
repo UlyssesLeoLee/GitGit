@@ -271,36 +271,110 @@ lock 与 `Cargo.toml`（含 `gitgit = { path = "../../.." }` 的按路径依赖�
 
 ## 触发器定义
 
-> `[FACT]` 下表逐字段核对自五个 workflow 的 `on:` 块，不是凭印象写的。**paths 过滤
+> `[FACT]` 2026-10-24 核验：下表逐字段核对自五个 workflow 的 `on:` 块，不是凭印象写的。
+> **paths 过滤
 > 本身是有历史教训的**：`gm-desktop.yml` 曾漏掉根 `Cargo.toml` / `Cargo.lock`，
 > 于是一次只改这两个文件的提交绕过了整个 workflow，一个陈旧 lock 造成的失败
 > 整整一天没人看见。现在两个桌面 workflow 都显式列出根 manifest。
+>
+> `[FACT]` 本次核验推翻了本表的一处旧记录：上一版把 `rust-backend` 的「其它」
+> 列写成 `—`，而该 workflow 的 `on:` 块里自 PR #43 起就有第三个触发器
+> `schedule:`（`- cron: '17 4 * * 1'`，每周一 04:17 UTC）。漏记的不是一条
+> 无关紧要的触发器——**它正是让 RUSTSEC 扫描在源码不动时也能按时跑的唯一机制**，
+> 详见「依赖审计 ratchet」一节。
 
 | workflow | push | `pull_request` | 其它 |
 | --- | --- | --- | --- |
 | `gm-console` | `dev` / `main` / `feature/gm-console-v0.1` | `dev` / `main` | — |
-| `rust-backend` | `dev` / `main` / `feature/gm-console-v0.1` / `feature/gm-desktop-v0.1` | `dev` / `main` | — |
+| `rust-backend` | `dev` / `main` / `feature/gm-console-v0.1` / `feature/gm-desktop-v0.1` | `dev` / `main` | **`schedule`：每周一 04:17 UTC（`cron: '17 4 * * 1'`），只跑 `audit` job** |
 | `gm-desktop` | `dev` / `main` | `dev` / `main` | — |
 | `gm-desktop-bundle` | `dev` / `main` | `dev` / `main` | `workflow_dispatch` |
 | `release` | — | — | **tag `v*`** + `workflow_dispatch`（需传 `tag`） |
 
-`[FACT]` `paths` 过滤：
+`[FACT]` `rust-backend` 的每周触发是**刻意窄**的：该 workflow 的 `test` job 与
+`integration` job 都带 `if: github.event_name != 'schedule'`，所以**排程只跑
+`audit` job**（含本节新增的 ratchet 步骤）。最贵的那两个 job 不进排程。
+
+`[FACT]` `paths` 过滤（2026-10-24 逐条核对）：
 
 - `gm-console`：`apps/gm-console/**`、`src/server/api.rs`、自身
 - `rust-backend`：`src/**`、`Cargo.toml`、`Cargo.lock`、`scripts/**`、自身
-- `gm-desktop`：`apps/gm-desktop/**`、**根 `Cargo.toml` / `Cargo.lock`**、自身
+- `gm-desktop`：`apps/gm-desktop/**`、**根 `Cargo.toml` / `Cargo.lock`**、自身、
+  **本仓 ratchet 的两个输入（`scripts/advisory-baseline.json`、
+  `scripts/check-advisories.ps1`）**
 - `gm-desktop-bundle`：`apps/gm-desktop/**`、**根 `Cargo.toml` / `Cargo.lock`**、
-  **自身与 `gm-desktop.yml`**
+  **自身与 `gm-desktop.yml`**、**`src/**`**
 
 `[FACT]` 后两条是有理由的，不是顺手多写：`gm-desktop-bundle` 要跑
 `tauri build`，而 `src-tauri/Cargo.toml` 通过 `path = "../../.."` 按路径依赖根
 crate，所以改根 manifest 能打断它的构建；而一个构建同一 crate 的 workflow 必须对
 「那个 crate 怎么被构建」的变化有反应，所以它同时监听 `gm-desktop.yml`。
 
+`[FACT]` `gm-desktop-bundle` 的 `src/**` 是与 `gm-desktop.yml` **有意不同**的：
+桌面端二进制链接根 crate 的 library target，改 `src/**` 同样能让 macOS / Linux
+上的 `tauri build` 编译失败。上一版本表漏记了这一条。
+
+`[FACT]` `gm-desktop` 的 `scripts/` 两条是本仓 ratchet 落地时补的：该 workflow 的
+`audit` job 现在会读 `scripts/advisory-baseline.json`、跑
+`scripts/check-advisories.ps1`，**门禁依赖的文件若不在 `paths` 内，改动它们就不会
+重新评估这道门禁**——与「陈旧 lock 整整一天没人看见」是同一类漏洞。补进去只会让
+run 变多，绝不会变少。
+
 `[FACT]` `release` 的触发条件与前四个根本不同：前四个由 push / PR 触发，
 `release` 只由 **打 tag** 或 `workflow_dispatch` 触发。这就是为什么「打 tag」是一个
 不可撤销的动作，也是为什么 MSI 证书未配置时 release 会在 `msi` job **失败关闭**
 而不是静默产出未签名包——`draft: true` 是整条发布链路的安全性支点。
+
+## 依赖审计 ratchet（2026-10-24）
+
+> `[FACT]` **plain `cargo audit` 只在「漏洞」上失败。** `unmaintained` /
+> `unsound` / `yanked` 这三类，它一律只打印警告、退出码 0。所以**一条新披露的
+> advisory 只要落在这三类里，就会一声不响地过 CI**。
+
+这不是假设：本仓已经为同一种形状付过一次账 —— `scripts/regression-baseline.json`
+里的 UT 计数契约曾长期无人执行，2026-10-05 → 2026-10-21 之间有 **28 个测试**
+悄悄落地（见 `rust-backend.yml` 中该 job 的注释）。
+
+本仓的两份 lock 现在各有一份基线：`scripts/advisory-baseline.json`。
+`scripts/check-advisories.ps1` 把 `cargo audit --json` 的结果与基线逐条比对：
+
+| 情况 | 判定 |
+| --- | --- |
+| cargo audit 报了、基线里没有 | **失败**，并点名是哪一条 |
+| 基线里有、但已不再适用（advisory 消失 / 版本修好） | **不失败**，只作信息提示「N 条基线条目不再适用，请更新基线」 |
+| 基线条目引用的 advisory ID 在 advisory 数据库里根本不存在 | **失败**，并点名——伪造或写错的条目不能留在基线里 |
+
+`[FACT]` 这道门禁是**加法**：plain `cargo audit` 那一步原封不动、照常失败于漏洞；
+没有任何 `--ignore`、没有 `audit.toml` 白名单，也没有拿 `-D warnings` 当门禁
+（现存这 5 条传递依赖去不掉——两条 gtk 0.18 链（`glib`、`proc-macro-error`）与三条
+zbus 链（`zbus_names`、`zvariant`、`zvariant_derive`），各自的约束写在基线的 `note`
+里；拿它当门禁只会得到一道永远红的门禁，而永远红的门禁等于没有门禁）。
+
+`[FACT]` checker **解析 JSON**，不去 grep 文本输出里的 advisory ID：子串匹配会被
+描述、URL 或注释里出现的同一个 ID 满足，这正是本仓已经踩过的那类假通过。
+
+两道门禁各自落在谁身上：
+
+| lock | 位置 | 触发时机 |
+| --- | --- | --- |
+| 根 `Cargo.lock` | `rust-backend.yml` 的 `audit` job | push / PR + **每周一 04:17 UTC 的排程** |
+| `apps/gm-desktop/src-tauri/Cargo.lock` | `gm-desktop.yml` 的 `audit` job | push / PR（**无排程**） |
+
+`[PROPOSAL]` **桌面端 lock 没有排程**，所以它只在桌面端有变动时才被评估；根 lock
+则每周都会被评估一次。`rust-backend.yml` 之所以有排程，理由就写在它自己的注释里：
+advisory 数据库是按自己的节奏长大的，只在源码变动时才扫描，等于「没有已知漏洞」
+这句话只在源码碰巧变动的那几天成立。桌面端这条同样的理由成立，但本 lane 只补了
+`paths`、未改触发器，故只记录。
+
+本地跑法：
+
+```powershell
+pwsh -NoProfile -File scripts/check-advisories.ps1 -Scope all
+```
+
+`[FACT]` 退出码与回归三档一致：`0` 通过 / `1` 失败 / `2` setup 错误（找不到
+cargo-audit、lock 或基线，或 advisory 数据库读不到——那种情况下这道门禁等于
+什么都没检查，必须硬失败）。
 
 ## Ulysses 接入步骤
 
@@ -421,7 +495,19 @@ GitHub repo → Settings → Branches → Add rule for `dev`:
 `rust-backend.yml` 的 `paths` 包含:
 - `src/**` — 任何 Rust 源码变动
 - `Cargo.toml` / `Cargo.lock` — 依赖变更
+- `scripts/**` — 任何脚本变动（含回归三档与依赖审计 ratchet）
 - `.github/workflows/rust-backend.yml` — CI 文件本身修改
+
+`gm-desktop.yml` 的 `paths` 包含:
+- `apps/gm-desktop/**` — 桌面端任何变动
+- `Cargo.toml` / `Cargo.lock` — 根 crate 按路径依赖，根清单变动会影响 `--locked` 类步骤
+- `scripts/advisory-baseline.json` / `scripts/check-advisories.ps1` — 本 workflow
+  `audit` job 里那道 ratchet 门禁的两个输入；门禁依赖的文件不在 `paths` 内，
+  改它们就不会重新评估这道门禁
+- `.github/workflows/gm-desktop.yml` — CI 文件本身
+- `[PROPOSAL]` **缺 `src/**`**，与 `gm-desktop-bundle.yml` 有意不同的地方相同：
+  桌面端二进制链接根 crate 的 library target，`src/**` 的改动同样能让编译失败。
+  本 lane 未改 workflow 触发器，故只记录
 
 `gm-desktop-bundle.yml` 的 `paths` 包含:
 - `apps/gm-desktop/**` — 桌面端任何变动

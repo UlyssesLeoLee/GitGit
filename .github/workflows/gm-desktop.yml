@@ -45,6 +45,15 @@ on:
       # root `Cargo.toml` + `Cargo.lock`, so this workflow never ran.
       - 'Cargo.toml'
       - 'Cargo.lock'
+      # The advisory ratchet step in this workflow reads
+      # `scripts/advisory-baseline.json` and runs `scripts/check-advisories.ps1`.
+      # A workflow whose own gate depends on files outside its `paths` filter
+      # does not re-evaluate that gate when those files change — the same
+      # omission that let a stale `src-tauri/Cargo.lock` break this job for a
+      # full day without CI noticing. Listing them only ever causes MORE runs,
+      # never fewer.
+      - 'scripts/advisory-baseline.json'
+      - 'scripts/check-advisories.ps1'
   pull_request:
     branches: [dev, main]
     paths:
@@ -52,6 +61,8 @@ on:
       - '.github/workflows/gm-desktop.yml'
       - 'Cargo.toml'
       - 'Cargo.lock'
+      - 'scripts/advisory-baseline.json'
+      - 'scripts/check-advisories.ps1'
 
 concurrency:
   group: gm-desktop-${{ github.ref }}
@@ -67,11 +78,17 @@ jobs:
   # at the repo root reads the root lockfile only, so every dependency
   # reachable *only* through the desktop app was invisible to it.
   #
-  # [FACT] Measured on the current lockfile: 0 vulnerabilities, 8
-  # unmaintained/unsound/yanked warnings. So this job is not closing a
-  # known hole — it is making "clean" an enforced property rather than a
-  # coincidence. The desktop app is the only thing most users install, so
-  # its tree is the one that matters commercially.
+  # [FACT] Measured on the current lockfile (2026-10-24, cargo-audit 0.22.2
+  # against an advisory database of 1352 advisories): 0 vulnerabilities, 5
+  # unmaintained/unsound/yanked warnings. The 8 that this comment used to
+  # claim was never measured — it was stale the moment it was written, and
+  # the real number on 2026-10-24 was 13. Eight of those 13 are now closed
+  # (tokio, clipboard-win, yoke-derive and the five `unic-*` crates); the 5
+  # that remain each name the exact constraint that blocks them in
+  # scripts/advisory-baseline.json. So this job is not closing a known hole
+  # — it is making "clean" an enforced property rather than a coincidence.
+  # The desktop app is the only thing most users install, so its tree is the
+  # one that matters commercially.
   #
   # Kept as its own job, mirroring the reasoning in `rust-backend.yml`: a
   # one-off `cargo install cargo-audit` plus an advisory-DB fetch should
@@ -118,6 +135,33 @@ jobs:
             fi
             exit "$status"
           fi
+
+      - name: Advisory ratchet (baseline)
+        # The step above is the plain gate and it is untouched: `cargo audit`
+        # still runs as-is and still fails on vulnerabilities. What it does
+        # NOT do is fail on anything else — cargo-audit exits 0 when the only
+        # findings are `unmaintained`, `unsound` or `yanked`. So an advisory
+        # in those three classes passes this job without a word.
+        #
+        # This step is the ratchet, and it is ADDITIVE. It compares
+        # `cargo audit --json` against the committed baseline in
+        # scripts/advisory-baseline.json and fails on any advisory that is not
+        # in the baseline, naming it. Nothing here adds an `--ignore`, an
+        # audit.toml ignore list, or a `-D warnings` gate, and nothing here
+        # replaces the plain `cargo audit` above.
+        #
+        # [FACT] The checker PARSES cargo audit's JSON. It does not grep the
+        # text output for an advisory ID: a substring match can be satisfied
+        # by that ID appearing in a description, a URL or a comment.
+        #
+        # An advisory that DISAPPEARS is good news and does not fail this
+        # step — it is reported as information and the baseline is asked to be
+        # re-agreed. Only an advisory that APPEARS fails.
+        #
+        # Run from the repository root, not from `src-tauri`: the script
+        # resolves the repository root and the lockfile paths itself, so it
+        # scans the same lockfile the step above scans.
+        run: pwsh -NoProfile -File scripts/check-advisories.ps1 -Scope tauri
 
   build:
     name: lint + check + test + build + cargo check
