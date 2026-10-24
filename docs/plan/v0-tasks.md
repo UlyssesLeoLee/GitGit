@@ -97,10 +97,47 @@
 > where to find the Corresponding Source.」
 > `[FACT]` 本产品的分发方式正是「指定地点」—— GitHub Releases。
 > `[FACT]` 许可证**确已交付**（deb / msi / dmg / appimage；PR #41 已合并，appimage 由 PR #45 补上）。
-> `[UNVERIFIED-FACT]` **但仓内没有任何记录说明**：这些包是否在对象码旁附有「指向 Corresponding
-> Source 的明确指引」，以及发布页是否在同一地点以同等方式提供源代码 —— **本轮未作检查**。
-> `[PROPOSAL]` **建议检查这两点，并把结论写回本仓。** 此项属许可证理解问题，应由负责法律判断的人
-> 裁定，**不应靠阅读文本来下结论**；本节不作「是否违规」的判断。
+> `[FACT]` **这两点已于 2026-10-24 检查完毕，事实写回如下。**
+>
+> `[FACT]` **仓库是公开仓库**（`gh repo view UlyssesLeoLee/GitGit` → `visibility: PUBLIC`），
+> 所以「指定地点」就是该仓库的发布页
+> `https://github.com/UlyssesLeoLee/GitGit/releases`。
+>
+> `[FACT]` **发布页此前没有这些内容。** 草稿 release `404746754`（tag `v0.1.0`，2026-10-06）的
+> 正文只有「Automated draft for `v0.1.0`」、一段签名说明和一段「这是草稿、发布由人决定」，
+> **没有** Corresponding Source 段落、**没有**提到许可证、**没有**给出源代码位置；其 7 个安装包
+> 资产中也没有源码包。tag `v0.1.0` 的源码归档本身是可达的
+> （`https://codeload.github.com/UlyssesLeoLee/GitGit/tar.gz/refs/tags/v0.1.0` → HEAD 200）。
+>
+> `[FACT]` **本轮的改动：** `release.yml` 的 `draft-release` 正文新增 `## Corresponding Source`
+> 段落，写明**已解析的 TAG**（`needs.verify-tag.outputs.tag`，不是 `github.ref_name`）、
+> **许可证**（AGPL-3.0 及其文本所在处）、**源代码提供位置**（同一发布页、同一方式、
+> at no further charge），并写明 `.msi` / `.dmg` 各自带什么、不带什么。
+>
+> `[FACT]` **对象码旁的「明确指引」：** 新增仓库内**提交**文件 `CORRESPONDING-SOURCE.md`
+> （根目录，与 `LICENSE` 同级），经既有 `bundle.linux.deb.files` /
+> `bundle.linux.appimage.files` 打进 `.deb` 与 `.AppImage`，落点
+> `usr/share/doc/gitgit-desktop/CORRESPONDING-SOURCE.md`，与许可证副本同目录。
+> 它是提交进仓的固定文件，不是构建期生成的 —— 生成出来的「指引」是仓库里并不存在的内容的
+> 转述，会与它所指向的源码漂移。
+> `verify-bundle.sh` 按**内容**判定（三个短语：标题句 `Corresponding Source for this build`、
+> `AGPL-3.0`、指定地点 `https://github.com/UlyssesLeoLee/GitGit/releases`），
+> `.deb` / `.AppImage` 分支是**断言**，缺失即红；`dmg` 分支只打印诊断。
+>
+> `[FACT]` **两个产物仍然只有许可证、没有指引文件，原因是机制限制，不是遗漏：**
+> - `.msi`：`wix/main.wxs` 的 `{{license}}` 槽位装的是许可证 RTF（`LICENSE.rtf`，与可执行文件
+>   同组件），该槽位**已被占用**；另一个槽位 `bundle.resources` 经 run `37644440611` 实测会破坏
+>   MSI 构建（`WixTools314/light.exe`），因此现有门禁把 `bundle.resources` 钉死为 `[]`。
+>   本轮**没有**改动 WiX 模板，也没有引入未经实测的新机制。
+> - `.dmg`：`bundle.licenseFile` 由 create-dmg 以 `--eula` 接收，落为 **UDIF EULA 资源**
+>   （TEXT/styl/STR#），挂载时呈现；镜像内**没有**可挂指引的文件，dmg bundler 也不读
+>   `bundle.resources`，配置里没有能放进去的键。
+>
+> `[PROPOSAL]` **合法性判断仍然开放。** 以上记录的是**事实**（仓库公开性、指定地点、各产物
+> 实际携带的内容），**不构成**「是否符合 §6(d)」的结论 —— 该项属许可证理解问题，应由负责法律
+> 判断的人裁定，**不应靠阅读文本来下结论**；本节仍不作「是否违规」的判断。
+> 若要为 `.msi` / `.dmg` 也补上指引文件，需要一个**尚未验证可行**的机制
+> （WiX fragment 路径 `bundle.windows.wix.fragmentPaths`），本轮不引入。
 
 > ## 2026-10-05 核验补充（前端测试与启动路径）
 >
@@ -332,7 +369,7 @@ T5 (PG/sqlx) ─→ T6 (MinioVault) → T7 (AI provider)
 | **minIO 备份缺失** | 中 | 高 | 启用 versioning + 90d lifecycle policy；V1+ 推进跨节点复制（minIO erasure coding 默认 4+2 抗单盘故障） |
 | **minIO root user 凭证管理**（递归引用 vault 自身） | 中 | 中 | minIO root 凭证由 FileVault 启动时引导存（仅 dev 阶段）；V1 推进 KMS / Secret Manager；**禁止把 root 凭证明文写 .env 入仓** |
 | 凭证 vault 误写权限 | 中 | 高 | `MinioVault` 默认走 bucket policy（V0 简化：单租户 single-user access key 即可）；FileVault fallback 仍 0600 权限 |
-| **AGPL-3.0 §6(d) 交付义务未记录**（2026-10-24 新增，见「追补更正 2」） | 未评估 | 未评估 | `[FACT]` 义务存在：对象码经指定地点交付时，须在同一地点以同等方式提供 Corresponding Source，并在对象码旁保留「指向 Corresponding Source 的明确指引」（`LICENSE:263-275`）。`[UNVERIFIED-FACT]` 本仓未记录产物是否附该指引、发布页是否同址提供源代码（本轮未查）。`[PROPOSAL]` 建议检查并把结论写回，由负责法律判断的人裁定 —— 本项不作「是否违规」的判断 |
+| **AGPL-3.0 §6(d) 交付义务：事实已记录，合法性待裁定**（2026-10-24 新增并补记，见「追补更正 2」） | 未评估 | 未评估 | `[FACT]` 义务存在：对象码经指定地点交付时，须在同一地点以同等方式提供 Corresponding Source，并在对象码旁保留「指向 Corresponding Source 的明确指引」（`LICENSE:263-275`）。`[FACT]` 仓库为**公开**仓库；**指定地点**＝发布页 `https://github.com/UlyssesLeoLee/GitGit/releases`，对象码与源代码同址、同方式、at no further charge。`[FACT]` 发布页正文已新增 `## Corresponding Source` 段落，写明已解析的 TAG、AGPL-3.0 及其文本所在处、源 tag 归档 URL。`[FACT]` 对象码旁的指引＝仓内提交文件 `CORRESPONDING-SOURCE.md`，经 `bundle.linux.deb.files` / `bundle.linux.appimage.files` 打进 `.deb` 与 `.AppImage`，`verify-bundle.sh` 按**内容**断言其存在。`[FACT]` `.msi` 仍只有许可证 RTF、`.dmg` 的许可证是 UDIF EULA 资源，两者都**没有**指引文件（机制限制见「追补更正 2」）。`[PROPOSAL]` **合法性判断仍然开放** —— 本项只记录事实，由负责法律判断的人裁定，本项不作「是否违规」的判断 |
 
 ## 不做（out of scope）
 

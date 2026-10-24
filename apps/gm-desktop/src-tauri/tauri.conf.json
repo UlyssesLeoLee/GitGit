@@ -74,12 +74,14 @@
           "libgtk-3-0"
         ],
         "files": {
-          "usr/share/doc/gitgit-desktop/copyright": "../../../LICENSE"
+          "usr/share/doc/gitgit-desktop/copyright": "../../../LICENSE",
+          "usr/share/doc/gitgit-desktop/CORRESPONDING-SOURCE.md": "../../../CORRESPONDING-SOURCE.md"
         }
       },
       "appimage": {
         "files": {
-          "usr/share/doc/gitgit-desktop/LICENSE": "../../../LICENSE"
+          "usr/share/doc/gitgit-desktop/LICENSE": "../../../LICENSE",
+          "usr/share/doc/gitgit-desktop/CORRESPONDING-SOURCE.md": "../../../CORRESPONDING-SOURCE.md"
         }
       }
     }

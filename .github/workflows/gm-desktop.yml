@@ -36,6 +36,12 @@ on:
     paths:
       - 'apps/gm-desktop/**'
       - '.github/workflows/gm-desktop.yml'
+      # The desktop unit tests assert things about the release workflow: the
+      # release body has to carry the Corresponding Source section, and the
+      # tag it names has to be the resolved tag. Without this path a change to
+      # `release.yml` would not run the tests that check it, so the gate would
+      # only ever fire on a change to the app.
+      - '.github/workflows/release.yml'
       # The desktop crate consumes the root crate by path
       # (`gitgit = { path = "../../.." }`), so a change to the root manifest
       # or lockfile can break the `--locked` cargo steps in this workflow.
@@ -59,6 +65,7 @@ on:
     paths:
       - 'apps/gm-desktop/**'
       - '.github/workflows/gm-desktop.yml'
+      - '.github/workflows/release.yml'
       - 'Cargo.toml'
       - 'Cargo.lock'
       - 'scripts/advisory-baseline.json'

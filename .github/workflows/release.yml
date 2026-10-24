@@ -1014,10 +1014,52 @@ jobs:
           name: 'gitgit Desktop ${{ needs.verify-tag.outputs.version }} (unsigned draft)'
           draft: true
           prerelease: false
+          # The Corresponding Source section in the body below is the OTHER
+          # half of AGPL-3.0 section 6(d). The licence copy that travels with
+          # the installers answers section 4; that section answers "where do
+          # I find the source of THIS build", and it is on the page the object
+          # code was offered from.
+          #
+          # The repository is written out rather than interpolated from
+          # `${{ github.repository }}`, on purpose: the notice that ships
+          # INSIDE the .deb and the .AppImage is a committed file, so it has
+          # to name the repository literally, and the gate in
+          # `tests/unit/corresponding-source-notice.test.ts` asserts that the
+          # page and the shipped notice name the SAME place. Using the
+          # expression here would let the two drift apart, and the page would
+          # point somewhere the artefact does not.
+          #
+          # The tag in the body is `${{ needs.verify-tag.outputs.tag }}` and
+          # never the triggering ref: on a workflow_dispatch that is the
+          # BRANCH the operator picked.
           body: |
             Automated draft for `${{ needs.verify-tag.outputs.tag }}`.
 
             ${{ steps.signing.outputs.notice }}
+
+            ## Corresponding Source
+
+            This release is the object code of `gitgit Desktop`, offered from
+            this page under the **GNU Affero General Public License, version 3
+            (AGPL-3.0)**.
+
+            - **Corresponding Source for this build:** the complete source of
+              tag `${{ needs.verify-tag.outputs.tag }}` is offered at no
+              further charge, through this same page, at
+              https://github.com/UlyssesLeoLee/GitGit/archive/refs/tags/${{ needs.verify-tag.outputs.tag }}.tar.gz
+            - **Licence text:** the full AGPL-3.0 text is the `LICENSE` file at
+              the root of the source repository
+              (https://github.com/UlyssesLeoLee/GitGit/blob/${{ needs.verify-tag.outputs.tag }}/LICENSE),
+              and a copy is installed alongside the program by the `.deb` and
+              the `.AppImage`.
+            - **Next to the object code:** the `.deb` and the `.AppImage`
+              carry this notice in the same directory as the installed
+              licence
+              (`usr/share/doc/gitgit-desktop/CORRESPONDING-SOURCE.md`).
+            - **The `.msi` and the `.dmg`:** both carry the AGPL-3.0 licence -
+              the `.msi` as `LICENSE.rtf` next to the installed program, the
+              `.dmg` as a licence agreement presented when the disk image is
+              mounted. Neither carries the notice file.
 
             This release was created by `release.yml` and left as a draft on
             purpose. Publishing it is a human decision.
