@@ -76,6 +76,11 @@
         "files": {
           "usr/share/doc/gitgit-desktop/copyright": "../../../LICENSE"
         }
+      },
+      "appimage": {
+        "files": {
+          "usr/share/doc/gitgit-desktop/LICENSE": "../../../LICENSE"
+        }
       }
     }
   },

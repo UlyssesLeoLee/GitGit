@@ -1,7 +1,7 @@
 #requires -Version 7
 <#
 .NOTES
-    AGPL-3.0 section 4(a) IS CHECKED HERE, AND THE CHECK IS AN ASSERTION.
+    AGPL-3.0 section 4 IS CHECKED HERE, AND THE CHECK IS AN ASSERTION.
 
     The requirement: a copy of the Licence has to travel with every copy of
     the Program. The MSI carries it twice over.
@@ -284,7 +284,7 @@ function Test-AdminInstall {
         }
         $files = @(Get-ChildItem -LiteralPath $target -File -Recurse -ErrorAction SilentlyContinue)
 
-        # AGPL-3.0 section 4(a): a copy of the Licence has to travel with every
+        # AGPL-3.0 section 4: a copy of the Licence has to travel with every
         # copy of the Program.
         #
         # The exact path is deliberately NOT pinned. The requirement is that a
@@ -300,7 +300,7 @@ function Test-AdminInstall {
             $names = ($files | ForEach-Object { $_.FullName.Substring($target.Length).TrimStart('\', '/') }) -join ', '
             throw ("administrative install of '$([System.IO.Path]::GetFileName($Path))' extracted " +
                    "$($files.Count) file(s) and not one of them is a licence, copyright, copying or notice " +
-                   "file. AGPL-3.0 section 4(a) requires a copy of the Licence with every copy of the " +
+                   "file. AGPL-3.0 section 4 requires a copy of the Licence with every copy of the " +
                    "Program. Extracted: $names. The mechanism is the LicenseFile in the Path component of " +
                    "wix/main.wxs (and the main-peruser.wxs generated from it), fed by bundle.licenseFile.")
         }

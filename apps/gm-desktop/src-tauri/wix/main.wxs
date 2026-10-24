@@ -27,7 +27,7 @@
   change here has to be followed by re-running that script.
 
   IT IS NOT BYTE-IDENTICAL TO UPSTREAM ANY MORE. There is exactly one
-  local modification: the AGPL-3.0 section 4(a) licence file, added to
+  local modification: the AGPL-3.0 section 4 licence file, added to
   the `Path` component so that a copy of the Licence is installed next to
   the executable. The reason is recorded where the file is added. If that
   change is ever reverted, this paragraph goes with it.
@@ -198,8 +198,14 @@
             <Component Id="Path" Guid="{{path_component_guid}}" Win64="$(var.Win64)">
                 <File Id="Path" Source="{{main_binary_path}}" KeyPath="yes" Checksum="yes"/>
                 {{#if license}}
-                <!-- AGPL-3.0 section 4(a): a copy of the Licence must travel with
-                     every copy of the Program. The source is the RTF the bundler
+                <!-- AGPL-3.0 section 4: a copy of the Licence must travel with
+                     every copy of the Program ("give all recipients a copy of
+                     this License along with the Program"). Section 4 has no
+                     lettered subsections - the older "section 4(a)" citation
+                     named a clause that does not exist. Object-code recipients
+                     are covered through section 6, which applies sections 4
+                     and 5 to them.
+                     The source is the RTF the bundler
                      generated from bundle.licenseFile, and the same value already
                      drives the WixUILicenseRtf variable above, so the licence
                      reaches the recipient twice: as the install-time licence

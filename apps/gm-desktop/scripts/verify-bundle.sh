@@ -430,8 +430,8 @@ ${CONTENTS}"
       || die "${ARTIFACT_NAME} contains no usr/share/applications/*.desktop: the freedesktop launch metadata was not generated."
     ok "freedesktop entry: $(printf '%s' "$DESKTOP_ENTRY" | awk '{ print $NF }')"
 
-    # ── AGPL-3.0 §4(a): convey a copy of the Licence with every copy of the
-    # Program. ─────────────────────────────────────────────────────────────────
+    # ── AGPL-3.0 §4: convey a copy of the Licence with every copy of the
+    # Program. ────────────────────────────────────────────────────────────────────
     # Measured on release 404746754 before this check existed: the published
     # .deb contained exactly five files — the binary, one .desktop entry and
     # three icons — and no licence text of any kind.
@@ -470,7 +470,7 @@ ${CONTENTS}"
       echo "${CONTENTS}" | sed 's/^/    /' >&2
       report_rejected_licences "$DEB_EXTRACT_DIR" >&2
       die "${ARTIFACT_NAME} ships no copy of the Licence.
-AGPL-3.0 section 4(a) requires a copy of the Licence with every copy of the
+AGPL-3.0 section 4 requires a copy of the Licence with every copy of the
 Program. A file whose NAME looks like a licence does not count: the package may
 carry a dependency's copyright file and no copy of the Licence at all. Check
 bundle.linux.deb.files in ${CONFIG} still maps a usr/share/doc/... destination
@@ -533,24 +533,45 @@ is that map - not bundle.licenseFile - that the deb bundler actually reads."
     # and has never been observed on a real build; the first run decides
     # whether it becomes an assertion. Printing it is how that gets decided
     # without a guess being enforced as a gate.
-    RUNTIME_MAGIC=$(head -c 11 "$ARTIFACT" | od -An -tx1 | tr -d ' \n' | cut -c9-14)
+    # `od` prints two hex digits per byte and `tr -d ' \n'` leaves them in
+    # order, so byte N occupies characters 2N+1 and 2N+2. The bytes at OFFSET
+    # 8 are therefore characters 17-22. The previous `cut -c9-14` read bytes
+    # 4-6 - EI_CLASS, EI_DATA and EI_VERSION - and printed them under a label
+    # that said 8-10, which is how `020101` came to be recorded as the
+    # type-2 magic.
+    RUNTIME_MAGIC=$(head -c 11 "$ARTIFACT" | od -An -tx1 | tr -d ' \n' | cut -c17-22)
     echo "    bytes 8-10  : ${RUNTIME_MAGIC} (expect 414902 for an AppImage type-2 runtime)"
 
-    # ── AGPL-3.0 §4(a): what this artifact actually carries ───────────────
-    # [FACT] Neither `bundle.licenseFile` nor `bundle.resources` reaches the
-    # AppImage bundler. `crates/tauri-bundler/src/bundle/linux/appimage/`
-    # (both `mod.rs` and `linuxdeploy.rs`) contains no reference to either;
-    # the bundlers that do read them are deb, rpm, ios, msi and nsis. That is a
-    # source-level fact, and it is why this section PRINTS instead of
-    # asserting: an assertion here could never pass, and a gate that cannot be
-    # satisfied gets switched off, at which point it protects nothing.
+    # ── AGPL-3.0 §4: convey a copy of the Licence with every copy of the
+    # Program. ─────────────────────────────────────
+    # [FACT] The AppImage bundler DOES read a licence-carrying key:
+    # `bundle.linux.appimage.files`. `tauri-utils`' `AppImageConfig` declares
+    # `files: HashMap<PathBuf, PathBuf>` - "The files to include in the
+    # Appimage Binary" - and
+    # `crates/tauri-bundler/src/bundle/linux/appimage/linuxdeploy.rs` calls
+    # `fs_utils::copy_custom_files(&settings.appimage().files, &data_dir)`
+    # before it copies `data_dir/usr/` into the AppDir. The map key is the
+    # DESTINATION relative to the data dir, so it has to start with `usr/` to
+    # end up inside the image.
     #
-    # Printing is what settles it. The AppImage runtime can unpack its own
-    # squashfs, so the contents can be listed without FUSE and without root.
-    # `ARTIFACT` is relative to this script's working directory, so it has to
-    # be made absolute before the extraction runs somewhere else.
+    # [FACT] The earlier claim in this file - that neither `bundle.licenseFile`
+    # nor `bundle.resources` reaches this bundler, so no configuration could
+    # put a copy of the Licence there - was true of those two keys and was
+    # read as being true of the mechanism in general. It was not:
+    # `appimage.files` was overlooked, and the conclusion "an open AGPL-3.0
+    # section 4 gap" was wrong. The gap is closed by configuration, not by
+    # repacking the image, so this branch now ASSERTS instead of printing.
+    #
+    # The runtime can unpack its own squashfs, so the contents can be listed
+    # without FUSE and without root. `ARTIFACT` is relative to this script's
+    # working directory, so it has to be made absolute before the extraction
+    # runs somewhere else.
     APPIMAGE_PATH=$(cd "$(dirname "$ARTIFACT")" && pwd)/$(basename "$ARTIFACT")
     APPIMAGE_EXTRACT_DIR=$(mktemp -d)
+    # The trap, not a trailing `rm -rf`: the failure path below exits from
+    # inside this branch, and a directory that only a later line would have
+    # removed would be left behind on every failure.
+    trap 'rm -rf "$APPIMAGE_EXTRACT_DIR"' EXIT
     if ( cd "$APPIMAGE_EXTRACT_DIR" && "$APPIMAGE_PATH" --appimage-extract >/dev/null 2>&1 ); then
         APPIMAGE_ROOT="$APPIMAGE_EXTRACT_DIR/squashfs-root"
         APPIMAGE_FILE_COUNT=$(find "$APPIMAGE_ROOT" -type f 2>/dev/null | wc -l | tr -d ' ')
@@ -578,22 +599,27 @@ is that map - not bundle.licenseFile - that the deb bundler actually reads."
             # image that never had one. The count is what tells them apart.
             APPIMAGE_CANDIDATE_COUNT=$(list_licence_candidates "$APPIMAGE_ROOT" | grep -c . || true)
             if [ "$APPIMAGE_CANDIDATE_COUNT" -gt 0 ]; then
-                echo "    NO COPY OF THE LICENCE in the AppImage (${APPIMAGE_FILE_COUNT} file(s) in the image)."
-                echo "    ${APPIMAGE_CANDIDATE_COUNT} licence-shaped file(s) were found, and none of them carries"
-                echo "    the AGPL-3.0 text:"
-                report_rejected_licences "$APPIMAGE_ROOT"
+                echo "    ${APPIMAGE_CANDIDATE_COUNT} licence-shaped file(s) were found, and none of them carries" >&2
+                echo "    the AGPL-3.0 text:" >&2
+                report_rejected_licences "$APPIMAGE_ROOT" >&2
             else
-                echo "    NO LICENCE-SHAPED FILE in the AppImage (${APPIMAGE_FILE_COUNT} file(s) in the image)."
+                echo "    the image carries no licence-shaped file at all (${APPIMAGE_FILE_COUNT} file(s) in the image)." >&2
             fi
-            echo "    [FACT] crates/tauri-bundler/src/bundle/linux/appimage/ reads neither"
-            echo "    bundle.licenseFile nor bundle.resources, so there is no configuration"
-            echo "    that puts one there. This is an open AGPL-3.0 section 4(a) gap for the"
-            echo "    AppImage target, not a passing check."
+            die "${ARTIFACT_NAME} ships no copy of the Licence.
+AGPL-3.0 section 4 requires a copy of the Licence with every copy of the
+Program. A file whose NAME looks like a licence does not count: the image may
+carry a dependency's copyright file and no copy of the Licence at all. Check
+bundle.linux.appimage.files in ${CONFIG} still maps a usr/share/... destination
+at a source that exists. It is destination -> source, not source -> destination,
+and the destination has to start with usr/ - only data_dir/usr/ is copied into
+the AppDir (crates/tauri-bundler/src/bundle/linux/appimage/linuxdeploy.rs)."
         fi
     else
-        echo "    could not extract the AppImage to list its contents (the runtime refused --appimage-extract)"
+        die "could not extract ${ARTIFACT_NAME} to check its contents (the runtime refused --appimage-extract).
+Failing closed: an image we cannot open proves nothing."
     fi
     rm -rf "$APPIMAGE_EXTRACT_DIR"
+    trap - EXIT
     ;;
 
   dmg)
@@ -685,7 +711,7 @@ $(find "${APP_PATH}/Contents" -maxdepth 2 -print 2>/dev/null | head -20)"
     rm -f "$PLIST_OUT"
     ok "Info.plist carries the manifest version ${VERSION}"
 
-    # ── AGPL-3.0 §4(a): what this artifact actually carries ───────────────
+    # ── AGPL-3.0 §4: what this artifact actually carries ──────────────────
     # [FACT] The dmg bundler DOES read `bundle.licenseFile`:
     # `crates/tauri-bundler/src/bundle/macos/dmg/mod.rs` hands it to create-dmg
     # as `--eula`, so the licence text is presented when the image is mounted.

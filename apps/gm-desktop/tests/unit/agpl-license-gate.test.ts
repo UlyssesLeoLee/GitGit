@@ -1,5 +1,5 @@
 /**
- * Gates on the AGPL-3.0 §4(a) licence requirement.
+ * Gates on the AGPL-3.0 §4 licence requirement.
  *
  * ## What was wrong
  *
@@ -16,7 +16,7 @@
  *
  * and no licence, copyright, copying or notice file of any kind.
  *
- * §4(a) requires a copy of the Licence with every copy of the Program. Shipping
+ * Section 4 requires a copy of the Licence with every copy of the Program. Shipping
  * a binary under AGPL-3.0 without it is a compliance defect, and it is one
  * that no existing gate could see: `verify-bundle.sh` never mentioned the word
  * licence at all.
@@ -61,7 +61,10 @@ const conf = JSON.parse(readFileSync(CONF, 'utf8')) as {
     targets?: string[];
     /** Either a list of paths or a source -> destination map. */
     resources?: string[] | DebFiles;
-    linux?: { deb?: { depends?: string[]; files?: DebFiles } };
+    linux?: {
+      deb?: { depends?: string[]; files?: DebFiles };
+      appimage?: { files?: DebFiles };
+    };
   };
   version?: string;
 };
@@ -129,6 +132,12 @@ const shellFunction = (code: string, name: string): string => {
   expect(end, `could not find the end of the shell function '${name}'`).toBeGreaterThan(start);
   return code.slice(start, end + 2);
 };
+
+/**
+ * Collapse runs of whitespace, so a clause that the licence text hard-wraps
+ * across lines becomes a contiguous string again.
+ */
+const flat = (text: string): string => text.replace(/\s+/g, ' ');
 
 describe('the bundle is configured to carry the licence', () => {
   it('maps the licence into the package data dir through deb.files', () => {
@@ -296,7 +305,13 @@ describe('the .deb verifier would notice the omission', () => {
     // AGPL cited by section, so the requirement is checkable by a reader who
     // does not take this repository's word for it.
     expect(remediation![0]).toMatch(/AGPL-3\.0/);
-    expect(remediation![0]).toMatch(/4\(a\)/);
+    expect(remediation![0]).toMatch(/AGPL-3\.0 section 4 requires/);
+    // Section 4 has no lettered subsections, so "section 4(a)" names a clause
+    // that does not exist. The citation is checkable, so it is checked.
+    expect(
+      remediation![0],
+      'the failure message cites a lettered subsection that section 4 does not have'
+    ).not.toMatch(/4\(a\)/);
   });
 
   it('does not pin one directory, which would be a guess about the bundler', () => {
@@ -414,77 +429,144 @@ describe('the MSI installer carries the licence, and the verifier proves it', ()
     // it worked, and that the reason it was missing was a measurement artefact.
     expect(msiRaw).toMatch(/37642251415/);
     expect(msiRaw).toMatch(/wix\/main\.wxs/);
-    expect(msiRaw).toMatch(/4\(a\)/);
+    expect(msiRaw).toMatch(/AGPL-3\.0 section 4 requires a copy of the Licence/);
+    // The wrong citation is forbidden anywhere in the file, not merely
+    // absent from this one message: a phrase elsewhere in the file must not
+    // be able to satisfy an assertion about a different one.
+    expect(
+      msiRaw,
+      'the MSI verifier still cites a lettered subsection that section 4 does not have'
+    ).not.toMatch(/4\(a\)/);
   });
 });
 
-describe('the two targets with no licence mechanism are measured, not assumed', () => {
+describe('the AppImage carries the licence, and the verifier proves it', () => {
   /**
    * The AppImage bundler reads neither `bundle.licenseFile` nor
-   * `bundle.resources` — `crates/tauri-bundler/src/bundle/linux/appimage/`
-   * (both `mod.rs` and `linuxdeploy.rs`) has no reference to either. There is no
-   * configuration that puts a licence in an AppImage.
+   * `bundle.resources`: `crates/tauri-bundler/src/bundle/linux/appimage/`
+   * (both `mod.rs` and `linuxdeploy.rs`) has no reference to either.
    *
-   * A gate asserting one could never pass, and a gate that cannot be satisfied
-   * gets switched off, at which point it protects nothing and blocks every
-   * merge. So the AppImage is MEASURED instead: the verify step extracts the
-   * image and reports what it found. The dmg gets the same treatment for the
-   * part that is not observable — create-dmg is handed the licence as `--eula`,
-   * and where it leaves it is not something to guess at.
+   * That used to be read as "there is no configuration that puts a licence in
+   * an AppImage", and the conclusion was wrong. The bundler reads a THIRD
+   * key: `bundle.linux.appimage.files`. `tauri-utils`' `AppImageConfig`
+   * declares `files: HashMap<PathBuf, PathBuf>` ("The files to include in the
+   * Appimage Binary"), and
+   * `crates/tauri-bundler/src/bundle/linux/appimage/linuxdeploy.rs` calls
+   * `fs_utils::copy_custom_files(&settings.appimage().files, &data_dir)`
+   * before it copies `data_dir/usr/` into the AppDir. The map key is the
+   * DESTINATION relative to the data dir, so it has to start with `usr/` to
+   * end up inside the image.
+   *
+   * So the gap is closed by configuration rather than by repacking the image,
+   * and the check is an ASSERTION: the thing that could never pass is now the
+   * thing that must pass.
    */
-  it('the AppImage verify step extracts the image and reports what it carries', () => {
-    const appimage = caseBranch(bundleCode, 'appimage');
-    expect(appimage).toMatch(/--appimage-extract/);
-    // Two distinct absences, because they mean different things: a
-    // licence-shaped file that is NOT the Licence is a dependency's file
-    // being mistaken for one, and no licence-shaped file at all is an image
-    // that never had one.
-    expect(appimage).toMatch(/NO COPY OF THE LICENCE in the AppImage/);
-    expect(appimage).toMatch(/NO LICENCE-SHAPED FILE in the AppImage/);
-    // The report has to say WHY it can be empty, or a reader will treat the
-    // absence as a mystery rather than as a known gap.
-    expect(appimage).toMatch(/reads neither/);
+  it('maps the licence into the AppImage through appimage.files', () => {
+    const appimageFiles = conf.bundle?.linux?.appimage?.files;
+    expect(
+      appimageFiles,
+      'bundle.linux.appimage.files is the only AppImage mechanism that reaches the image. ' +
+        'Without it the AppImage carries no copy of the Licence.'
+    ).toBeTruthy();
+    const entries = Object.entries(appimageFiles as DebFiles);
+    expect(entries.length, 'bundle.linux.appimage.files is empty').toBeGreaterThan(0);
+    for (const [dest, src] of entries) {
+      // Only data_dir/usr/ is copied into the AppDir, so a destination
+      // outside usr/ is silently dropped.
+      expect(
+        dest.startsWith('usr/'),
+        `"${dest}" is outside usr/, and only data_dir/usr/ is copied into the AppDir`
+      ).toBe(true);
+      // The source is the repository's own LICENSE, relative to
+      // apps/gm-desktop/src-tauri/tauri.conf.json.
+      expect(src, `"${dest}" does not point at the repository's LICENSE`).toBe('../../../LICENSE');
+    }
   });
 
-  it('the AppImage report decides on the licence CONTENT, not on the file name', () => {
+  it('the AppImage verify step extracts the image and checks its contents', () => {
     const appimage = caseBranch(bundleCode, 'appimage');
-    // A name only finds candidates; the content decides which one is the
-    // Licence.
+    expect(appimage).toMatch(/--appimage-extract/);
+  });
+
+  it('the AppImage check decides on the licence CONTENT, not on the file name', () => {
+    const appimage = caseBranch(bundleCode, 'appimage');
     expect(
       appimage,
       'the AppImage branch does not use the content-based licence helper'
     ).toContain('APPIMAGE_LICENCE=$(find_product_licence "$APPIMAGE_ROOT" || true)');
-    // And the path that is reported is the one the helper returned - relative
-    // to the extracted root - rather than a path cut out of a `find` listing.
+    // The reported path is the one the helper returned - relative to the
+    // extracted root - rather than a path cut out of a `find` listing.
     expect(appimage).toContain('ok "licence: ${APPIMAGE_LICENCE}"');
     // The rejected candidates are reported too: their presence is exactly
     // what made the name-only check report the wrong file.
     expect(appimage).toContain('report_rejected_licences "$APPIMAGE_ROOT"');
   });
 
-  it('the AppImage licence report is a diagnostic, never an assertion', () => {
+  it('the AppImage licence check ASSERTS, because it can now be satisfied', () => {
     const appimage = caseBranch(bundleCode, 'appimage');
     const start = appimage.indexOf('APPIMAGE_LICENCE=$(find_product_licence');
     expect(start, 'the AppImage branch does not use the content-based licence helper').toBeGreaterThan(
       -1
     );
-    const end = appimage.indexOf('rm -rf "$APPIMAGE_EXTRACT_DIR"');
+    const end = appimage.indexOf('rm -rf "$APPIMAGE_EXTRACT_DIR"', start);
     expect(end, 'could not find the end of the AppImage licence block').toBeGreaterThan(start);
     const licenceBlock = appimage.slice(start, end);
-    // `die` must not appear in the licence block. An assertion here could
-    // never pass - no configuration puts a copy of the Licence in an AppImage
-    // - and a gate that cannot be satisfied gets switched off, at which point
-    // it protects nothing.
+    // The die has to be the LICENCE die, not merely any die in the branch:
+    // the branch also dies when the image cannot be extracted, and that die
+    // says nothing about the licence. A mutation that turned the licence
+    // failure into a note left this assertion green until it was narrowed -
+    // the branch's other die was satisfying a check about the licence.
     expect(
       licenceBlock,
-      'the AppImage licence block calls die; it must stay a diagnostic'
-    ).not.toMatch(/\bdie\b/);
+      'the AppImage licence block does not die when the licence is missing; the mechanism exists, so this must be an assertion'
+    ).toMatch(/die "\$\{ARTIFACT_NAME\} ships no copy of the Licence/);
   });
 
+  it('the AppImage failure message names the key that can fix it', () => {
+    const appimage = caseBranch(bundleCode, 'appimage');
+    const remediation = appimage.match(
+      /die "\$\{ARTIFACT_NAME\} ships no copy of the Licence[\s\S]*?"/
+    );
+    expect(
+      remediation,
+      'could not find the no-licence failure message for the AppImage'
+    ).not.toBeNull();
+    // The key that reaches this bundler is appimage.files. Pointing a reader
+    // at bundle.licenseFile would send them to a key this bundler never
+    // reads - the mistake the repository already made once.
+    expect(remediation![0]).toMatch(/bundle\.linux\.appimage\.files/);
+    expect(remediation![0]).not.toMatch(/bundle\.licenseFile/);
+  });
+
+  it('reads the type-2 magic from the bytes it claims to read', () => {
+    const appimage = caseBranch(bundleCode, 'appimage');
+    // `od` prints two hex digits per byte, so byte N occupies characters
+    // 2N+1 and 2N+2. The bytes at OFFSET 8 are characters 17-22. The
+    // previous `cut -c9-14` read bytes 4-6 and printed them under a label
+    // that said 8-10, which is how `020101` came to be recorded as the
+    // type-2 magic.
+    expect(
+      appimage,
+      'the AppImage branch reads the type-2 magic from the wrong bytes'
+    ).toMatch(/cut -c17-22/);
+    expect(appimage).not.toMatch(/cut -c9-14/);
+  });
+});
+
+describe('the dmg reports what the mounted image carries', () => {
+  /**
+   * The dmg bundler IS handed the licence: `bundle.licenseFile` reaches it
+   * and create-dmg embeds it as UDIF EULA resources. Where it leaves it is
+   * not something this script can assert without guessing, so it reports
+   * what the mounted image actually holds.
+   */
   it('the dmg verify step reports what the mounted image carries', () => {
     const dmg = caseBranch(bundleCode, 'dmg');
     expect(dmg).toMatch(/--eula/);
-    // The same two absences as the AppImage, for the same reason.
+    // Two distinct absences, because they mean different things: a
+    // licence-shaped file that is NOT the Licence is a dependency's file
+    // being mistaken for one, and no licence-shaped file at all is an image
+    // that never had one.
     expect(dmg).toMatch(/NO COPY OF THE LICENCE inside the mounted image/);
     expect(dmg).toMatch(/NO LICENCE-SHAPED FILE inside the mounted image/);
   });
@@ -505,6 +587,10 @@ describe('the two targets with no licence mechanism are measured, not assumed', 
     expect(start, 'the dmg branch does not use the content-based licence helper').toBeGreaterThan(-1);
     // The licence block runs to the end of the branch.
     const licenceBlock = dmg.slice(start);
+    // Unlike the AppImage, the dmg keeps a diagnostic: the licence IS
+    // delivered (create-dmg embeds it as a UDIF EULA resource), but where it
+    // leaves it is not something this script can observe as a file, and an
+    // assertion that could never pass gets switched off.
     expect(
       licenceBlock,
       'the dmg licence block calls die; it must stay a diagnostic'
@@ -527,6 +613,55 @@ describe('the two targets with no licence mechanism are measured, not assumed', 
       bundleCode,
       'the dmg mount does not answer the Software License Agreement the image carries'
     ).toMatch(/\{ yes \|\| true; \} \| head -n \d+ \| hdiutil attach/);
+  });
+});
+
+describe('the AGPL citation names a clause that exists', () => {
+  /**
+   * Section 4 of the AGPL-3.0 has NO lettered subsections. The obligation to
+   * convey a copy of the License along with the Program is the closing clause
+   * of section 4's first paragraph; section 5 (modified source versions) and
+   * section 6 (non-source forms) are the sections that carry lettered
+   * subsections, and section 6 applies sections 4 and 5 to object-code
+   * recipients.
+   *
+   * The repository cited "section 4(a)" in every script, template and failure
+   * message, and a test asserted that the wrong citation was present — a gate
+   * that enforced a citation to a clause that does not exist.
+   *
+   * The citation is checkable, so it is checked against the licence text
+   * itself rather than against a recollection of it.
+   */
+  it('the obligation this gate enforces is in section 4, unlettered', () => {
+    const licence = readFileSync(join(REPO_ROOT, 'LICENSE'), 'utf8');
+    const sec4 = licence.match(
+      /4\. Conveying Verbatim Copies\.([\s\S]*?)\n\s*5\. Conveying Modified Source Versions\./
+    );
+    expect(sec4, 'could not find section 4 in the LICENSE file').not.toBeNull();
+    // The licence text is hard-wrapped, so the clause is split across lines
+    // ("and give all" / "recipients a copy of this License along with the
+    // Program."). Collapsing the whitespace is what makes the clause a
+    // contiguous string again.
+    expect(flat(sec4![1])).toContain(
+      'give all recipients a copy of this License along with the Program'
+    );
+    // No lettered subsection inside section 4, so "4(a)" cannot be cited.
+    expect(
+      sec4![1],
+      'section 4 of the AGPL has a lettered subsection, so the citation in the scripts is wrong again'
+    ).not.toMatch(/^\s{4}[a-z]\)/m);
+  });
+
+  it('section 6 is where the lettered subsections live, and it applies section 4 to object code', () => {
+    // The installers ship object code, so section 6 is the operative route:
+    // it conveys the object code "under the terms of sections 4 and 5".
+    const licence = readFileSync(join(REPO_ROOT, 'LICENSE'), 'utf8');
+    const sec6 = licence.match(
+      /6\. Conveying Non-Source Forms\.([\s\S]*?)\n\s*7\. Additional Terms\./
+    );
+    expect(sec6, 'could not find section 6 in the LICENSE file').not.toBeNull();
+    expect(flat(sec6![1])).toContain('under the terms of sections 4 and 5');
+    expect(sec6![1]).toMatch(/^\s{4}[a-e]\)/m);
   });
 });
 
