@@ -178,6 +178,383 @@ describe('the check itself', () => {
   });
 });
 
+/**
+ * The root crate's lockfile gate.
+ *
+ * `src-tauri/Cargo.lock` has the script above, called by every bundle build.
+ * The ROOT crate's `Cargo.lock` had no equivalent, and the cargo invocations
+ * in `.github/workflows/rust-backend.yml` that resolve the root crate's graph
+ * all re-resolved it: a CI run could rewrite the committed lock and then
+ * build an artefact that is not the one the commit describes — the exact
+ * failure the Tauri gate was written to prevent, with nothing on the root
+ * side to prevent it.
+ *
+ * Unlike the Tauri crate this needs no script. `cargo` takes `--locked`
+ * directly and there is no wrapper to forward it through, so the flag goes
+ * on the invocation itself.
+ *
+ * Three properties of the assertions below are load-bearing, and each one
+ * comes from the failure mode recorded at the top of this file — a gate that
+ * reads green because of a sentence rather than a command:
+ *
+ *   1. The workflow is parsed as YAML and only the `run:` strings are
+ *      scanned, so a YAML-level comment is not part of any command.
+ *   2. Full-line shell comments inside a `run:` block are removed before
+ *      scanning. The prose in this workflow says "cargo test" out loud, and
+ *      that prose is not an invocation.
+ *   3. Each invocation is judged on its OWN flag tokens. The file mentioning
+ *      `--locked` repeatedly is not evidence that any one command carries it.
+ */
+const RUST_BACKEND_WORKFLOW = 'rust-backend.yml';
+const rustBackendPath = join(WORKFLOW_DIR, RUST_BACKEND_WORKFLOW);
+const rustBackendText = readFileSync(rustBackendPath, 'utf8');
+const rustBackendDoc = parse(rustBackendText) as Workflow;
+
+/**
+ * The cargo subcommands that resolve the current crate's dependency graph,
+ * and may therefore rewrite that crate's `Cargo.lock`.
+ *
+ * Two subcommands that appear in the workflow are deliberately absent:
+ *
+ *   `fmt`    — resolves no dependency graph at all, so it cannot rewrite the
+ *              lock. It also *cannot* carry the flag: cargo-fmt rejects it
+ *              outright (`error: unexpected argument '--locked' found`,
+ *              exit 2), so adding it would break the job rather than
+ *              protect it.
+ *   `audit`  — an external subcommand (cargo-audit). Cargo performs no
+ *              resolution for external subcommands, and cargo-audit only
+ *              reads `Cargo.lock`.
+ */
+const CARGO_SUBCOMMANDS = new Set([
+  'build',
+  'check',
+  'test',
+  'bench',
+  'clippy',
+  'run',
+  'doc',
+  'metadata',
+  'tree',
+  'fetch',
+  'update',
+  'generate-lockfile',
+  'vendor',
+  'package',
+  'publish',
+  'fix',
+]);
+
+type CargoInvocation = {
+  jobId: string;
+  stepName: string;
+  /** The command text, comments removed. */
+  command: string;
+  /** The cargo subcommand, e.g. `test`. */
+  subcommand: string;
+  /** The command's own flag tokens — `cargo` and the subcommand excluded. */
+  flags: string[];
+};
+
+/**
+ * The cargo invocations in a `run:` block.
+ *
+ * Comments are removed first, full-line comments only — the same rule the
+ * script gate uses, for the same reason: `#` is ordinary inside a quoted
+ * string in shell, so stripping trailing comments would change what a line
+ * means.
+ *
+ * A cargo invocation is a `cargo` in *command* position: at the start of a
+ * line, or after `&&`, `||` or `;`. A mention of cargo inside a string, a
+ * path such as `/tmp/cargo-test.txt`, or a comment is not an invocation.
+ */
+function cargoInvocationsIn(run: string): Omit<CargoInvocation, 'jobId' | 'stepName'>[] {
+  const found: Omit<CargoInvocation, 'jobId' | 'stepName'>[] = [];
+  const lines = run.split('\n').filter((line) => !/^\s*#/.test(line));
+
+  for (const line of lines) {
+    const re = /(?:^|(?:&&|\|\||;)\s*)cargo\s+([A-Za-z][A-Za-z0-9_-]*)/g;
+    let match: RegExpExecArray | null;
+    while ((match = re.exec(line)) !== null) {
+      const start = match.index + match[0].lastIndexOf('cargo');
+      const rest = line.slice(start);
+      const boundary = rest.match(/&&|\|\||;/);
+      const command = (boundary ? rest.slice(0, boundary.index) : rest).trim();
+      found.push({
+        command,
+        subcommand: match[1],
+        flags: command.split(/\s+/).slice(2),
+      });
+    }
+  }
+
+  return found;
+}
+
+const rustBackendInvocations: CargoInvocation[] = Object.entries(rustBackendDoc.jobs).flatMap(
+  ([jobId, job]) =>
+    (job.steps ?? []).flatMap((step) =>
+      cargoInvocationsIn(step.run ?? '').map((invocation) => ({
+        ...invocation,
+        jobId,
+        stepName: step.name ?? '(unnamed step)',
+      }))
+    )
+);
+
+/**
+ * Whether this invocation can rewrite the root crate's `Cargo.lock`.
+ */
+const canRewriteLock = (invocation: CargoInvocation): boolean => {
+  // `cargo install --path .` installs THIS crate and does resolve its
+  // graph; `cargo install <crate>` installs a published crate from the
+  // registry and never touches this crate's lockfile.
+  if (invocation.subcommand === 'install') return /--path\b/.test(invocation.command);
+  return CARGO_SUBCOMMANDS.has(invocation.subcommand);
+};
+
+describe('the root crate lock is pinned in rust-backend.yml', () => {
+  it('found the cargo invocations (a scan that finds none passes vacuously)', () => {
+    expect(
+      rustBackendInvocations.map((i) => `${i.jobId} :: ${i.stepName} :: ${i.command}`),
+      `no cargo invocation found in ${RUST_BACKEND_WORKFLOW}`
+    ).not.toEqual([]);
+    expect(
+      rustBackendInvocations.length,
+      'the inventory of cargo invocations changed; a new invocation must be classified ' +
+        'before it is assumed safe. The inventory is now:\n' +
+        rustBackendInvocations
+          .map((i) => `  ${i.jobId} :: ${i.stepName} :: ${i.command}`)
+          .join('\n')
+    ).toBe(8);
+  });
+
+  it("classifies the integration job's registry warm-up as lock-rewriting", () => {
+    // `cargo fetch` downloads the dependency set and, when the lock is out
+    // of date, rewrites it. It arrived with the integration job's offline
+    // tiers, which need a warm registry before they can run `--offline`,
+    // and it is why the inventory above is 8 rather than 7.
+    //
+    // [FACT] This case exists so that arrival is classified rather than
+    // absorbed into a number. The count assertion is a tripwire: it is
+    // supposed to fire when the inventory changes, and the human who
+    // responds to it has to decide what the new invocation does. Editing
+    // `toBe(7)` to `toBe(8)` and moving on would have turned the tripwire
+    // back off.
+    const fetches = rustBackendInvocations.filter((i) => i.subcommand === 'fetch');
+
+    expect(
+      fetches.map((i) => `${i.jobId} :: ${i.command}`),
+      'expected the integration job to warm the registry with cargo fetch'
+    ).not.toEqual([]);
+
+    expect(
+      fetches.filter((i) => !i.flags.includes('--locked')).map((i) => `${i.jobId} :: ${i.command}`),
+      'cargo fetch rewrites Cargo.lock when the lock is out of date, so it must carry --locked'
+    ).toEqual([]);
+
+    expect(
+      fetches.filter((i) => !canRewriteLock(i)).map((i) => `${i.jobId} :: ${i.command}`),
+      'cargo fetch must be classified as lock-rewriting, or the per-command gate ' +
+        'would skip it while still reporting the job as covered'
+    ).toEqual([]);
+  });
+
+  it('every invocation that can rewrite the lock carries --locked', () => {
+    const unguarded = rustBackendInvocations
+      .filter(canRewriteLock)
+      .filter((i) => !i.flags.includes('--locked'))
+      .map((i) => `${i.jobId} :: ${i.stepName} :: ${i.command}`);
+
+    expect(
+      unguarded,
+      'these cargo invocations resolve the root crate graph without --locked. Without it a ' +
+        'CI run may re-resolve the dependency graph and rewrite Cargo.lock, and the artefact ' +
+        'the job builds is then not the one the commit describes.'
+    ).toEqual([]);
+  });
+
+  it('does not let a flag elsewhere in the file stand in for the one a command needs', () => {
+    // The gate is per-command. This is the shape that has bitten this repo
+    // before: the file mentions `--locked` many times, and a check that
+    // asked "does the file mention --locked?" would pass with every single
+    // invocation unguarded.
+    const sample = [
+      'set -o pipefail',
+      'cargo test --all-targets --locked 2>&1 | tee /tmp/cargo-test.txt',
+      '# cargo build --release --locked   <- prose, not an invocation',
+      'cargo build --release',
+    ].join('\n');
+
+    const found = cargoInvocationsIn(sample);
+
+    expect(
+      found.map((i) => i.command),
+      'the comment must not be counted as an invocation'
+    ).toEqual(['cargo test --all-targets --locked 2>&1 | tee /tmp/cargo-test.txt', 'cargo build --release']);
+
+    expect(
+      found[0].flags,
+      'the guarded command must be recognised as guarded'
+    ).toContain('--locked');
+
+    expect(
+      found[1].flags,
+      'the unguarded command must be recognised as unguarded even though its ' +
+        'sibling in the same block carries --locked'
+    ).not.toContain('--locked');
+  });
+
+  it('leaves the fmt step alone, because cargo-fmt rejects the flag', () => {
+    // `cargo fmt --locked` exits 2 with "unexpected argument '--locked'
+    // found" (measured against cargo 1.98.1). A well-meaning contributor
+    // adding the flag to make the file look uniform would break the job,
+    // so the exclusion is asserted rather than merely explained.
+    const fmtSteps = rustBackendInvocations.filter((i) => i.subcommand === 'fmt');
+
+    expect(fmtSteps.length, 'expected exactly one cargo fmt invocation').toBe(1);
+    expect(
+      fmtSteps[0].flags,
+      'cargo fmt cannot carry --locked; cargo-fmt rejects the flag outright'
+    ).not.toContain('--locked');
+  });
+});
+
+/**
+ * The `integration` job.
+ *
+ * Its cargo invocations do not live in the workflow — they live in the tier
+ * scripts it calls, which is why the job's own `run:` blocks contain no
+ * cargo at all. The gate therefore follows the call graph rather than
+ * trusting a list of file names, so a tier that starts invoking cargo is
+ * covered without this file being edited.
+ */
+function scriptsReachableFrom(jobId: string): string[] {
+  const seen = new Set<string>();
+  const queue: string[] = [];
+
+  const collect = (text: string): void => {
+    for (const match of text.matchAll(/scripts\/[A-Za-z0-9._-]+\.ps1/g)) {
+      const relative = match[0].replace(/\\/g, '/');
+      if (!seen.has(relative)) {
+        seen.add(relative);
+        queue.push(relative);
+      }
+    }
+  };
+
+  const job = rustBackendDoc.jobs[jobId];
+  for (const step of job?.steps ?? []) collect(step.run ?? '');
+
+  while (queue.length > 0) {
+    const relative = queue.shift() as string;
+    const absolute = join(REPO_ROOT, ...relative.split('/'));
+    if (!existsSync(absolute)) continue;
+    collect(readFileSync(absolute, 'utf8'));
+  }
+
+  return [...seen];
+}
+
+/** Split the body of a PowerShell `@(...)` array into its elements. */
+function parsePsArray(body: string): string[] {
+  return body
+    .split(',')
+    .map((s) => s.trim().replace(/^['"]/, '').replace(/['"]$/, ''))
+    .filter((s) => s.length > 0);
+}
+
+/**
+ * The cargo argument arrays in a PowerShell script.
+ *
+ * Two shapes exist in this repo and both are covered:
+ *
+ *   -ArgumentList @('build', '--locked', '--quiet')
+ *       the subcommand is the first element and the array goes straight to
+ *       cargo;
+ *
+ *   $argList = @('--color=never', '--offline', '--locked')
+ *       the array holds only flags, and the subcommand is supplied at the
+ *       call site (`cargo test $argList`).
+ */
+function cargoArgumentArrays(scriptText: string): string[][] {
+  const arrays: string[][] = [];
+
+  for (const match of scriptText.matchAll(/-ArgumentList\s*@\(([^)]*)\)/g)) {
+    const items = parsePsArray(match[1]);
+    if (items.length > 0 && CARGO_SUBCOMMANDS.has(items[0])) arrays.push(items);
+  }
+
+  if (/\$argList\s*=/.test(scriptText) && /\bcargo\b/i.test(scriptText)) {
+    for (const match of scriptText.matchAll(/\$argList\s*=\s*@\(([^)]*)\)/g)) {
+      arrays.push(parsePsArray(match[1]));
+    }
+  }
+
+  return arrays;
+}
+
+describe('the integration job reaches cargo only through --locked invocations', () => {
+  const reachable = scriptsReachableFrom('integration');
+
+  const cargoArraysPerScript = reachable.map((relative) => ({
+    relative,
+    arrays: cargoArgumentArrays(readFileSync(join(REPO_ROOT, ...relative.split('/')), 'utf8')),
+  }));
+
+  it('found the tiers (a scan that finds none passes vacuously)', () => {
+    expect(reachable.length, 'no script reachable from the integration job').toBeGreaterThan(0);
+    expect(
+      reachable,
+      'the integration job must still reach the IT and ST tiers'
+    ).toEqual(
+      expect.arrayContaining(['scripts/regression-it.ps1', 'scripts/regression-st.ps1'])
+    );
+    expect(
+      cargoArraysPerScript.filter((s) => s.arrays.length > 0).map((s) => s.relative),
+      'no cargo argument array found in any tier — the scan is broken, not the tiers ' +
+        'are safe'
+    ).not.toEqual([]);
+  });
+
+  it('every cargo argument array carries --locked', () => {
+    const unguarded = cargoArraysPerScript
+      .filter((s) => s.arrays.length > 0)
+      .flatMap((s) =>
+        s.arrays
+          .filter((items) => !items.includes('--locked'))
+          .map((items) => `${s.relative} :: ${items.join(' ')}`)
+      );
+
+    expect(
+      unguarded,
+      'these tiers run cargo at the repository root without --locked. Without it a run ' +
+        'may re-resolve the dependency graph and rewrite the committed Cargo.lock, and ' +
+        'the artefact the tier exercises is then not the one the commit describes.'
+    ).toEqual([]);
+  });
+});
+
+describe('the local UT tier resolves the root crate graph', () => {
+  const UT_TIER = join(REPO_ROOT, 'scripts', 'regression-ut.ps1');
+
+  it('runs cargo with --locked', () => {
+    const arrays = cargoArgumentArrays(readFileSync(UT_TIER, 'utf8'));
+
+    expect(
+      arrays.length,
+      'no cargo argument array found in scripts/regression-ut.ps1 — the scan is broken, ' +
+        'not the tier is safe'
+    ).toBeGreaterThan(0);
+
+    expect(
+      arrays.filter((items) => !items.includes('--locked')),
+      'the UT tier runs cargo at the repository root, so it resolves the root crate graph. ' +
+        'Without --locked it may re-resolve and rewrite the committed Cargo.lock, and the ' +
+        'test counts it reports would then describe a dependency set the commit does not name.'
+    ).toEqual([]);
+  });
+});
+
 /*
  * Mutation evidence for the script itself, run against a fixture whose lock
  * omits a dependency its manifest requires:
