@@ -1,7 +1,7 @@
 # CI 接入指南 (V0.1)
 
 本仓 GitHub Actions CI 由 `feature/gm-console-v0.1` merge 进 dev 后
-落地。**目前是五份 workflow**（`[FACT]` 2026-10-07 核验 `.github/workflows/` 目录）:
+落地。**目前是六份 workflow**（`[FACT]` 2026-10-24 核验 `.github/workflows/` 目录）:
 
 - **`gm-console.yml`** — 网页版 CI (typecheck / lint / test / build)
 - **`rust-backend.yml`** — Rust 后端 CI (fmt / clippy / test / release build / audit)
@@ -10,6 +10,8 @@
 - **`gm-desktop-bundle.yml`** — 桌面端跨平台打包 CI (`dmg` = macOS / `deb` = Linux /
   `appimage` = Linux / `deb-install` = **裸机容器里真装一次**)，产物必须通过结构校验
   才算通过。详见「跨平台打包 CI」与「`.deb` 裸机安装 job」两节
+- **`frontend-audit.yml`** — **前端依赖告警门禁**(`pnpm audit --json` 的棘轮),
+  见「前端依赖告警门禁」一节
 - **`release.yml`** — **仅由打 `v*` tag（或 `workflow_dispatch`）触发**，产出
   `draft: true` 的草稿 release。发布与否是人的决定，不是这个 workflow 的决定。
 
@@ -269,9 +271,59 @@ lock 与 `Cargo.toml`（含 `gitgit = { path = "../../.." }` 的按路径依赖�
 `ldd` 报告 **127 个共享库全部解析成功**，无一条 `=> not found`。也就是说
 `[INFERENCE]` 那一行担心的「装到干净机器上起不来」，实测没有发生。
 
+## 前端依赖告警门禁：`frontend-audit.yml`（2026-10-24）
+
+> `[FACT]` **前端此前完全没有依赖告警门禁。** Rust 侧自 2026-10-05 起有
+> `cargo audit`（`rust-backend.yml` 的 `audit` job），而两个前端的
+> `pnpm audit` 从未在任何 workflow 里跑过。实测 2026-10-24：
+> `apps/gm-console` 累积了 **17 条**告警（其中 3 条 critical），
+> `apps/gm-desktop` 累积了 **9 条** —— 没有任何一道 CI 门禁会报告它们。
+
+### 为什么是棘轮而不是硬门禁
+
+`pnpm audit` 今天就是非零退出（`gm-console` 仍有 15 条，全部在 devDependency 链上），
+硬门禁第一次跑必红，然后就会被人关掉 —— 这不是假设：Rust 侧的 UT 计数契约就因为
+同样的原因**空转了 19 天**。所以这道门禁只在**出现新告警**时失败，而把「已消失的
+告警」当作信息报出。
+
+> `[FACT]` 棘轮判定的三种结果:
+> - **new** —— 告警在 audit 输出里、不在基线里。**失败**，并点名。
+> - **resolved** —— 在基线里、已不在 audit 输出里。**信息**，不失败。
+> - **fabricated** —— 在基线里，但 npm 告警库里查不到。**失败**，并点名。
+
+### 基线是「已知情况的记录」，不是 ignore 清单
+
+`scripts/frontend-advisory-baseline.json` 里每一条都带 GHSA id、包名、实测版本与
+修复区间，checker **每次运行都拿 npm 告警库逐条复核**：查不到的就判 fabricated
+并失败。这正是它不能被当成 suppress 机制的原因 —— 仓内**没有** `pnpm audit --ignore`，
+**没有** waiver 清单，也**没有**任何把漏洞版本钉死的 `pnpm.overrides`。
+
+> `[FACT]` 判据是**解析 JSON**，不是 grep 文本。一个「只要 advisory id 出现在注释里
+> 就能通过」的门禁不是门禁，而本仓恰好被这类东西咬过。
+
+### 变异证明
+
+| 变异 | 期望 | 实测 |
+| --- | --- | --- |
+| 基线里加一条编造的 advisory | 失败并点名 | `exit 1`，`baseline entry GHSA-4vj9-q7rp-3m8x (postcss-selector-parser 6.1.4) is not a real advisory` |
+| 基线里删掉一条真实 advisory | 失败并点名 | `exit 1`，`new advisory GHSA-9jrq-w75r-8gcw (vite) :: not in the baseline` |
+| 还原 | 绿 | `exit 0`，`passed=41 failed=0` |
+
+> `[FACT]` 还原后基线文件与变异前的字节完全一致（SHA-256 相同），仓内没有留下任何
+> 编造条目。
+
+### 依赖与失败模式
+
+> `[FACT]` 这道门禁**不装依赖**：`pnpm audit` 读的是已提交的 `pnpm-lock.yaml`，不是
+> `node_modules`。实测 2026-10-24：在一个只放 `package.json` 与 `pnpm-lock.yaml`
+> 的目录里跑 audit，报出的告警与完整安装后一致。
+> `[FACT]` 唯一的外部依赖是 **npm registry**：`pnpm audit` 查它，checker 再查它一次
+> 以复核基线。registry 不可达时 checker **失败退出（exit 2）**而不是通过 ——
+> 「因为什么都没检查到而通过」比没有门禁更糟。
+
 ## 触发器定义
 
-> `[FACT]` 2026-10-24 核验：下表逐字段核对自五个 workflow 的 `on:` 块，不是凭印象写的。
+> `[FACT]` 2026-10-24 核验：下表逐字段核对自**六个** workflow 的 `on:` 块，不是凭印象写的。
 > **paths 过滤
 > 本身是有历史教训的**：`gm-desktop.yml` 曾漏掉根 `Cargo.toml` / `Cargo.lock`，
 > 于是一次只改这两个文件的提交绕过了整个 workflow，一个陈旧 lock 造成的失败
@@ -289,6 +341,7 @@ lock 与 `Cargo.toml`（含 `gitgit = { path = "../../.." }` 的按路径依赖�
 | `rust-backend` | `dev` / `main` / `feature/gm-console-v0.1` / `feature/gm-desktop-v0.1` | `dev` / `main` | **`schedule`：每周一 04:17 UTC（`cron: '17 4 * * 1'`），只跑 `audit` job** |
 | `gm-desktop` | `dev` / `main` | `dev` / `main` | — |
 | `gm-desktop-bundle` | `dev` / `main` | `dev` / `main` | `workflow_dispatch` |
+| `frontend-audit` | `dev` / `main` | `dev` / `main` | `schedule`（每周一 04:17 UTC） |
 | `release` | — | — | **tag `v*`** + `workflow_dispatch`（需传 `tag`） |
 
 `[FACT]` `rust-backend` 的每周触发是**刻意窄**的：该 workflow 的 `test` job 与
@@ -304,6 +357,8 @@ lock 与 `Cargo.toml`（含 `gitgit = { path = "../../.." }` 的按路径依赖�
   `scripts/check-advisories.ps1`）**
 - `gm-desktop-bundle`：`apps/gm-desktop/**`、**根 `Cargo.toml` / `Cargo.lock`**、
   **自身与 `gm-desktop.yml`**、**`src/**`**
+- `frontend-audit`：`apps/gm-desktop/**`、`apps/gm-console/**`、
+  `scripts/frontend-advisory-baseline.json`、`scripts/frontend-advisory-check.ps1`、自身
 
 `[FACT]` 后两条是有理由的，不是顺手多写：`gm-desktop-bundle` 要跑
 `tauri build`，而 `src-tauri/Cargo.toml` 通过 `path = "../../.."` 按路径依赖根
@@ -320,7 +375,16 @@ crate，所以改根 manifest 能打断它的构建；而一个构建同一 crat
 重新评估这道门禁**——与「陈旧 lock 整整一天没人看见」是同一类漏洞。补进去只会让
 run 变多，绝不会变少。
 
-`[FACT]` `release` 的触发条件与前四个根本不同：前四个由 push / PR 触发，
+`[FACT]` `frontend-audit` 的 `paths` 不含 `scripts/**` 通配 —— 它只关心两个前端
+的依赖树、自己的基线文件与自己的 checker；`scripts/**` 里其它脚本的改动
+（Rust 侧回归脚本等）与 npm 告警无关。
+
+> `[FACT]` `schedule` 那一行是必要的：npm 告警库是**自己长**的，只在源码变动时
+> 才跑的扫描，只能以「源码碰巧变动的频率」来评估「有没有已知漏洞」。这与 Rust 侧
+> `audit` job 加每周 `schedule` 是同一个理由。`[FACT]` `paths` 过滤**不适用于**
+> schedule 触发：定时运行总是执行，用默认分支上的 workflow 与基线。
+
+`[FACT]` `release` 的触发条件与前几个根本不同：前几个由 push / PR 触发，
 `release` 只由 **打 tag** 或 `workflow_dispatch` 触发。这就是为什么「打 tag」是一个
 不可撤销的动作，也是为什么 MSI 证书未配置时 release 会在 `msi` job **失败关闭**
 而不是静默产出未签名包——`draft: true` 是整条发布链路的安全性支点。
@@ -480,9 +544,13 @@ GitHub repo → Settings → Branches → Add rule for `dev`:
 
 - push dev 触发 CI 失败 → Mavis 自动诊断 + 修,不需 Ulysses 决策
 - pnpm-lock.yaml 漂移 → Mavis 自驱 `pnpm install` + 锁文件更新
-  - `[FACT]` 澄清:仓内被 track 的 pnpm lock 文件目前**只有**
-    `apps/gm-desktop/pnpm-lock.yaml`;`apps/gm-console/` 下**没有** lock 文件
-    (这正是「当前状态」根因 2 的一半)。修 CI 时需一并决定 gm-console 用哪份锁文件。
+  - `[FACT]` 澄清（**2026-10-24 更正**，原文写于 2026-10-05）：仓内被 track 的 pnpm
+    lock 文件**现在有两份** —— `apps/gm-desktop/pnpm-lock.yaml` 与
+    `apps/gm-console/pnpm-lock.yaml`。原文说 gm-console 下没有 lock 文件，那是
+    「当前状态」根因 2 的**历史**状态，同文「修复后状态」一节已经记录了
+    `apps/gm-console/pnpm-lock.yaml` 的补齐与提交（2026-10-02）。两份 lock 文件
+    现在都被 `frontend-audit.yml` 读取 —— 依赖告警门禁审的是 lock 文件，不是
+    `node_modules`。
 - 守门 #1 触发: docs 触达饱和 → Mavis 写新 docs commit, 不需问 Ulysses
 
 ## 触发器清单
@@ -517,6 +585,15 @@ GitHub repo → Settings → Branches → Add rule for `dev`:
 - `src/**` — `[FACT]` 与 `gm-desktop.yml` **有意不同**：桌面端二进制链接根 crate 的
   library target，`src/**` 的改动同样能让 macOS / Linux 上的 `tauri build` 编译失败
 - `[PROPOSAL]` `gm-desktop.yml` 缺 `src/**`，存在同样的漏检面；该文件不属本 lane，未改
+
+`frontend-audit.yml` 的 `paths` 包含:
+- `apps/gm-desktop/**` / `apps/gm-console/**` — 任一前端的依赖树变动
+- `scripts/frontend-advisory-baseline.json` — 基线本身（已知告警的记录）
+- `scripts/frontend-advisory-check.ps1` — checker 本身
+- `.github/workflows/frontend-audit.yml` — CI 文件本身修改
+- `[FACT]` 另有每周一 04:17 UTC 的 `schedule`：`paths` 过滤**不适用于**定时触发，
+  定时运行总是执行 —— npm 告警库是自己长的，只在源码变动时扫等于以源码变动的频率
+  评估漏洞面
 
 ## 调试 CI 失败
 

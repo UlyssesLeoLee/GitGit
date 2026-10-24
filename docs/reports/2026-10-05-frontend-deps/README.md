@@ -10,6 +10,53 @@ that establishes it, not a narrative about how the repo got here.
 
 ---
 
+## 后续更正 (added 2026-10-24)
+
+`[FACT]` This document is a **dated snapshot** of 2026-10-05 and its claims are
+kept as they stood then. Two things changed afterwards. Neither makes the
+document wrong; both are recorded here so a reader is not misled by it.
+
+1. **`braces` 3.0.3 no longer carries an applicable advisory.** The advisory
+   this document cites — `GHSA-vfj7-8cjw-p6xm` — was **withdrawn from the npm
+   advisory database on 2026-10-23** (published 2026-09-18; its title reads
+   "Withdrawn Advisory: braces vulnerable to stack-exhaustion denial of service
+   through deeply nested patterns"). The advisory that still exists,
+   `GHSA-grv7-fg5c-xmjg` (high), applies to versions `< 3.0.3`, and this
+   repository pins `braces` 3.0.3, so it does not apply.
+   `[FACT]` Measured 2026-10-24: `POST
+   https://registry.npmjs.org/-/npm/v1/security/advisories/bulk` with
+   `{"braces":["3.0.3"]}` returns `{}`, and `pnpm audit` no longer reports
+   `braces` at all. The §1 statement that "there is no patched release at any
+   version" was the withdrawn advisory's own text; it described the database
+   as it stood between 2026-09-18 and 2026-10-23, and it is no longer true.
+   `[INFERENCE]` The Tailwind 3 → 4 migration that §1 said was forced is
+   therefore no longer required by any advisory — though §1's independent
+   migration-risk assessment still stands on its own.
+
+2. **The production dependency list was reduced.** The `dependencies` block
+   quoted verbatim in §1 no longer lists everything it listed then. Measured
+   2026-10-24: `felte` and `zod` were removed from `apps/gm-desktop`, and
+   `zod`, `react-hook-form` and `@hookform/resolvers` were removed from
+   `apps/gm-console` — a source-level import scan found none of them imported
+   anywhere in `src/` or `tests/`, so none of them ever reached a bundled
+   artefact. `zod` carried a HIGH advisory (`GHSA-mrhx-c7xc-m3w5`) while
+   declared as a production dependency, so removing it was also a security
+   fix. Separately, six unused `@tauri-apps/plugin-*` packages were removed
+   from `apps/gm-desktop` by another change.
+
+   `[FACT]` The §1 sentence "every advisory cleared above sits in a
+   devDependency chain … none of these shipped to a user" was accurate for the
+   packages §1 cleared. For `zod` it needed the import scan as well as the
+   `package.json` label: `zod` was *declared* as a production dependency, but
+   *imported* nowhere, and only an import says what ships.
+
+`[FACT]` The live, current figures are in
+[`SECURITY.md`](../../../SECURITY.md) ("Dependency advisories") and in
+[`scripts/frontend-advisory-baseline.json`](../../../scripts/frontend-advisory-baseline.json),
+which is the committed baseline the `frontend-audit` CI gate enforces.
+
+---
+
 ## 1. Audit: 8 → 1
 
 `[FACT]` Measured with `corepack pnpm@9.15.9 audit --audit-level=low` in

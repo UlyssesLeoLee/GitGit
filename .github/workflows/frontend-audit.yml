@@ -1,0 +1,106 @@
+# Frontend dependency-advisory gate — a ratchet over the npm advisory database.
+#
+# [FACT] Why this file exists. The Rust side has had a `cargo audit` gate in the
+# `audit` job of rust-backend.yml since 2026-10-05. The two frontends had no
+# equivalent at all: nothing in CI ever ran `pnpm audit`. Measured on 2026-10-24,
+# `apps/gm-console` had accumulated 17 advisories — 3 of them critical — that
+# no CI job would ever have reported, and `apps/gm-desktop` had 9.
+#
+# [FACT] Why a ratchet and not a hard gate. `pnpm audit` exits non-zero today
+# (15 advisories remain in gm-console, all in devDependency chains), so a hard
+# gate would have been red on its first run and would then have been switched
+# off. That is not hypothetical: the Rust-side unit-test count contract sat
+# unenforced for 19 days for exactly this reason. This gate fails only on a
+# NEW advisory — the property actually worth protecting — and reports an
+# advisory that has disappeared as informational rather than as a failure.
+#
+# [FACT] The baseline is a RECORD of what is known, not an ignore list. Every
+# entry in scripts/frontend-advisory-baseline.json is re-verified against the
+# npm advisory database on every run, so an entry that is not a real advisory
+# fails the build. There is no `pnpm audit --ignore` anywhere in this
+# repository, no waiver list, and no `pnpm.overrides` entry pinning a
+# vulnerable version.
+#
+# This is a separate file rather than a job appended to gm-desktop.yml on
+# purpose: another lane owns gm-desktop.yml, and a gate that shares a file with
+# someone else's edit is a gate that waits on someone else's merge.
+name: frontend-audit
+
+on:
+  push:
+    branches: [dev, main]
+    paths:
+      - 'apps/gm-desktop/**'
+      - 'apps/gm-console/**'
+      - 'scripts/frontend-advisory-baseline.json'
+      - 'scripts/frontend-advisory-check.ps1'
+      - '.github/workflows/frontend-audit.yml'
+  pull_request:
+    branches: [dev, main]
+    paths:
+      - 'apps/gm-desktop/**'
+      - 'apps/gm-console/**'
+      - 'scripts/frontend-advisory-baseline.json'
+      - 'scripts/frontend-advisory-check.ps1'
+      - '.github/workflows/frontend-audit.yml'
+  schedule:
+    # [FACT] The npm advisory database grows on its own schedule. A gate that
+    # only runs when the source changes evaluates "no known vulnerabilities"
+    # only as often as the source happens to change — the same reasoning that
+    # put a weekly `schedule` on the Rust-side `audit` job. Monday, 04:17 UTC.
+    # [FACT] `paths` filters do not apply to scheduled runs: the workflow
+    # always runs, on the default branch's version of itself and of the
+    # baseline.
+    - cron: '17 4 * * 1'
+
+concurrency:
+  group: frontend-audit-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  audit:
+    name: frontend dependency advisories (npm ratchet)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      # pnpm MUST be installed before setup-node. With `cache: 'pnpm'` the
+      # setup-node action shells out to `pnpm store path` to resolve the cache
+      # directory, and it fails with "Unable to locate executable file: pnpm"
+      # when pnpm is not yet on PATH. This is the same ordering bug that used
+      # to keep gm-console red — see the comment in gm-console.yml.
+      #
+      # The version is pinned to the exact one the baseline was captured with.
+      # The bare `pnpm` on a developer machine is frequently a different major
+      # (measured on this box: 10.32.1 on PATH against a baseline captured
+      # with 9.15.9), and `pnpm audit --json`'s output format is not
+      # guaranteed to be identical across majors. The checker prefers a `pnpm`
+      # on PATH that reports exactly this version and falls back to
+      # `corepack pnpm@<version>` otherwise.
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.9
+
+      # Node 22, matching every other workflow in this repository. Node 20
+      # ("Iron") reached EOL on 2026-04-30.
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      # [FACT] No dependency install is needed. `pnpm audit` reads the
+      # committed pnpm-lock.yaml, not node_modules. Verified on 2026-10-24 by
+      # running the audit in a directory holding only package.json and
+      # pnpm-lock.yaml: it reported the same advisories as the full install.
+      # Installing two dependency trees here would add a registry hiccup as a
+      # failure mode to a gate that only needs the lockfile, and the
+      # `--frozen-lockfile` consistency check already belongs to the
+      # gm-console and gm-desktop workflows.
+      #
+      # The only external service this gate depends on is the npm registry:
+      # `pnpm audit` queries it, and the checker queries it a second time to
+      # corroborate the baseline.
+      - name: Frontend advisory ratchet
+        run: pwsh -NoProfile -File scripts/frontend-advisory-check.ps1
