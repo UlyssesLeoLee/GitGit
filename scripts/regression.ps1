@@ -33,7 +33,12 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-. (Join-Path $PSScriptRoot 'lib\regression-common.ps1')
+# Forward slash, not `lib\regression-common.ps1`: on Linux a backslash is a
+# legal filename character rather than a separator, so the dot-source would
+# look for a file literally named `scripts\lib\regression-common.ps1`, fail,
+# and kill the orchestrator before it ever ran. Same idiom as every other
+# script under scripts/.
+. (Join-Path $PSScriptRoot 'lib/regression-common.ps1')
 
 $repoRoot = Get-RepoRoot
 $logRoot  = Get-LogRoot
