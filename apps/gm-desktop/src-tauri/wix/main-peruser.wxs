@@ -3,8 +3,17 @@
   GENERATED FILE - DO NOT EDIT BY HAND
   ====================================
   Produced by apps/gm-desktop/scripts/render-wix-template.py from
-  wix/main.wxs. Edit the source template and re-run the script; the four
+  wix/main.wxs. Edit the source template and re-run the script; the six
   edits it applies are listed both there and in the script's docstring.
+
+  SOURCE-SHA256: abcc23cd73e375ca68efd9317c9dc6c8a27d757e73896d01d55a2427c2172b1f
+  The SHA-256 of wix/main.wxs as this file was generated from. It is here so
+  that a stale generated file cannot go unnoticed: the build only checks that
+  this file EXISTS (apps/gm-desktop/scripts/build-msi.ps1), not that it
+  matches its source, so without this line an edit to main.wxs that nobody
+  re-rendered would silently produce a per-user installer that differs from
+  the per-machine one. The gate that reads this line is
+  apps/gm-desktop/tests/unit/agpl-license-gate.test.ts.
 
   This is the PER-USER variant: it installs into
   %LOCALAPPDATA%\Programs without administrator rights. The PER-MACHINE
@@ -178,6 +187,23 @@
                 <RegistryValue Root="HKCU" Key="Software\\{{manufacturer}}\\{{product_name}}"
                                Name="Path" Type="string" Value="[INSTALLDIR]" KeyPath="yes" />
                 <File Id="Path" Source="{{main_binary_path}}" Checksum="yes"/>
+                {{#if license}}
+                <!-- AGPL-3.0 section 4(a): a copy of the Licence must travel with
+                     every copy of the Program. The source is the RTF the bundler
+                     generated from bundle.licenseFile, and the same value already
+                     drives the WixUILicenseRtf variable above, so the licence
+                     reaches the recipient twice: as the install-time licence
+                     dialog, and as a file that sits next to the installed
+                     executable.
+
+                     It is a file in the SAME component as the executable, on
+                     purpose. A separate component would need its own keypath,
+                     and the per-user variant has to keep an HKCU registry value
+                     as its keypath (ICE38) - sharing the component keeps that
+                     untouched and makes the licence install and uninstall with
+                     the program it belongs to. -->
+                <File Id="LicenseFile" Source="{{license}}" Name="LICENSE.rtf" Checksum="yes" />
+                {{/if}}
                 {{#each file_associations as |association| ~}}
                 {{#each association.ext as |ext| ~}}
                 <ProgId Id="{{../../product_name}}.{{ext}}" Advertise="yes" Description="{{association.description}}">
