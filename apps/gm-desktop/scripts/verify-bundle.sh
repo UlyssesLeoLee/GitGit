@@ -374,12 +374,25 @@ ${CONTENTS}"
     # .deb contained exactly five files — the binary, one .desktop entry and
     # three icons — and no licence text of any kind.
     #
-    # The path is deliberately NOT pinned. `tauri.conf.json > bundle.licenseFile`
-    # hands the file to the bundler, and where a .deb "appropriate" copy lives is
-    # the bundler's decision (`/usr/share/doc/<pkg>/copyright` by Debian
-    # convention, `/usr/share/licenses/...` by some tools). Asserting one exact
-    # path would encode a guess about someone else's layout and turn red on a
-    # compliant package; asserting that NO licence file is present is the actual
+    # The path is deliberately NOT pinned, and the key that carries the file is
+    # `bundle.linux.deb.files`, NOT `bundle.licenseFile`.
+    #
+    # That is a measured correction, not a preference. `bundle.licenseFile` is
+    # what an earlier version of this script told a reader to go fix, on the
+    # theory that the key named in the Tauri reference does the job. It does
+    # not: with `licenseFile` set, run 37642251095 still produced a .deb holding
+    # exactly the same five files. `crates/tauri-bundler/src/bundle/linux/
+    # debian.rs` fills its data directory from `copy_resource_files`, binaries,
+    # icons + desktop entry, an optional `deb.changelog`, and
+    # `fs_utils::copy_custom_files(&settings.deb().files, &data_dir)` —
+    # `licenseFile` is in none of them.
+    #
+    # Where a .deb "appropriate" copy of the licence lives is then the
+    # bundler's business, and this assertion is loose on purpose.
+    # `/usr/share/doc/<pkg>/copyright` by Debian convention,
+    # `/usr/share/licenses/...` by some tools — pinning one exact path would
+    # encode a guess about someone else's layout and turn red on a compliant
+    # package; requiring that SOME licence-bearing file is present is the actual
     # requirement and cannot be satisfied by a wrong guess.
     #
     # `dpkg-deb --contents` prints each entry with a leading `./`, which is why
@@ -391,8 +404,11 @@ ${CONTENTS}"
       echo "${CONTENTS}" | sed 's/^/    /' >&2
       die "${ARTIFACT_NAME} ships no licence, copyright, copying or notice file.
 AGPL-3.0 section 4(a) requires a copy of the Licence with every copy of the
-Program. Check bundle.licenseFile in ${CONFIG} still points at a file that
-exists — the bundler silently drops a licenseFile that resolves to nothing."
+Program. Check bundle.linux.deb.files in ${CONFIG} still maps a
+usr/share/doc/... destination at a source that exists. It is destination ->
+source, not source -> destination (run 37644440552 measured the build failing
+on the reversed spelling), and it is that map — not bundle.licenseFile — that
+the deb bundler actually reads."
     fi
     ok "licence: ${LICENSE_ENTRY}"
     # `|| true` because `grep -c` exits 1 on zero matches, and under `set -e`
@@ -447,6 +463,40 @@ exists — the bundler silently drops a licenseFile that resolves to nothing."
     # without a guess being enforced as a gate.
     RUNTIME_MAGIC=$(head -c 11 "$ARTIFACT" | od -An -tx1 | tr -d ' \n' | cut -c9-14)
     echo "    bytes 8-10  : ${RUNTIME_MAGIC} (expect 414902 for an AppImage type-2 runtime)"
+
+    # ── AGPL-3.0 §4(a): what this artifact actually carries ───────────────
+    # [FACT] Neither `bundle.licenseFile` nor `bundle.resources` reaches the
+    # AppImage bundler. `crates/tauri-bundler/src/bundle/linux/appimage/`
+    # (both `mod.rs` and `linuxdeploy.rs`) contains no reference to either;
+    # the bundlers that do read them are deb, rpm, ios, msi and nsis. That is a
+    # source-level fact, and it is why this section PRINTS instead of
+    # asserting: an assertion here could never pass, and a gate that cannot be
+    # satisfied gets switched off, at which point it protects nothing.
+    #
+    # Printing is what settles it. The AppImage runtime can unpack its own
+    # squashfs, so the contents can be listed without FUSE and without root.
+    # `ARTIFACT` is relative to this script's working directory, so it has to
+    # be made absolute before the extraction runs somewhere else.
+    APPIMAGE_PATH=$(cd "$(dirname "$ARTIFACT")" && pwd)/$(basename "$ARTIFACT")
+    APPIMAGE_EXTRACT_DIR=$(mktemp -d)
+    if ( cd "$APPIMAGE_EXTRACT_DIR" && "$APPIMAGE_PATH" --appimage-extract >/dev/null 2>&1 ); then
+        APPIMAGE_FILE_COUNT=$(find "$APPIMAGE_EXTRACT_DIR/squashfs-root" -type f 2>/dev/null | wc -l | tr -d ' ')
+        APPIMAGE_LICENCE=$(find "$APPIMAGE_EXTRACT_DIR/squashfs-root" -type f \
+            \( -iname 'licen[cs]e*' -o -iname 'copying*' -o -iname 'copyright*' -o -iname 'notice*' \) \
+            2>/dev/null | head -1 || true)
+        if [ -n "$APPIMAGE_LICENCE" ]; then
+            ok "licence: ${APPIMAGE_LICENCE#*/squashfs-root/}"
+        else
+            echo "    NO LICENCE FILE in the AppImage (${APPIMAGE_FILE_COUNT} file(s) in the image)."
+            echo "    [FACT] crates/tauri-bundler/src/bundle/linux/appimage/ reads neither"
+            echo "    bundle.licenseFile nor bundle.resources, so there is no configuration"
+            echo "    that puts one there. This is an open AGPL-3.0 section 4(a) gap for the"
+            echo "    AppImage target, not a passing check."
+        fi
+    else
+        echo "    could not extract the AppImage to list its contents (the runtime refused --appimage-extract)"
+    fi
+    rm -rf "$APPIMAGE_EXTRACT_DIR"
     ;;
 
   dmg)
@@ -516,6 +566,28 @@ $(find "${APP_PATH}/Contents" -maxdepth 2 -print 2>/dev/null | head -20)"
     fi
     rm -f "$PLIST_OUT"
     ok "Info.plist carries the manifest version ${VERSION}"
+
+    # ── AGPL-3.0 §4(a): what this artifact actually carries ───────────────
+    # [FACT] The dmg bundler DOES read `bundle.licenseFile`:
+    # `crates/tauri-bundler/src/bundle/macos/dmg/mod.rs` hands it to create-dmg
+    # as `--eula`, so the licence text is presented when the image is mounted.
+    # `bundle.resources` is not read by the macOS bundler at all.
+    #
+    # Where create-dmg leaves that EULA is not something this script can assert
+    # without guessing, so it reports what the mounted image actually holds.
+    # Until a run prints it, whether a copy is left INSIDE the image is
+    # [UNVERIFIED-FACT].
+    DMG_LICENCE=$(find "$MOUNT_DIR" -maxdepth 4 \
+        \( -iname 'licen[cs]e*' -o -iname 'copying*' -o -iname 'copyright*' -o -iname 'notice*' \) \
+        2>/dev/null | head -1 || true)
+    if [ -n "$DMG_LICENCE" ]; then
+        ok "licence: ${DMG_LICENCE#${MOUNT_DIR}/}"
+    else
+        echo "    no licence file inside the mounted image."
+        echo "    [FACT] the dmg bundler passes bundle.licenseFile to create-dmg as --eula,"
+        echo "    so the licence is presented when the image is mounted. Whether create-dmg"
+        echo "    also leaves a copy inside the image is what this line measures."
+    fi
     ;;
 esac
 

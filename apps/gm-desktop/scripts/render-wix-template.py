@@ -4,7 +4,7 @@
 WHY A GENERATOR INSTEAD OF A SECOND HAND-MAINTAINED COPY
 =======================================================
 `wix/main.wxs` and `wix/main-peruser.wxs` are the same ~500-line WiX
-template apart from four edits. Keeping the second file as a manual copy
+template apart from six edits. Keeping the second file as a manual copy
 means the two can silently drift: a Tauri upgrade updates the vendored
 template, someone re-diffs the per-machine copy, and the per-user copy is
 never noticed until an installer is built from a template whose directory
@@ -74,6 +74,7 @@ Usage:  python apps/gm-desktop/scripts/render-wix-template.py
 
 from __future__ import annotations
 
+import hashlib
 import os
 import sys
 
@@ -87,8 +88,17 @@ HEADER = """<?xml version="1.0" encoding="UTF-8"?>
   GENERATED FILE - DO NOT EDIT BY HAND
   ====================================
   Produced by apps/gm-desktop/scripts/render-wix-template.py from
-  wix/main.wxs. Edit the source template and re-run the script; the four
+  wix/main.wxs. Edit the source template and re-run the script; the six
   edits it applies are listed both there and in the script's docstring.
+
+  SOURCE-SHA256: __SOURCE_SHA256__
+  The SHA-256 of wix/main.wxs as this file was generated from. It is here so
+  that a stale generated file cannot go unnoticed: the build only checks that
+  this file EXISTS (apps/gm-desktop/scripts/build-msi.ps1), not that it
+  matches its source, so without this line an edit to main.wxs that nobody
+  re-rendered would silently produce a per-user installer that differs from
+  the per-machine one. The gate that reads this line is
+  apps/gm-desktop/tests/unit/agpl-license-gate.test.ts.
 
   This is the PER-USER variant: it installs into
   %LOCALAPPDATA%\\Programs without administrator rights. The PER-MACHINE
@@ -181,6 +191,12 @@ def main() -> int:
     with open(SOURCE, encoding="utf-8") as fh:
         text = fh.read()
 
+    # The digest goes into the generated file's header so that a stale
+    # generated file is detectable without running this script. It is the
+    # digest of the SOURCE, never of the generated file, so there is no
+    # circularity.
+    source_digest = hashlib.sha256(text.encode("utf-8")).hexdigest()
+
     # Drop the source file's own header; the generated file gets its own.
     marker = '<?if $(sys.BUILDARCH)="x86"?>'
     idx = text.find(marker)
@@ -203,9 +219,12 @@ def main() -> int:
         applied += 1
 
     with open(TARGET, "w", encoding="utf-8", newline="\n") as fh:
-        fh.write(HEADER + body)
+        fh.write(HEADER.replace("__SOURCE_SHA256__", source_digest) + body)
 
-    print(f"wrote {TARGET} ({os.path.getsize(TARGET)} bytes, {applied} edits applied)")
+    print(
+        f"wrote {TARGET} ({os.path.getsize(TARGET)} bytes, {applied} edits applied, "
+        f"source sha256 {source_digest})"
+    )
     return 0
 
 
