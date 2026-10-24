@@ -40,6 +40,27 @@ on:
       - 'Cargo.lock'
       - 'scripts/**'
       - '.github/workflows/rust-backend.yml'
+  schedule:
+    # The advisory database grows on its own schedule, so a scan that only
+    # runs when the source changes evaluates "no known vulnerabilities"
+    # only as often as the source happens to change.
+    #
+    # [FACT] Between 2026-10-05 and 2026-10-24 the `audit` job did not run
+    # on dev once: nothing touched `src/**`, `Cargo.toml`, `Cargo.lock` or
+    # `scripts/**` in that window. Nine advisories landed in the root
+    # `Cargo.lock` in the meantime (rustls 0.23.45, rustls-webpki 0.103.15,
+    # webpki-roots 1.0.9, quinn-proto 0.11.17) and the gate was not green -
+    # it was not running. The first push that touched `scripts/**` turned
+    # it red immediately.
+    #
+    # A weekly scan is the cheapest way to make the gap between "the
+    # database grew" and "we found out" bounded by a week instead of by
+    # whenever the next source change lands.
+    #
+    # 04:17 UTC on Mondays. The odd minute is deliberate: every scheduled
+    # workflow in the world fires at :00, and the queue at a round hour is
+    # the slowest moment of the week.
+    - cron: '17 4 * * 1'
 
 concurrency:
   group: rust-backend-${{ github.ref }}
@@ -48,6 +69,10 @@ concurrency:
 jobs:
   test:
     name: fmt + clippy + test
+    # The weekly schedule exists to re-evaluate the advisory database, not
+    # to re-run the whole suite; `audit` is the job that needs a clock.
+    # This job and `integration` already run on every push and PR.
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -147,6 +172,10 @@ jobs:
     # continue-on-error, no `|| true`. A failure here fails the workflow and
     # blocks merge to dev/main.
     name: ST + IT regression (real git over HTTP)
+    # See the note on the `test` job: the weekly schedule runs the audit
+    # job only. This one is the most expensive job in the file and its
+    # value is per-change, not per-week.
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
