@@ -1,32 +1,44 @@
 #requires -Version 7
 <#
 .NOTES
-    NOT CHECKED HERE, DELIBERATELY: that the package carries the licence text.
+    AGPL-3.0 section 4(a) IS CHECKED HERE, AND THE CHECK IS AN ASSERTION.
 
-    AGPL-3.0 section 4(a) requires a copy of the Licence with every copy of the
-    Program, and the MSI does not currently carry one. A check asserting it was
-    written and then removed, and the reason is worth more than the check.
+    The requirement: a copy of the Licence has to travel with every copy of
+    the Program. The MSI carries it twice over.
 
-    [FACT] Measured on run 37642251415: `msiexec /a` extracted exactly three
-    things - `admin-install.log`, the .msi itself, and
-    `PFiles\gitgit Desktop\gm-desktop.exe`. No licence. The check fired correctly.
+    1. As the install-time licence dialog. `bundle.licenseFile` reaches the
+       installer because `crates/tauri-bundler/src/bundle/windows/msi/mod.rs`
+       converts the licence text to RTF, writes it to `<out>/wix/LICENSE.rtf`
+       and inserts a `license` key into the Handlebars data map. The same map
+       is rendered into a CUSTOM template - the bundler registers either this
+       repository's `wix/main.wxs` or its own built-in copy, then renders both
+       with the same `data` - so `{{license}}` is available here. This
+       template already used it for `WixUILicenseRtf`, and the `{{#unless
+       license}}` block below that skips the licence dialog is not taken
+       because the licence IS set.
 
-    [FACT] It cannot be fixed through configuration. This project supplies its
-    own WiX templates (`wix/main.wxs`, `wix/main-peruser.wxs`); Tauri injects
-    licence material into the template it generates, and the Handlebars context
-    of a hand-written template exposes no licence path - the template's data
-    blocks are `binaries` and `file_associations`, and there is no resources
-    block. `bundle.licenseFile` therefore has no effect here, exactly as it has
-    none for the Debian bundler (see crates/tauri-bundler/src/bundle/linux/
-    debian.rs, which never reads it).
+    2. As an installed file. `wix/main.wxs` adds a `LICENSE.rtf` file to the
+       `Path` component, so the licence lands next to `gm-desktop.exe` in
+       INSTALLDIR and is removed with it. `main-peruser.wxs` is generated from
+       `main.wxs` by `scripts/render-wix-template.py`, so both scopes get it.
 
-    [FACT] Leaving the check in place would make this job permanently red, and a
-    gate that cannot be satisfied gets switched off - at which point it protects
-    nothing and still blocks every merge. The boundary is written here instead,
-    and the assertion returns when the payload can actually carry the file.
+    THE EARLIER CLAIM IN THIS FILE WAS WRONG, AND THE CORRECTION MATTERS.
+    It used to say that configuration could not fix this, on the grounds that
+    a hand-written template receives no licence material. That is false: the
+    `license` key is in the data map for custom templates too. The reason the
+    omission went unnoticed is a measurement artefact rather than a bundler
+    limitation: `msiexec /a` extracts the package's FILE table, and the RTF
+    lives in the installer's UI, not in that table. Run 37642251415 extracted
+    `admin-install.log`, the .msi itself and `PFiles\gitgit Desktop\
+    gm-desktop.exe` - and reported "no licence" - while the licence was in
+    fact being displayed at install time.
 
-    [INFERENCE] The MSI cannot ship until a signing certificate is configured, so
-    this is downstream of that blocker rather than an additional one.
+    [FACT] The check below is on the extracted FILE table, because that is
+    what a recipient can inspect afterwards. An installer that shows a licence
+    dialog and installs nothing beside the executable would still fail it.
+
+    [INFERENCE] The MSI cannot ship until a signing certificate is configured,
+    so this is downstream of that blocker rather than an additional one.
 
 .SYNOPSIS
     Prove a built .msi is well-formed, carries payload, and really is the
@@ -90,6 +102,11 @@
     Smallest acceptable size for that executable. Default 1 MB, far below the
     real binary, so the check fails only on a package that embeds nothing.
 
+.PARAMETER MinLicenceBytes
+    Smallest acceptable size for the installed licence file. Default 1 KB,
+    which is far below the AGPL-3.0 text (about 34 KB) and far above an empty
+    or truncated file, so the check fails only on a file that conveys nothing.
+
 .PARAMETER KeepExtract
     Do not delete the extraction directories, and print where they are.
 
@@ -121,6 +138,7 @@ param(
     [string[]]$Msi,
     [string]$ExeName = 'gm-desktop.exe',
     [long]$MinExeBytes = 1MB,
+    [long]$MinLicenceBytes = 1KB,
     [switch]$KeepExtract
 )
 
@@ -265,11 +283,46 @@ function Test-AdminInstall {
                    "$($exe.Length) B, below the $MinExeBytes B floor: the package carries no real payload.")
         }
         $files = @(Get-ChildItem -LiteralPath $target -File -Recurse -ErrorAction SilentlyContinue)
+
+        # AGPL-3.0 section 4(a): a copy of the Licence has to travel with every
+        # copy of the Program.
+        #
+        # The exact path is deliberately NOT pinned. The requirement is that a
+        # licence-bearing file is installed at all; a check pinned to one
+        # filename goes red on a compliant package the moment someone renames
+        # it, and such a gate gets switched off.
+        #
+        # The contents are checked too, because a file merely NAMED like a
+        # licence would satisfy a name-only check while conveying nothing.
+        $licences = @(Get-ChildItem -LiteralPath $target -File -Recurse -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -match '(?i)^(licen[cs]e|copying|copyright|notice)(\..+)?$' })
+        if ($licences.Count -eq 0) {
+            $names = ($files | ForEach-Object { $_.FullName.Substring($target.Length).TrimStart('\', '/') }) -join ', '
+            throw ("administrative install of '$([System.IO.Path]::GetFileName($Path))' extracted " +
+                   "$($files.Count) file(s) and not one of them is a licence, copyright, copying or notice " +
+                   "file. AGPL-3.0 section 4(a) requires a copy of the Licence with every copy of the " +
+                   "Program. Extracted: $names. The mechanism is the LicenseFile in the Path component of " +
+                   "wix/main.wxs (and the main-peruser.wxs generated from it), fed by bundle.licenseFile.")
+        }
+        $licence = $licences[0]
+        if ($licence.Length -lt $MinLicenceBytes) {
+            throw ("the licence file '$($licence.Name)' installed by '$([System.IO.Path]::GetFileName($Path))' is " +
+                   "$($licence.Length) B, below the $MinLicenceBytes B floor: it conveys nothing.")
+        }
+        $licenceText = Get-Content -LiteralPath $licence.FullName -Raw -ErrorAction SilentlyContinue
+        if ($licenceText -notmatch 'GNU AFFERO GENERAL PUBLIC LICENSE') {
+            throw ("the licence file '$($licence.Name)' installed by '$([System.IO.Path]::GetFileName($Path))' does " +
+                   "not contain the AGPL-3.0 text. A file with a licence-shaped name is not a licence.")
+        }
+
         $rel = $exe.FullName.Substring($target.Length).TrimStart('\', '/')
         return [pscustomobject]@{
-            ExeBytes  = $exe.Length
-            ExeRelPath = $rel
-            FileCount = $files.Count
+            ExeBytes      = $exe.Length
+            ExeRelPath    = $rel
+            FileCount     = $files.Count
+            LicenceName   = $licence.Name
+            LicenceBytes  = $licence.Length
+            LicenceRelPath = $licence.FullName.Substring($target.Length).TrimStart('\', '/')
         }
     } finally {
         if ($KeepExtract) {
@@ -315,6 +368,7 @@ foreach ($f in $files) {
     # --- payload, no install / no elevation
     $admin = Test-AdminInstall -Path $f.FullName
     Write-Ok "payload: $($admin.ExeRelPath) = $($admin.ExeBytes) B, $($admin.FileCount) file(s) extracted"
+    Write-Ok "licence: $($admin.LicenceRelPath) = $($admin.LicenceBytes) B (contains the AGPL-3.0 text)"
 
     # --- scope, read from the package itself
     $chain = Get-InstallDirChain -Path $f.FullName
@@ -349,6 +403,7 @@ foreach ($f in $files) {
         bytes           = $f.Length
         sha256          = (Get-FileHash -LiteralPath $f.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
         exeBytes        = $admin.ExeBytes
+        licenceBytes    = $admin.LicenceBytes
         installDirChain = ($chain.Ids -join ' > ')
         allUsers        = if ($null -eq $allUsers) { '<absent>' } else { $allUsers }
     }

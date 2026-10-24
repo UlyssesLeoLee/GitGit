@@ -21,16 +21,25 @@
   per-machine installer's behaviour implicit in the CLI's embedded copy,
   where a Tauri upgrade could change it without any diff in this repo.
 
-  THIS FILE: the per-machine variant, byte-identical to upstream apart
-  from this comment. The default `pnpm tauri build` uses it.
-  The per-user variant is `main-peruser.wxs`; the differences are
-  enumerated in that file's header.
+  THIS FILE: the per-machine variant, and the single source of truth for
+  both installers. The default `pnpm tauri build` uses it; the per-user
+  variant is GENERATED from it by scripts/render-wix-template.py, so a
+  change here has to be followed by re-running that script.
+
+  IT IS NOT BYTE-IDENTICAL TO UPSTREAM ANY MORE. There is exactly one
+  local modification: the AGPL-3.0 section 4(a) licence file, added to
+  the `Path` component so that a copy of the Licence is installed next to
+  the executable. The reason is recorded where the file is added. If that
+  change is ever reverted, this paragraph goes with it.
 
   UPDATING
   ========
   Re-diff against the tag named above when bumping @tauri-apps/cli, and
-  carry any upstream change into BOTH files. `main-peruser.wxs` is
-  `main.wxs` plus four documented edits and nothing else.
+  carry any upstream change into THIS file, then re-run
+  scripts/render-wix-template.py to regenerate `main-peruser.wxs`. The
+  generator refuses to emit a file when one of its edit anchors is not
+  found exactly once, so a template change that breaks an anchor fails
+  loudly instead of producing a subtly wrong installer.
 
   NOTE ON THIS COMMENT: an XML comment may not contain two consecutive
   hyphens anywhere inside it, not even inside what looks like prose or a
@@ -188,6 +197,23 @@
             </Component>
             <Component Id="Path" Guid="{{path_component_guid}}" Win64="$(var.Win64)">
                 <File Id="Path" Source="{{main_binary_path}}" KeyPath="yes" Checksum="yes"/>
+                {{#if license}}
+                <!-- AGPL-3.0 section 4(a): a copy of the Licence must travel with
+                     every copy of the Program. The source is the RTF the bundler
+                     generated from bundle.licenseFile, and the same value already
+                     drives the WixUILicenseRtf variable above, so the licence
+                     reaches the recipient twice: as the install-time licence
+                     dialog, and as a file that sits next to the installed
+                     executable.
+
+                     It is a file in the SAME component as the executable, on
+                     purpose. A separate component would need its own keypath,
+                     and the per-user variant has to keep an HKCU registry value
+                     as its keypath (ICE38) - sharing the component keeps that
+                     untouched and makes the licence install and uninstall with
+                     the program it belongs to. -->
+                <File Id="LicenseFile" Source="{{license}}" Name="LICENSE.rtf" Checksum="yes" />
+                {{/if}}
                 {{#each file_associations as |association| ~}}
                 {{#each association.ext as |ext| ~}}
                 <ProgId Id="{{../../product_name}}.{{ext}}" Advertise="yes" Description="{{association.description}}">
