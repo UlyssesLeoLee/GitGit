@@ -310,9 +310,15 @@ function Test-AdminInstall {
                    "$($licence.Length) B, below the $MinLicenceBytes B floor: it conveys nothing.")
         }
         $licenceText = Get-Content -LiteralPath $licence.FullName -Raw -ErrorAction SilentlyContinue
-        if ($licenceText -notmatch 'GNU AFFERO GENERAL PUBLIC LICENSE') {
+        # Two phrases, not one. A file that merely MENTIONS the licence would
+        # satisfy a title-only check - this repository's own README.md contains
+        # "GNU AFFERO GENERAL PUBLIC LICENSE" twice - so the check also wants a
+        # phrase that only the licence text itself carries.
+        if ($licenceText -notmatch 'GNU AFFERO GENERAL PUBLIC LICENSE' -or
+            $licenceText -notmatch 'TERMS AND CONDITIONS') {
             throw ("the licence file '$($licence.Name)' installed by '$([System.IO.Path]::GetFileName($Path))' does " +
-                   "not contain the AGPL-3.0 text. A file with a licence-shaped name is not a licence.")
+                   "not contain the AGPL-3.0 text. A file with a licence-shaped name, or one that merely " +
+                   "mentions the licence, is not a licence.")
         }
 
         $rel = $exe.FullName.Substring($target.Length).TrimStart('\', '/')
