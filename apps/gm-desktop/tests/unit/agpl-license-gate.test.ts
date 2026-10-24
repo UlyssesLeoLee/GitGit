@@ -174,20 +174,44 @@ describe('the bundle is configured to carry the licence', () => {
       ).toBe(true);
     }
 
-    // And every SOURCE has to BE the repository's licence, not something that
-    // merely mentions it. A title-only check is satisfied by the repository
-    // README, which contains "GNU AFFERO GENERAL PUBLIC LICENSE" twice - that
-    // decoy was caught by mutation, not by reading the assertion.
+    // And every SOURCE has to exist, or the build fails on a missing file.
+    //
+    // And the SOURCE at the licence destination has to BE the repository's
+    // licence, not something that merely mentions it. A title-only check is
+    // satisfied by the repository README, which contains "GNU AFFERO GENERAL
+    // PUBLIC LICENSE" twice - that decoy was caught by mutation, not by
+    // reading the assertion.
+    //
+    // [FACT] The map now holds TWO files: the licence, and the Corresponding
+    // Source notice that travels with it (see
+    // `corresponding-source-notice.test.ts`). The assertion that the mapped
+    // file IS the licence is therefore made against the LICENCE ENTRY rather
+    // than against every entry in the map. Asserting that every entry is the
+    // licence was true only while the map held exactly one file; it would now
+    // be false of a file that has no business being the licence, and a check
+    // that is false of a correct configuration is a check that gets switched
+    // off.
+    //
+    // What this still guards is unchanged: the file mapped at the licence
+    // destination IS the repository's LICENSE, byte for byte, so a decoy
+    // cannot be passed off as the licence.
     const licenceBytes = readFileSync(join(REPO_ROOT, 'LICENSE'));
     for (const src of Object.values(debFiles!)) {
       const abs = resolve(dirname(CONF), src);
       expect(existsSync(abs), `deb.files source '${src}' does not exist, so the build fails`).toBe(true);
-      expect(
-        readFileSync(abs).equals(licenceBytes),
-        `deb.files source '${src}' is not the repository's LICENSE file, so the package would ship ` +
-          'something that is not the Licence'
-      ).toBe(true);
     }
+    const licenceEntry = Object.entries(debFiles!).find(([dest]) =>
+      /^\/?usr\/share\/doc\/.+\/(copyright|LICEN[CS]E)$/.test(dest)
+    );
+    expect(
+      licenceEntry,
+      'bundle.linux.deb.files has no licence destination any more, so the licence is not in the package'
+    ).toBeDefined();
+    expect(
+      readFileSync(resolve(dirname(CONF), licenceEntry![1])).equals(licenceBytes),
+      `deb.files source '${licenceEntry![1]}' is not the repository's LICENSE file, so the package ` +
+        'would ship something that is not the Licence'
+    ).toBe(true);
   });
 
   it('keeps bundle.resources empty, because a custom WiX template cannot carry it', () => {
@@ -470,17 +494,31 @@ describe('the AppImage carries the licence, and the verifier proves it', () => {
     ).toBeTruthy();
     const entries = Object.entries(appimageFiles as DebFiles);
     expect(entries.length, 'bundle.linux.appimage.files is empty').toBeGreaterThan(0);
-    for (const [dest, src] of entries) {
+    for (const [dest] of entries) {
       // Only data_dir/usr/ is copied into the AppDir, so a destination
       // outside usr/ is silently dropped.
       expect(
         dest.startsWith('usr/'),
         `"${dest}" is outside usr/, and only data_dir/usr/ is copied into the AppDir`
       ).toBe(true);
-      // The source is the repository's own LICENSE, relative to
-      // apps/gm-desktop/src-tauri/tauri.conf.json.
-      expect(src, `"${dest}" does not point at the repository's LICENSE`).toBe('../../../LICENSE');
     }
+    // [FACT] The map holds TWO files: the licence, and the Corresponding
+    // Source notice that travels with it (see
+    // `corresponding-source-notice.test.ts`). The licence assertion is
+    // therefore made against the LICENCE ENTRY rather than against every
+    // entry in the map - asserting that every entry is the licence was true
+    // only while the map held exactly one file. What it still guards is
+    // unchanged: the file mapped at the licence destination IS the
+    // repository's LICENSE.
+    const licenceEntry = entries.find(([dest]) => /\/[^/]*(copyright|LICEN[CS]E)$/.test(dest));
+    expect(
+      licenceEntry,
+      'bundle.linux.appimage.files has no licence destination any more, so the licence is not in the image'
+    ).toBeDefined();
+    expect(
+      licenceEntry![1],
+      `"${licenceEntry![0]}" does not point at the repository's LICENSE`
+    ).toBe('../../../LICENSE');
   });
 
   it('the AppImage verify step extracts the image and checks its contents', () => {

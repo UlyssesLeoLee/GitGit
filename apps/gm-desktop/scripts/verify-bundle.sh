@@ -244,6 +244,71 @@ report_rejected_licences() {
 }
 
 # ---------------------------------------------------------------------------
+# Is there a Corresponding Source NOTICE next to the object code?
+# ---------------------------------------------------------------------------
+#
+# [FACT] The licence copy answers AGPL-3.0 section 4. This is a different
+# obligation, and it is about the DISTRIBUTION rather than about the
+# package's contents.
+#
+# Section 6(d) (LICENSE:263-275) says, of object code conveyed from a
+# designated place: "provided you maintain clear directions next to the
+# object code saying where to find the Corresponding Source." So the thing
+# being looked for is a NOTICE - a set of directions - and not a second copy
+# of the licence.
+#
+# [FACT] The notice is a COMMITTED file (CORRESPONDING-SOURCE.md at the root
+# of the repository), mapped into the packages through the same
+# `bundle.linux.*.files` maps that carry the licence. It is not generated at
+# build time: a generated notice would be a claim about the source that
+# nothing in the repository holds, and it would drift from the source it
+# names.
+#
+# TWO things have to be true of a file for it to be the notice, and BOTH are
+# checked:
+#
+#   1. it says what the notice is about - "Corresponding Source for this
+#      build". The AGPL text itself uses the phrase "Corresponding Source" 24
+#      times, so the bare phrase cannot be used to tell the notice apart from
+#      the licence, and this repository's README names the licence too.
+#   2. it names the licence and the place the source is offered at, so a
+#      reader is not left with a heading and no directions.
+#
+# The place is passed in rather than read from a global, so that this helper
+# can be executed on its own - see the gate in
+# `tests/unit/corresponding-source-notice.test.ts`.
+CS_NOTICE_MARKER='Corresponding Source for this build'
+CS_LICENCE_MARKER='AGPL-3.0'
+
+# Does this file carry the Corresponding Source notice? `grep -F` so the
+# phrases are taken literally.
+carries_corresponding_source() {
+  grep -q -F "$CS_NOTICE_MARKER" "$1" 2>/dev/null \
+    && grep -q -F "$CS_LICENCE_MARKER" "$1" 2>/dev/null \
+    && grep -q -F "$2" "$1" 2>/dev/null
+}
+
+# The path, relative to the root, of a file that carries the notice.
+# Non-zero exit if there is none.
+#
+# EVERY file under the root is a candidate, not a name pattern. The name of
+# the notice is the bundler's business: a check that looks for a name can be
+# satisfied by a file that merely LOOKS like a notice and carries nothing,
+# which is the same false green the licence check used to produce when it
+# decided by name.
+find_corresponding_source_notice() {
+  local root="$1" place="$2" candidate
+  while IFS= read -r candidate; do
+    [ -n "$candidate" ] || continue
+    if carries_corresponding_source "$candidate" "$place"; then
+      printf '%s\n' "${candidate#"$root"/}"
+      return 0
+    fi
+  done < <(find "$root" -type f 2>/dev/null || true)
+  return 1
+}
+
+# ---------------------------------------------------------------------------
 # Inputs
 # ---------------------------------------------------------------------------
 command -v jq >/dev/null 2>&1 \
@@ -255,6 +320,21 @@ command -v jq >/dev/null 2>&1 \
 VERSION=$(jq -r '.version // empty' "$CONFIG")
 [ -n "$VERSION" ] || die "no 'version' in ${CONFIG}; cannot assert the artifact carries the manifest version"
 PRODUCT=$(jq -r '.productName // empty' "$CONFIG")
+
+# The place the Corresponding Source is offered at, which the notice has to
+# name. It is derived from the project's own homepage rather than written out
+# here, so the notice and the configuration cannot drift apart silently: the
+# notice is a committed file, and a committed file that names a place the
+# configuration no longer names is a notice pointing nowhere.
+HOMEPAGE=$(jq -r '.bundle.homepage // empty' "$CONFIG")
+[ -n "$HOMEPAGE" ] \
+  || die "no 'bundle.homepage' in ${CONFIG}; the Corresponding Source notice has to name the place the source is offered at, and that place is derived from it."
+CS_SOURCE_PLACE="${HOMEPAGE}/releases"
+
+# Where the notice was found inside the artifact, relative to the artifact's
+# root. Empty until a branch finds one; the dmg branch has no file slot, so
+# for that target it stays empty and the manifest records that.
+CS_NOTICE_PATH=""
 
 # The main executable name comes from the crate, not from a literal here, so
 # renaming `[[bin]] name` in Cargo.toml cannot silently desynchronise the
@@ -483,6 +563,25 @@ is that map - not bundle.licenseFile - that the deb bundler actually reads."
     # than ignored, because their presence is exactly what made a name-only
     # check report the wrong file.
     report_rejected_licences "$DEB_EXTRACT_DIR"
+
+    # ── AGPL-3.0 §6(d): clear directions next to the object code ──────────────
+    # [FACT] The package was EXTRACTED above, so this decision is made on the
+    # bytes that were really packaged, not on the configuration that was
+    # meant to produce them.
+    DEB_NOTICE=$(find_corresponding_source_notice "$DEB_EXTRACT_DIR" "$CS_SOURCE_PLACE" || true)
+    if [ -z "$DEB_NOTICE" ]; then
+      die "${ARTIFACT_NAME} ships no Corresponding Source notice next to the object code.
+AGPL-3.0 section 6(d) requires the distributor of object code to maintain clear
+directions next to the object code saying where to find the Corresponding Source.
+A file whose NAME looks like a notice does not count: the package may carry a
+dependency's file and no directions at all. Check that bundle.linux.deb.files in
+${CONFIG} still maps a usr/share/... destination at a source that exists, and
+that the source names the licence and the place the source is offered at
+(${CS_SOURCE_PLACE})."
+    fi
+    CS_NOTICE_PATH="$DEB_NOTICE"
+    ok "corresponding source notice: ${DEB_NOTICE}"
+
     # `|| true` because `grep -c` exits 1 on zero matches, and under `set -e`
     # that would abort the script with no message instead of printing 0.
     # Unreachable in practice — the usr/bin assertion above would have failed
@@ -614,6 +713,24 @@ at a source that exists. It is destination -> source, not source -> destination,
 and the destination has to start with usr/ - only data_dir/usr/ is copied into
 the AppDir (crates/tauri-bundler/src/bundle/linux/appimage/linuxdeploy.rs)."
         fi
+
+        # ── AGPL-3.0 §6(d): clear directions next to the object code ─────────
+        # [FACT] The image was EXTRACTED above, so this decision is made on the
+        # bytes that were really packaged, not on the configuration that was
+        # meant to produce them.
+        APPIMAGE_NOTICE=$(find_corresponding_source_notice "$APPIMAGE_ROOT" "$CS_SOURCE_PLACE" || true)
+        if [ -z "$APPIMAGE_NOTICE" ]; then
+            die "${ARTIFACT_NAME} ships no Corresponding Source notice next to the object code.
+AGPL-3.0 section 6(d) requires the distributor of object code to maintain clear
+directions next to the object code saying where to find the Corresponding Source.
+A file whose NAME looks like a notice does not count: the image may carry a
+dependency's file and no directions at all. Check that bundle.linux.appimage.files
+in ${CONFIG} still maps a usr/share/... destination at a source that exists, and
+that the source names the licence and the place the source is offered at
+(${CS_SOURCE_PLACE})."
+        fi
+        CS_NOTICE_PATH="$APPIMAGE_NOTICE"
+        ok "corresponding source notice: ${APPIMAGE_NOTICE}"
     else
         die "could not extract ${ARTIFACT_NAME} to check its contents (the runtime refused --appimage-extract).
 Failing closed: an image we cannot open proves nothing."
@@ -748,6 +865,26 @@ $(find "${APP_PATH}/Contents" -maxdepth 2 -print 2>/dev/null | head -20)"
         echo "    so the licence is presented when the image is mounted. Whether create-dmg"
         echo "    also leaves a copy inside the image is what this line measures."
     fi
+
+    # ── AGPL-3.0 §6(d): what this artifact actually carries ──────────────────
+    # [FACT] The licence reaches a .dmg as a UDIF EULA RESOURCE - the text
+    # create-dmg embeds in the image's resource fork and presents when the
+    # image is mounted - and not as a file. There is nothing inside the image
+    # for a notice to be attached to, and no configuration key that puts one
+    # there: the dmg bundler reads neither bundle.resources nor a files map.
+    #
+    # So NOTHING is asserted here. An assertion that could never pass is a
+    # gate that gets switched off, and this one would be off before it was
+    # ever red. What is recorded instead is the fact, and the fact is what
+    # `docs/plan/v0-tasks.md` carries.
+    DMG_NOTICE=$(find_corresponding_source_notice "$MOUNT_DIR" "$CS_SOURCE_PLACE" || true)
+    if [ -n "$DMG_NOTICE" ]; then
+        ok "corresponding source notice: ${DMG_NOTICE}"
+    else
+        echo "    NO CORRESPONDING SOURCE NOTICE inside the mounted image." >&2
+        echo "    [FACT] the licence reaches a .dmg as a UDIF EULA resource (create-dmg --eula)," >&2
+        echo "    not as a file, so there is nothing in the image to carry a notice." >&2
+    fi
     ;;
 esac
 
@@ -782,6 +919,7 @@ jq -n \
   --arg s  "$SHA" \
   --arg sg "$SIGNING" \
   --arg r  "$(uname -s -m)" \
+  --arg cn "$CS_NOTICE_PATH" \
   '{
      generatedAtUtc: $ts,
      productName:    $p,
@@ -790,6 +928,7 @@ jq -n \
      runner:         $r,
      signing:        $sg,
      notarized:      false,
+     correspondingSourceNotice: $cn,
      artifacts: [ { file: $a, bytes: $b, sha256: $s } ]
    }' > "$MANIFEST"
 
@@ -802,11 +941,17 @@ R_FILE=$(jq -r '.artifacts[0].file'   "$MANIFEST")
 R_BYTES=$(jq -r '.artifacts[0].bytes'  "$MANIFEST")
 R_SHA=$(jq  -r '.artifacts[0].sha256' "$MANIFEST")
 R_VERSION=$(jq -r '.version'           "$MANIFEST")
+R_NOTICE=$(jq -r '.correspondingSourceNotice // empty' "$MANIFEST")
 
 [ "$R_VERSION" = "$VERSION" ] || die "${MANIFEST} records version '${R_VERSION}', expected '${VERSION}'"
 [ "$R_FILE"    = "$ARTIFACT_NAME" ] || die "${MANIFEST} records '${R_FILE}', expected '${ARTIFACT_NAME}'"
 [ "$R_BYTES"   = "$BYTES" ]         || die "${MANIFEST} records ${R_BYTES} B, the file on disk is ${BYTES} B"
 [ "$R_SHA"     = "$SHA" ]           || die "${MANIFEST} records sha256 ${R_SHA}, the file on disk hashes to ${SHA}"
+# The notice the artifact carries is part of what the artifact IS, so the
+# manifest records it and the record is re-read rather than trusted. An empty
+# value is a real answer for the dmg, which has no file slot at all.
+[ "$R_NOTICE" = "$CS_NOTICE_PATH" ] \
+  || die "${MANIFEST} records corresponding source notice '${R_NOTICE}', the artifact carries '${CS_NOTICE_PATH}'"
 ok "manifest ${MANIFEST}: 1 artifact, size and sha256 match the file on disk"
 
 step "PASS: ${ARTIFACT_NAME} is a real ${TARGET} bundle (unsigned; not notarized)"
