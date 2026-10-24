@@ -209,11 +209,22 @@ describe('the .deb verifier would notice the omission', () => {
   });
 
   it('fails closed when no licence-bearing file is present', () => {
-    expect(bundleCode).toMatch(/licence, copyright, copying or notice file/);
+    // The assertions below are made against the FAILURE MESSAGE rather than
+    // against the file as a whole. The file mentions the licence and the AGPL
+    // section in several places - the AppImage diagnostic among them - and an
+    // assertion that cannot tell those apart is satisfied by whichever one
+    // happens to be left, which is a gate that checks something other than
+    // what it claims to check.
+    const remediation = bundleCode.match(/die "\$\{ARTIFACT_NAME\} ships no licence[\s\S]*?"/);
+    expect(
+      remediation,
+      'could not find the no-licence failure message in verify-bundle.sh'
+    ).not.toBeNull();
+    expect(remediation![0]).toMatch(/licence, copyright, copying or notice file/);
     // AGPL cited by section, so the requirement is checkable by a reader who
     // does not take this repository's word for it.
-    expect(bundleCode).toMatch(/AGPL-3\.0/);
-    expect(bundleCode).toMatch(/4\(a\)/);
+    expect(remediation![0]).toMatch(/AGPL-3\.0/);
+    expect(remediation![0]).toMatch(/4\(a\)/);
   });
 
   it('does not pin one directory, which would be a guess about the bundler', () => {
