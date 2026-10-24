@@ -90,6 +90,11 @@ jobs:
           cache-on-failure: true
 
       - name: Check formatting
+        # No `--locked` here, and it cannot have one: cargo-fmt rejects the
+        # flag outright (`error: unexpected argument '--locked' found`,
+        # exit 2). It is also unnecessary — `cargo fmt` resolves no
+        # dependency graph, so it cannot rewrite `Cargo.lock`. The gate
+        # below asserts this, so a well-meaning "fix" cannot break the job.
         run: cargo fmt --all -- --check
 
       - name: Clippy (deny warnings)
@@ -103,9 +108,16 @@ jobs:
         # the binary target's test harness and reports "0 tests" — a green
         # run that asserts nothing. `--all-targets` covers lib + bin + any
         # integration/example/bench targets.
+        #
+        # `--locked`, and the same on every other cargo invocation in this
+        # job that resolves the dependency graph: without it a CI run may
+        # re-resolve it and rewrite `Cargo.lock`, so the artefact this job
+        # builds is not the one the commit describes. `--locked` turns that
+        # into a hard error instead of a silent rewrite. `cargo fmt` above
+        # is the one exception, and it cannot be otherwise.
         run: |
           set -o pipefail
-          cargo test --all-targets 2>&1 | tee /tmp/cargo-test.txt
+          cargo test --all-targets --locked 2>&1 | tee /tmp/cargo-test.txt
           # Guard the guard: `cargo test` exits 0 even when every target
           # ran zero tests, so a future refactor that moves the tests out
           # of the compiled target set would turn this gate green while
@@ -119,10 +131,10 @@ jobs:
       - name: Run doc tests
         # `--all-targets` deliberately excludes doc tests, so this stays a
         # separate step.
-        run: cargo test --doc
+        run: cargo test --doc --locked
 
       - name: Build release
-        run: cargo build --release
+        run: cargo build --release --locked
 
   audit:
     name: dependency audit (RUSTSEC)

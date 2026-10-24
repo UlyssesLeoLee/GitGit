@@ -84,7 +84,15 @@ try {
     # picky about line discipline; cmd /c wrapping matches the
     # convention smoke.ps1 uses for `git` and reliably flushes every
     # test result line.
-    $argList = @('--color=never', '--no-fail-fast', '--offline')
+    # `--locked` because this tier runs at the repository root, so it
+    # resolves the ROOT crate's graph: without it cargo may re-resolve and
+    # rewrite the committed `Cargo.lock`, and the test counts this tier
+    # reports would then describe a dependency set the commit does not
+    # name. `--locked` turns that into a hard error instead of a silent
+    # rewrite. It composes with `--offline` — measured, `cargo metadata
+    # --locked --offline` resolves the committed lock offline and leaves
+    # it byte-identical.
+    $argList = @('--color=never', '--no-fail-fast', '--offline', '--locked')
     $stdoutFile = Join-Path (Get-LogRoot) 'ut-stdout.log'
     $stderrFile = Join-Path (Get-LogRoot) 'ut-stderr.log'
     if (Test-Path $stdoutFile) { Remove-Item $stdoutFile -Force }
