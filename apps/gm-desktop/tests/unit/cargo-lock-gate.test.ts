@@ -321,8 +321,42 @@ describe('the root crate lock is pinned in rust-backend.yml', () => {
     expect(
       rustBackendInvocations.length,
       'the inventory of cargo invocations changed; a new invocation must be classified ' +
-        'before it is assumed safe'
-    ).toBe(7);
+        'before it is assumed safe. The inventory is now:\n' +
+        rustBackendInvocations
+          .map((i) => `  ${i.jobId} :: ${i.stepName} :: ${i.command}`)
+          .join('\n')
+    ).toBe(8);
+  });
+
+  it("classifies the integration job's registry warm-up as lock-rewriting", () => {
+    // `cargo fetch` downloads the dependency set and, when the lock is out
+    // of date, rewrites it. It arrived with the integration job's offline
+    // tiers, which need a warm registry before they can run `--offline`,
+    // and it is why the inventory above is 8 rather than 7.
+    //
+    // [FACT] This case exists so that arrival is classified rather than
+    // absorbed into a number. The count assertion is a tripwire: it is
+    // supposed to fire when the inventory changes, and the human who
+    // responds to it has to decide what the new invocation does. Editing
+    // `toBe(7)` to `toBe(8)` and moving on would have turned the tripwire
+    // back off.
+    const fetches = rustBackendInvocations.filter((i) => i.subcommand === 'fetch');
+
+    expect(
+      fetches.map((i) => `${i.jobId} :: ${i.command}`),
+      'expected the integration job to warm the registry with cargo fetch'
+    ).not.toEqual([]);
+
+    expect(
+      fetches.filter((i) => !i.flags.includes('--locked')).map((i) => `${i.jobId} :: ${i.command}`),
+      'cargo fetch rewrites Cargo.lock when the lock is out of date, so it must carry --locked'
+    ).toEqual([]);
+
+    expect(
+      fetches.filter((i) => !canRewriteLock(i)).map((i) => `${i.jobId} :: ${i.command}`),
+      'cargo fetch must be classified as lock-rewriting, or the per-command gate ' +
+        'would skip it while still reporting the job as covered'
+    ).toEqual([]);
   });
 
   it('every invocation that can rewrite the lock carries --locked', () => {
