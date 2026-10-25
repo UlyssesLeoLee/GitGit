@@ -342,15 +342,25 @@ PR 自己也必须满足新的 required check。所以顺序必须是「先合�
 
 ## 本 lane 明确没做的事
 
-`[FACT]` **本 lane 没有改分支保护。** 分支保护里现在有的那 5 个 required check
-（`repo gate (always runs)` 加 L1-a 的 5 条）是父代理另外加的，在 PR #60 / PR #61 上
-实测过。本 lane 只把 14 条 context **声明**在 `scripts/ci/required-checks.json` 里，
-其中 9 条**还没有**进保护。`notes.enforcedOnGitHub` 记的是 `true`，`notes` 里写明了
-哪 5 条在保护里、哪 9 条不在。
+`[FACT]` **本 lane（自己）没有改分支保护。** 保护是在 lane 之外、由父代理改的，
+分两次：`repo gate (always runs)` 加 L1-a 的 5 条在 PR #60 / PR #61 上实测过，
+L1-b 的 9 条在 PR #62 上实测过（那 9 条在 #62 上全部真跑并通过）。**2026-10-25
+23:20 JST 起，`dev` / `main` 的 required check 是 `repo gate (always runs)` 加
+全部 14 条 context**，只 PATCH 了 `required_status_checks`，其余开关前后逐一核对
+未变。
+
+`[FACT]` **这一节写作时的旧事实已经变了**：本段原本写着「14 条 context 只是声明，
+其中 9 条还没有进保护」。**那句现在不成立**，所以改在这里，而不是留着它让读的人
+以为桌面与打包的检查是可选的。
 
 `[FACT]` **三个消费者作业（`msi-install` / `msi-launch` / `deb-install`）各只加了
 一行 job 级 `if:`**，其余部分与改动前逐字相同——它们不做检测、不带区域条件。
 那一行是必需的，理由见「`needs:` 链为什么是安全的」一节。
+
+`[FACT]` **PR #63 上实测过这一行**：那个 PR 只改了两个不属于任何区域的文件，于是
+`msi-install` / `msi-launch` / `deb-install` 三个消费者**整体被跳过**（GitHub 记作
+`skipping`），而它们的三个生产者 `msi` / `deb` / `dmg` 是「照常运行、步骤全跳过、
+报绿」（9–16s）。这正是「不适用 → 报状态 → 不挡合并」的完整形态。
 
 `[FACT]` **没有动 `apps/gm-console/**`、`scripts/frontend-advisory-baseline.json`** ——
 那是另一条 lane（PR #58，gm-console 工具链升级）正在改的文件。
