@@ -1,15 +1,16 @@
 {
   "$comment": "GitGit frontend dependency-advisory baseline — a RECORD of what is known, NOT an ignore list. Every entry below (open and resolved) carries the GHSA id, the module, the exact version that was found and the patched range, so scripts/frontend-advisory-check.ps1 can re-verify it against the npm advisory database on every run. An entry the npm database cannot corroborate is rejected by the checker and fails the build — that is what stops this file from being used to smuggle in a suppression. There is deliberately no 'ignore', 'allow' or 'waiver' list anywhere in this repository's frontend path: `pnpm audit --ignore` and `pnpm.overrides` pinning a vulnerable version are both forbidden, because a gate that can be silenced is not a gate. The checker fails on any advisory that is NOT in `open`; an advisory in `open` that no longer appears in the audit is reported as informational (it was resolved) and does not fail the build.",
   "schemaVersion": "1.0",
-  "capturedAt": "2026-10-24",
+  "capturedAt": "2026-10-25",
   "capturedFrom": {
-    "branch": "origin/dev",
-    "head": "255ab92",
+    "branch": "ci/gm-console-toolchain",
+    "head": "f7aaa9e",
     "pnpm": "9.15.9",
     "node": "22.19.0",
     "os": "Windows 11 (PowerShell 7.6.8)",
     "registry": "https://registry.npmjs.org",
-    "auditCommand": "corepack pnpm@9.15.9 --dir apps/<app> audit --json"
+    "auditCommand": "corepack pnpm@9.15.9 --dir apps/<app> audit --json",
+    "note": "Measured on this branch with the gm-console dependency change applied to the WORKING TREE and not yet committed, on top of the baseline commit f7aaa9e. The gm-console entries below were measured against that working tree; the 'before' count was measured the same day against the pre-upgrade committed lockfile at f7aaa9e, which was restored into a scratch directory for the measurement. The gm-desktop entries are carried over unchanged from the 2026-10-24 capture at head 255ab92 — gm-desktop's committed lockfile is untouched by this branch, and the same run re-measured it at 0 advisories, so no gm-desktop entry changed."
   },
   "apps": {
     "gm-desktop": {
@@ -127,259 +128,15 @@
       ]
     },
     "gm-console": {
-      "auditExitCode": 1,
+      "auditExitCode": 0,
       "counts": {
-        "total": 15,
-        "critical": 3,
-        "high": 2,
-        "moderate": 9,
-        "low": 1
+        "total": 0,
+        "critical": 0,
+        "high": 0,
+        "moderate": 0,
+        "low": 0
       },
-      "open": [
-        {
-          "id": "GHSA-5gmw-xhrv-c9v3",
-          "npmAdvisoryId": 1241260,
-          "module": "tinypool",
-          "severity": "critical",
-          "version": "1.1.1",
-          "vulnerableVersions": "<=2.1.0",
-          "patchedVersions": ">=2.1.1",
-          "tree": "dev",
-          "roots": [
-            "@vitest/coverage-v8",
-            "vitest"
-          ],
-          "title": "Tinypool: Prototype Pollution gadget in worker options leads to Remote Code Execution"
-        },
-        {
-          "id": "GHSA-85c8-ppgw-ccpr",
-          "npmAdvisoryId": 1241261,
-          "module": "tinypool",
-          "severity": "critical",
-          "version": "1.1.1",
-          "vulnerableVersions": "<2.1.2",
-          "patchedVersions": ">=2.1.2",
-          "tree": "dev",
-          "roots": [
-            "@vitest/coverage-v8",
-            "vitest"
-          ],
-          "title": "Tinypool: Prototype Pollution Gadget to RCE in run() options"
-        },
-        {
-          "id": "GHSA-5xrq-8626-4rwp",
-          "npmAdvisoryId": 1139528,
-          "module": "vitest",
-          "severity": "critical",
-          "version": "2.1.9",
-          "vulnerableVersions": "<3.2.6",
-          "patchedVersions": ">=3.2.6",
-          "tree": "dev",
-          "roots": [
-            "@vitest/coverage-v8",
-            "vitest"
-          ],
-          "title": "When Vitest UI server is listening, arbitrary file can be read and executed"
-        },
-        {
-          "id": "GHSA-587h-7wmj-h5pm",
-          "npmAdvisoryId": 1242658,
-          "module": "vite",
-          "severity": "high",
-          "version": "5.4.21",
-          "vulnerableVersions": "<=6.4.3",
-          "patchedVersions": ">=6.4.4",
-          "tree": "dev",
-          "roots": [
-            "@vitejs/plugin-react",
-            "@vitest/coverage-v8",
-            "vite",
-            "vitest"
-          ],
-          "title": "launch-editor: `fs.existsSync()` existence check can be bypassed on Windows"
-        },
-        {
-          "id": "GHSA-fx2h-pf6j-xcff",
-          "npmAdvisoryId": 1123525,
-          "module": "vite",
-          "severity": "high",
-          "version": "5.4.21",
-          "vulnerableVersions": "<=6.4.2",
-          "patchedVersions": ">=6.4.3",
-          "tree": "dev",
-          "roots": [
-            "@vitejs/plugin-react",
-            "@vitest/coverage-v8",
-            "vite",
-            "vitest"
-          ],
-          "title": "vite: `server.fs.deny` bypass on Windows alternate paths"
-        },
-        {
-          "id": "GHSA-82fw-gwwq-j7x9",
-          "npmAdvisoryId": 1193684,
-          "module": "@vitest/mocker",
-          "severity": "moderate",
-          "version": "2.1.9",
-          "vulnerableVersions": ">=2.1.0 <4.1.11",
-          "patchedVersions": ">=4.1.11",
-          "tree": "dev",
-          "roots": [
-            "@vitest/coverage-v8",
-            "vitest"
-          ],
-          "title": "Vitest: Path Traversal / Arbitrary File Read via @vitest/mocker Redirect Mock"
-        },
-        {
-          "id": "GHSA-qxg6-89mg-rqv8",
-          "npmAdvisoryId": 1242767,
-          "module": "@vitest/mocker",
-          "severity": "moderate",
-          "version": "2.1.9",
-          "vulnerableVersions": ">=2.1.0-beta.7 <4.1.12",
-          "patchedVersions": ">=4.1.12",
-          "tree": "dev",
-          "roots": [
-            "@vitest/coverage-v8",
-            "vitest"
-          ],
-          "title": "Vitest: Code injection via unauthenticated manual mock registration"
-        },
-        {
-          "id": "GHSA-67mh-4wv8-2f99",
-          "npmAdvisoryId": 1102341,
-          "module": "esbuild",
-          "severity": "moderate",
-          "version": "0.21.5",
-          "vulnerableVersions": "<=0.24.2",
-          "patchedVersions": ">=0.25.0",
-          "tree": "dev",
-          "roots": [
-            "@vitejs/plugin-react",
-            "@vitest/coverage-v8",
-            "vite",
-            "vitest"
-          ],
-          "title": "esbuild enables any website to send any requests to the development server and read the response"
-        },
-        {
-          "id": "GHSA-4w7w-66w2-5vf9",
-          "npmAdvisoryId": 1116229,
-          "module": "vite",
-          "severity": "moderate",
-          "version": "5.4.21",
-          "vulnerableVersions": "<=6.4.1",
-          "patchedVersions": ">=6.4.2",
-          "tree": "dev",
-          "roots": [
-            "@vitejs/plugin-react",
-            "@vitest/coverage-v8",
-            "vite",
-            "vitest"
-          ],
-          "title": "Vite Vulnerable to Path Traversal in Optimized Deps `.map` Handling"
-        },
-        {
-          "id": "GHSA-698v-4r3x-3vcv",
-          "npmAdvisoryId": 1242622,
-          "module": "vite",
-          "severity": "moderate",
-          "version": "5.4.21",
-          "vulnerableVersions": "<=6.4.3",
-          "patchedVersions": ">=6.4.4",
-          "tree": "dev",
-          "roots": [
-            "@vitejs/plugin-react",
-            "@vitest/coverage-v8",
-            "vite",
-            "vitest"
-          ],
-          "title": "launch-editor: escapeCmdArgs() omits % escaping on Windows"
-        },
-        {
-          "id": "GHSA-r825-w8mm-5pxw",
-          "npmAdvisoryId": 1242651,
-          "module": "vite",
-          "severity": "moderate",
-          "version": "5.4.21",
-          "vulnerableVersions": "<=6.4.3",
-          "patchedVersions": ">=6.4.4",
-          "tree": "dev",
-          "roots": [
-            "@vitejs/plugin-react",
-            "@vitest/coverage-v8",
-            "vite",
-            "vitest"
-          ],
-          "title": "launch-editor: Editor CLI flag misinterpretation causing arbitrary command execution for some editors"
-        },
-        {
-          "id": "GHSA-rq7h-c2jc-7f22",
-          "npmAdvisoryId": 1242730,
-          "module": "vite",
-          "severity": "moderate",
-          "version": "5.4.21",
-          "vulnerableVersions": "<=6.4.3",
-          "patchedVersions": ">=6.4.4",
-          "tree": "dev",
-          "roots": [
-            "@vitejs/plugin-react",
-            "@vitest/coverage-v8",
-            "vite",
-            "vitest"
-          ],
-          "title": "Vite: Files outside `server.fs.allow` could be served when project paths match system paths on non-Windows machine"
-        },
-        {
-          "id": "GHSA-v6wh-96g9-6wx3",
-          "npmAdvisoryId": 1120784,
-          "module": "vite",
-          "severity": "moderate",
-          "version": "5.4.21",
-          "vulnerableVersions": "<=6.4.2",
-          "patchedVersions": ">=6.4.3",
-          "tree": "dev",
-          "roots": [
-            "@vitejs/plugin-react",
-            "@vitest/coverage-v8",
-            "vite",
-            "vitest"
-          ],
-          "title": "launch-editor: NTLMv2 hash disclosure via UNC path handling on Windows"
-        },
-        {
-          "id": "GHSA-82fw-gwwq-j7x9",
-          "npmAdvisoryId": 1193683,
-          "module": "vitest",
-          "severity": "moderate",
-          "version": "2.1.9",
-          "vulnerableVersions": ">=2.1.0 <4.1.11",
-          "patchedVersions": ">=4.1.11",
-          "tree": "dev",
-          "roots": [
-            "@vitest/coverage-v8",
-            "vitest"
-          ],
-          "title": "Vitest: Path Traversal / Arbitrary File Read via @vitest/mocker Redirect Mock"
-        },
-        {
-          "id": "GHSA-9jrq-w75r-8gcw",
-          "npmAdvisoryId": 1242724,
-          "module": "vite",
-          "severity": "low",
-          "version": "5.4.21",
-          "vulnerableVersions": "<=6.4.3",
-          "patchedVersions": ">=6.4.4",
-          "tree": "dev",
-          "roots": [
-            "@vitejs/plugin-react",
-            "@vitest/coverage-v8",
-            "vite",
-            "vitest"
-          ],
-          "title": "Vite: Cross origin script execution through Vite custom middleware"
-        }
-      ],
+      "open": [],
       "resolved": [
         {
           "id": "GHSA-mrhx-c7xc-m3w5",
@@ -404,9 +161,282 @@
           "resolvedOn": "2026-10-24",
           "resolvedBy": "postcss-selector-parser 6.1.4 -> 7.1.7 via a pnpm.overrides pin",
           "note": "tailwindcss@3.4.19 declares postcss-selector-parser ^6.0.10, and every 6.x release is inside the advisory's vulnerable range (<7.1.6), so no in-range version clears it. The pin moves the package to 7.1.7, which is inside the advisory's own patched range (>=7.1.6) — it is not a suppression, and `pnpm audit` reports no finding because the version is genuinely fixed, not because anything was ignored. The override is a forced major substitution (6.x -> 7.x) under a parent that declares ^6.0.10, so it was verified rather than assumed: the generated CSS is byte-identical before and after (sha256 unchanged), the build succeeds, and the full test suite stays green."
+        },
+        {
+          "id": "GHSA-5gmw-xhrv-c9v3",
+          "npmAdvisoryId": 1241260,
+          "module": "tinypool",
+          "severity": "critical",
+          "version": "1.1.1",
+          "vulnerableVersions": "<=2.1.0",
+          "patchedVersions": ">=2.1.1",
+          "tree": "dev",
+          "roots": [
+            "@vitest/coverage-v8",
+            "vitest"
+          ],
+          "title": "Tinypool: Prototype Pollution gadget in worker options leads to Remote Code Execution",
+          "resolvedOn": "2026-10-25",
+          "resolvedBy": "tinypool 1.1.1 removed from the dependency tree — vitest 5.0.5 no longer depends on it (toolchain major upgrade, mirrors apps/gm-desktop)"
+        },
+        {
+          "id": "GHSA-85c8-ppgw-ccpr",
+          "npmAdvisoryId": 1241261,
+          "module": "tinypool",
+          "severity": "critical",
+          "version": "1.1.1",
+          "vulnerableVersions": "<2.1.2",
+          "patchedVersions": ">=2.1.2",
+          "tree": "dev",
+          "roots": [
+            "@vitest/coverage-v8",
+            "vitest"
+          ],
+          "title": "Tinypool: Prototype Pollution Gadget to RCE in run() options",
+          "resolvedOn": "2026-10-25",
+          "resolvedBy": "tinypool 1.1.1 removed from the dependency tree — vitest 5.0.5 no longer depends on it (toolchain major upgrade, mirrors apps/gm-desktop)"
+        },
+        {
+          "id": "GHSA-5xrq-8626-4rwp",
+          "npmAdvisoryId": 1139528,
+          "module": "vitest",
+          "severity": "critical",
+          "version": "2.1.9",
+          "vulnerableVersions": "<3.2.6",
+          "patchedVersions": ">=3.2.6",
+          "tree": "dev",
+          "roots": [
+            "@vitest/coverage-v8",
+            "vitest"
+          ],
+          "title": "When Vitest UI server is listening, arbitrary file can be read and executed",
+          "resolvedOn": "2026-10-25",
+          "resolvedBy": "vitest 2.1.9 -> 5.0.5 (toolchain major upgrade, mirrors apps/gm-desktop)"
+        },
+        {
+          "id": "GHSA-587h-7wmj-h5pm",
+          "npmAdvisoryId": 1242658,
+          "module": "vite",
+          "severity": "high",
+          "version": "5.4.21",
+          "vulnerableVersions": "<=6.4.3",
+          "patchedVersions": ">=6.4.4",
+          "tree": "dev",
+          "roots": [
+            "@vitejs/plugin-react",
+            "@vitest/coverage-v8",
+            "vite",
+            "vitest"
+          ],
+          "title": "launch-editor: `fs.existsSync()` existence check can be bypassed on Windows",
+          "resolvedOn": "2026-10-25",
+          "resolvedBy": "vite 5.4.21 -> 7.3.7 (toolchain major upgrade, mirrors apps/gm-desktop)"
+        },
+        {
+          "id": "GHSA-fx2h-pf6j-xcff",
+          "npmAdvisoryId": 1123525,
+          "module": "vite",
+          "severity": "high",
+          "version": "5.4.21",
+          "vulnerableVersions": "<=6.4.2",
+          "patchedVersions": ">=6.4.3",
+          "tree": "dev",
+          "roots": [
+            "@vitejs/plugin-react",
+            "@vitest/coverage-v8",
+            "vite",
+            "vitest"
+          ],
+          "title": "vite: `server.fs.deny` bypass on Windows alternate paths",
+          "resolvedOn": "2026-10-25",
+          "resolvedBy": "vite 5.4.21 -> 7.3.7 (toolchain major upgrade, mirrors apps/gm-desktop)"
+        },
+        {
+          "id": "GHSA-82fw-gwwq-j7x9",
+          "npmAdvisoryId": 1193684,
+          "module": "@vitest/mocker",
+          "severity": "moderate",
+          "version": "2.1.9",
+          "vulnerableVersions": ">=2.1.0 <4.1.11",
+          "patchedVersions": ">=4.1.11",
+          "tree": "dev",
+          "roots": [
+            "@vitest/coverage-v8",
+            "vitest"
+          ],
+          "title": "Vitest: Path Traversal / Arbitrary File Read via @vitest/mocker Redirect Mock",
+          "resolvedOn": "2026-10-25",
+          "resolvedBy": "@vitest/mocker 2.1.9 -> 5.0.5 (toolchain major upgrade, mirrors apps/gm-desktop)"
+        },
+        {
+          "id": "GHSA-qxg6-89mg-rqv8",
+          "npmAdvisoryId": 1242767,
+          "module": "@vitest/mocker",
+          "severity": "moderate",
+          "version": "2.1.9",
+          "vulnerableVersions": ">=2.1.0-beta.7 <4.1.12",
+          "patchedVersions": ">=4.1.12",
+          "tree": "dev",
+          "roots": [
+            "@vitest/coverage-v8",
+            "vitest"
+          ],
+          "title": "Vitest: Code injection via unauthenticated manual mock registration",
+          "resolvedOn": "2026-10-25",
+          "resolvedBy": "@vitest/mocker 2.1.9 -> 5.0.5 (toolchain major upgrade, mirrors apps/gm-desktop)"
+        },
+        {
+          "id": "GHSA-67mh-4wv8-2f99",
+          "npmAdvisoryId": 1102341,
+          "module": "esbuild",
+          "severity": "moderate",
+          "version": "0.21.5",
+          "vulnerableVersions": "<=0.24.2",
+          "patchedVersions": ">=0.25.0",
+          "tree": "dev",
+          "roots": [
+            "@vitejs/plugin-react",
+            "@vitest/coverage-v8",
+            "vite",
+            "vitest"
+          ],
+          "title": "esbuild enables any website to send any requests to the development server and read the response",
+          "resolvedOn": "2026-10-25",
+          "resolvedBy": "esbuild 0.21.5 -> 0.28.2 (transitive, re-resolved by vite 7.3.7)"
+        },
+        {
+          "id": "GHSA-4w7w-66w2-5vf9",
+          "npmAdvisoryId": 1116229,
+          "module": "vite",
+          "severity": "moderate",
+          "version": "5.4.21",
+          "vulnerableVersions": "<=6.4.1",
+          "patchedVersions": ">=6.4.2",
+          "tree": "dev",
+          "roots": [
+            "@vitejs/plugin-react",
+            "@vitest/coverage-v8",
+            "vite",
+            "vitest"
+          ],
+          "title": "Vite Vulnerable to Path Traversal in Optimized Deps `.map` Handling",
+          "resolvedOn": "2026-10-25",
+          "resolvedBy": "vite 5.4.21 -> 7.3.7 (toolchain major upgrade, mirrors apps/gm-desktop)"
+        },
+        {
+          "id": "GHSA-698v-4r3x-3vcv",
+          "npmAdvisoryId": 1242622,
+          "module": "vite",
+          "severity": "moderate",
+          "version": "5.4.21",
+          "vulnerableVersions": "<=6.4.3",
+          "patchedVersions": ">=6.4.4",
+          "tree": "dev",
+          "roots": [
+            "@vitejs/plugin-react",
+            "@vitest/coverage-v8",
+            "vite",
+            "vitest"
+          ],
+          "title": "launch-editor: escapeCmdArgs() omits % escaping on Windows",
+          "resolvedOn": "2026-10-25",
+          "resolvedBy": "vite 5.4.21 -> 7.3.7 (toolchain major upgrade, mirrors apps/gm-desktop)"
+        },
+        {
+          "id": "GHSA-r825-w8mm-5pxw",
+          "npmAdvisoryId": 1242651,
+          "module": "vite",
+          "severity": "moderate",
+          "version": "5.4.21",
+          "vulnerableVersions": "<=6.4.3",
+          "patchedVersions": ">=6.4.4",
+          "tree": "dev",
+          "roots": [
+            "@vitejs/plugin-react",
+            "@vitest/coverage-v8",
+            "vite",
+            "vitest"
+          ],
+          "title": "launch-editor: Editor CLI flag misinterpretation causing arbitrary command execution for some editors",
+          "resolvedOn": "2026-10-25",
+          "resolvedBy": "vite 5.4.21 -> 7.3.7 (toolchain major upgrade, mirrors apps/gm-desktop)"
+        },
+        {
+          "id": "GHSA-rq7h-c2jc-7f22",
+          "npmAdvisoryId": 1242730,
+          "module": "vite",
+          "severity": "moderate",
+          "version": "5.4.21",
+          "vulnerableVersions": "<=6.4.3",
+          "patchedVersions": ">=6.4.4",
+          "tree": "dev",
+          "roots": [
+            "@vitejs/plugin-react",
+            "@vitest/coverage-v8",
+            "vite",
+            "vitest"
+          ],
+          "title": "Vite: Files outside `server.fs.allow` could be served when project paths match system paths on non-Windows machine",
+          "resolvedOn": "2026-10-25",
+          "resolvedBy": "vite 5.4.21 -> 7.3.7 (toolchain major upgrade, mirrors apps/gm-desktop)"
+        },
+        {
+          "id": "GHSA-v6wh-96g9-6wx3",
+          "npmAdvisoryId": 1120784,
+          "module": "vite",
+          "severity": "moderate",
+          "version": "5.4.21",
+          "vulnerableVersions": "<=6.4.2",
+          "patchedVersions": ">=6.4.3",
+          "tree": "dev",
+          "roots": [
+            "@vitejs/plugin-react",
+            "@vitest/coverage-v8",
+            "vite",
+            "vitest"
+          ],
+          "title": "launch-editor: NTLMv2 hash disclosure via UNC path handling on Windows",
+          "resolvedOn": "2026-10-25",
+          "resolvedBy": "vite 5.4.21 -> 7.3.7 (toolchain major upgrade, mirrors apps/gm-desktop)"
+        },
+        {
+          "id": "GHSA-82fw-gwwq-j7x9",
+          "npmAdvisoryId": 1193683,
+          "module": "vitest",
+          "severity": "moderate",
+          "version": "2.1.9",
+          "vulnerableVersions": ">=2.1.0 <4.1.11",
+          "patchedVersions": ">=4.1.11",
+          "tree": "dev",
+          "roots": [
+            "@vitest/coverage-v8",
+            "vitest"
+          ],
+          "title": "Vitest: Path Traversal / Arbitrary File Read via @vitest/mocker Redirect Mock",
+          "resolvedOn": "2026-10-25",
+          "resolvedBy": "vitest 2.1.9 -> 5.0.5 (toolchain major upgrade, mirrors apps/gm-desktop)"
+        },
+        {
+          "id": "GHSA-9jrq-w75r-8gcw",
+          "npmAdvisoryId": 1242724,
+          "module": "vite",
+          "severity": "low",
+          "version": "5.4.21",
+          "vulnerableVersions": "<=6.4.3",
+          "patchedVersions": ">=6.4.4",
+          "tree": "dev",
+          "roots": [
+            "@vitejs/plugin-react",
+            "@vitest/coverage-v8",
+            "vite",
+            "vitest"
+          ],
+          "title": "Vite: Cross origin script execution through Vite custom middleware",
+          "resolvedOn": "2026-10-25",
+          "resolvedBy": "vite 5.4.21 -> 7.3.7 (toolchain major upgrade, mirrors apps/gm-desktop)"
         }
       ]
     }
   },
-  "rationale": "Captured 2026-10-24 by measuring `corepack pnpm@9.15.9 --dir apps/<app> audit --json` on the tree at 255ab92 with the dependency changes in this branch applied. gm-desktop measured 9 advisories before the change (0 critical / 3 high / 5 moderate / 1 low) and 0 after. gm-console measured 17 advisories before the change (3 critical / 3 high / 10 moderate / 1 low) and 15 after (3 critical / 2 high / 9 moderate / 1 low). Every entry in `open` was in the audit output at capture time; every entry in `resolved` was in the audit output before the change and is corroborated by the npm advisory database for the recorded version, so the checker can re-verify the whole file rather than take it on trust. `tree` records whether the advisory's dependency path starts at a production or a development dependency of the app's package.json; `roots` names those direct dependencies. Updating this file is a deliberate baseline change: the Rust-side sibling lane owns `scripts/advisory-baseline.json` for Cargo advisories and this file is the separate npm-side counterpart, never a superset of it. A gate that cannot pass gets switched off, which is why this is a ratchet (fail on anything new) rather than a hard gate (fail on anything present): gm-console still carries 15 open advisories, so a hard gate would have been red on its first run and would have been turned off. The ratchet only fails on a NEW advisory, which is the property worth protecting. Note that gm-desktop's open list is empty — that is a measurement, not an exemption: `pnpm audit` exits 0 there."
+  "rationale": "Captured 2026-10-25 on branch ci/gm-console-toolchain at baseline commit f7aaa9e, with the gm-console dependency change applied to the working tree and not yet committed. [FACT] gm-console measured 15 advisories before the toolchain upgrade (3 critical / 2 high / 9 moderate / 1 low) and 0 after; both numbers were measured with `corepack pnpm@9.15.9 audit --json` on this machine, the 'before' number against the pre-upgrade committed lockfile at f7aaa9e restored into a scratch directory, the 'after' number against the regenerated lockfile. [FACT] gm-desktop measured 0 advisories at this branch's committed lockfile; its entries below are carried over unchanged from the 2026-10-24 capture at head 255ab92 and the same run re-verified every one of them as still corroborated by the npm advisory database. [FACT] The 15 gm-console advisories were resolved by moving the toolchain to the versions apps/gm-desktop already runs — vite 5.4.21 -> 7.3.7, vitest 2.1.9 -> 5.0.5, @vitest/coverage-v8 2.1.9 -> 5.0.5, @vitejs/plugin-react 4.7.0 -> 5.2.0 — which also re-resolved the transitive esbuild 0.21.5 -> 0.28.2 and dropped tinypool out of the tree entirely; no advisory was ignored, waived or pinned. [FACT] Every entry in `open` was in the audit output at capture time; every entry in `resolved` was in the audit output before the change and is corroborated by the npm advisory database for the recorded version, so the checker can re-verify the whole file rather than take it on trust. [FACT] On a resolved entry, `version` is the vulnerable version that WAS FOUND, not the version it was fixed to — the checker corroborates each entry against npm as module@version, so writing the post-fix version there would make the entry unverifiable and the checker would reject it as fabricated. [FACT] `tree` records whether the advisory's dependency path starts at a production or a development dependency of the app's package.json; `roots` names those direct dependencies. [FACT] Updating this file is a deliberate baseline change: the Rust-side sibling lane owns `scripts/advisory-baseline.json` for Cargo advisories and this file is the separate npm-side counterpart, never a superset of it. [FACT] A gate that cannot pass gets switched off, which is why this stays a ratchet (fail on anything new) rather than a hard gate (fail on anything present): gm-console carried 15 open advisories when this file was first written, so a hard gate would have been red on its first run and would have been turned off. [FACT] As of this capture both apps' `open` lists are empty and `pnpm audit` exits 0 for both, so the ratchet now starts from zero open advisories; the ratchet only fails on a NEW advisory, which is the property worth protecting. [FACT] Note that gm-desktop's open list is empty — that is a measurement, not an exemption: `pnpm audit` exits 0 there."
 }
