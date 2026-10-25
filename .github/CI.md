@@ -381,7 +381,9 @@ webkit 应用起不来（无 dbus、无 seat），那是与打包无关的失败
 `integration` job 都带 `if: github.event_name != 'schedule'`，所以**排程只跑
 `audit` job**（含本节新增的 ratchet 步骤）。最贵的那两个 job 不进排程。
 
-`[FACT]` `paths` 过滤（2026-10-24 逐条核对）：
+`[FACT]` **路径过滤清单（2026-10-25 更新）**：下列清单原本是各 workflow **workflow 级
+`paths:`** 的内容。2026-10-25 起，它们**同时**是 job 级检测的「区域」模式列表
+（见「深门禁强制化」一节），逐字未改：
 
 - `gm-console`：`apps/gm-console/**`、`src/server/api.rs`、自身
 - `rust-backend`：`src/**`、`Cargo.toml`、`Cargo.lock`、`scripts/**`、自身
@@ -392,6 +394,11 @@ webkit 应用起不来（无 dbus、无 seat），那是与打包无关的失败
   **自身与 `gm-desktop.yml`**、**`src/**`**
 - `frontend-audit`：`apps/gm-desktop/**`、`apps/gm-console/**`、
   `scripts/frontend-advisory-baseline.json`、`scripts/frontend-advisory-check.ps1`、自身
+
+`[FACT]` **两者的区别很要紧**：**`push` 触发器仍然保留 workflow 级 `paths:`**
+（直接推分支不是 PR），而 **`pull_request` 触发器上的 workflow 级 `paths:` 已经
+去掉**——过滤搬进了 job 内部。所以「这张清单」现在同时是「push 触发器的过滤条件」
+和「PR 触发器里 job 级检测的区域模式」。
 
 `[FACT]` 后两条是有理由的，不是顺手多写：`gm-desktop-bundle` 要跑
 `tauri build`，而 `src-tauri/Cargo.toml` 通过 `path = "../../.."` 按路径依赖根
@@ -686,6 +693,13 @@ GitHub repo → Settings → Branches → Add rule for `dev`:
 - 守门 #1 触发: docs 触达饱和 → Mavis 写新 docs commit, 不需问 Ulysses
 
 ## 触发器清单
+
+> `[FACT]` **2026-10-25 更新：下面这些清单现在有两个身份。** 它们原本是各 workflow
+> **workflow 级 `paths:`** 的内容；现在它们**同时**是 job 级检测的**区域模式列表**
+> （见「深门禁强制化」一节），逐字未改。**`push` 触发器仍保留 workflow 级
+> `paths:`，而 `pull_request` 触发器上的 workflow 级 `paths:` 已经去掉** —— 过滤
+> 搬进了 job 内部，所以每个 PR 上这些 workflow 都会启动并报状态，命中区域的才做活。
+> 下面的清单因此同时回答两个问题：「push 什么时候跑」与「PR 上哪个区域会被门禁覆盖」。
 
 `gm-console.yml` 的 `paths` 包含:
 - `apps/gm-console/**` — 任何前端文件变动
