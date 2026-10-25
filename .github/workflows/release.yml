@@ -427,6 +427,20 @@ jobs:
       # because it reads green. Everything else - the container image, the
       # job-level shell, every `run:` body - must match line for line.
       #
+      # [FACT] The job's own DISPLAY NAME is the one thing that is compared
+      # separately rather than for equality, and it must DIFFER. That is not
+      # a loosening of this gate: it is the point of it.
+      #
+      # [INFERENCE] The previous version of this step compared the `name:`
+      # line for equality, which made the two jobs carry the SAME name — and
+      # two jobs reporting the same check name is exactly what GitHub cannot
+      # disambiguate: a required status check that names it would have two
+      # possible owners, and which of them counts is not documented. The gate
+      # was therefore enforcing the exact condition that made this .deb
+      # install proof impossible to require. Comparing behaviour exactly as
+      # before, and requiring the LABELS to differ, closes that hole without
+      # loosening anything the gate is actually for.
+      #
       # It runs here, before the build, because it costs seconds and the
       # build costs minutes.
       - name: The ported install proof still matches the CI job it was ported from
@@ -440,6 +454,7 @@ jobs:
           RELEASE = ".github/workflows/release.yml"
           CI = ".github/workflows/gm-desktop-bundle.yml"
           BLOCKS = {}
+          NAMES = {}
 
           for path in [RELEASE, CI]:
               fh = open(path, encoding="utf-8")
@@ -458,12 +473,26 @@ jobs:
                       end = j
                       break
               kept = []
+              name = None
               for line in lines[start:end]:
                   stripped = line.strip()
                   if stripped.startswith("#") or stripped == "":
                       continue
+                  # The JOB's own display name, and only that: it is indented
+                  # by exactly four spaces, while a step's name is a six-space
+                  # list entry and an input's name is deeper still, so this
+                  # cannot match one of those.
+                  if re.match(r"^    name:[ \t]", line):
+                      name = stripped[len("name:"):].strip()
+                      continue
                   kept.append(line.rstrip())
               BLOCKS[path] = kept
+              NAMES[path] = name
+
+          def reported_name(path):
+              # A job with no `name:` is reported under its KEY, so the key is
+              # the name GitHub would use for it.
+              return NAMES[path] if NAMES[path] is not None else JOB
 
           ci = BLOCKS[CI]
           release = BLOCKS[RELEASE]
@@ -472,7 +501,18 @@ jobs:
               for line in difflib.unified_diff(ci, release, "gm-desktop-bundle.yml", "release.yml", lineterm=""):
                   print(line)
               sys.exit(1)
+
+          # The two names must DIFFER. Same behaviour, different label: that is
+          # what makes the pull-request job the only owner of the check name
+          # the branch protection requires.
+          if reported_name(CI) == reported_name(RELEASE):
+              print("::error::the " + JOB + " job in release.yml and the one in gm-desktop-bundle.yml are both named \"" + reported_name(CI) + "\"")
+              print("GitHub reports a check under a job's display name, so two jobs with the same name make it undefined which of them a required check would accept.")
+              print("The release path's copy must carry a DIFFERENT name — it carries the `release ` prefix — so that the pull-request job is the only owner of that context.")
+              sys.exit(1)
+
           print("    ok  release.yml " + JOB + " matches gm-desktop-bundle.yml (" + str(len(ci)) + " lines compared)")
+          print("    ok  release.yml " + JOB + " reports as \"" + reported_name(RELEASE) + "\" and the CI job as \"" + reported_name(CI) + "\" — different names, so a required check has exactly one owner")
           PY
 
       - name: Install pnpm
