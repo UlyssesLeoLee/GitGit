@@ -15,6 +15,14 @@ publish = false
 name = "gitgit"
 path = "src/main.rs"
 
+# The self-hosted, S3-compatible object store (per ADR-0021's shape, with
+# the server side owned by this repository instead of minIO). It is a
+# second bin target of the same crate, so it shares the library's store,
+# SigV4 and HTTP code rather than duplicating it.
+[[bin]]
+name = "gitgit-objectstore"
+path = "src/bin/gitgit-objectstore.rs"
+
 # Exposed as a library so that the V0 desktop shell
 # (`apps/gm-desktop/src-tauri/`) can reuse the credential vault,
 # config, repos, and subprocess helpers without duplicating any
