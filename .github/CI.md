@@ -478,25 +478,30 @@ cargo-audit、lock 或基线，或 advisory 数据库读不到——那种情况
 `dev` / `main` 已开启 branch protection：要求 PR、要求解决对话、要求线性历史、
 要求分支是最新的、stale review 自动失效、**管理员同样受约束**。
 
-**required status check 只有一个：`repo gate (always runs)`**，来自
-`.github/workflows/gate.yml`。
+required status check 现在是 **`repo gate (always runs)`** 加上
+**`scripts/ci/required-checks.json` 里登记的每一条**。那份 JSON 是**唯一事实源**，
+本文不重复列出条目——它一变，重复的清单就成了过时的记述。
 
-`[FACT]` **为什么不是其它 workflow 的作业。** GitHub 文档（"Required status
-checks"）写明：「If a workflow is skipped due to path filtering, branch
-filtering, or a commit message, then checks associated with that workflow will
-remain in a 'Pending' state. If you have required checks, this will block the
-pull request from being merged.」本仓**每一个** PR workflow 都是 path 过滤的
-（见「触发器定义」一节），所以要求其中任何一个，都会把**不碰那些路径**的 PR
-永久堵死。本仓合并过纯文档 PR（#47 就是），这不是假想场景。
+`[FACT]` **为什么不能要求「path 过滤的 workflow 里的作业」。** GitHub 文档
+（"Required status checks"）写明：「If a workflow is skipped due to path
+filtering, branch filtering, or a commit message, then checks associated with
+that workflow will remain in a 'Pending' state. If you have required checks,
+this will block the pull request from being merged.」也就是说，要求一个被 path
+过滤掉的作业，会把**不碰那些路径**的 PR 永久堵死——它要等的 check 永远不会来。
+本仓合并过纯文档 PR（#47 就是），这不是假想场景。
+
+`[FACT]` **出路不是「不过滤」，是把过滤下沉到 job 内。** 同一份文档的另一处
+（"Using conditions to control job execution"）写明：「A job that is skipped
+will report its status as 'Success'. It will not prevent a pull request from
+merging, even if it is a required check.」**被跳过的 job 报 Success，满足
+required check；被过滤掉的 workflow 根本不跑，check 永远 pending。** 本仓
+2026-10-25 起把五个 PR workflow 的 `paths:` 过滤从 workflow 层搬到了 job 内
+（见下一节），深门禁因此**可以**被强制。
 
 `[FACT]` `gate.yml` **没有** `paths:` 过滤，因此**每个 PR 都会跑、都会报状态**；
 它跑的是「只能因为 PR 自身内容变红」的那部分检查：两个 crate 的
 `cargo fmt --check`、生成的 per-user WiX 模板与其源文件的 SHA-256 是否一致、
 桌面端的 lint 与 svelte-check。
-
-深门禁（跨平台打包、Rust 测试与审计、两个 advisory ratchet）仍在各自 path
-过滤的 workflow 里，改到相关路径时才跑——它们在 PR 界面里可见，「全绿才合」
-仍然是规则，而 `gate` 是其中**能被自动强制**的那部分。
 
 `[FACT]` `gate` **刻意不含** advisory ratchet：那些门禁会因为**告警库增长**而
 变红，那是关于世界的事实而不是关于这个 PR 的事实；这种 required check 会被
@@ -508,6 +513,64 @@ pull request from being merged.」本仓**每一个** PR workflow 都是 path �
 `[FACT]` `gate` 的作业名是 required check 的 context，所以**改名字等于换掉
 required check**，会重新制造上面那个死锁。`apps/gm-desktop/tests/unit/repo-gate.test.ts`
 把这个名字、以及「没有 path 过滤」这两件事钉住。
+
+## 深门禁强制化：路径过滤下沉到 job 级（2026-10-25）
+
+`[FACT]` 2026-10-25 之前，本仓**每个** PR workflow 都是 **workflow 级 `paths:` 过滤**。
+后果是：深门禁（Rust 测试与审计、桌面端测试、跨平台打包、两个 advisory ratchet）
+**全部只是咨询性的**——红了也不挡合并。要求它们当 required check 也不行，因为被
+path 过滤掉的 workflow 根本不跑，check 永远 pending，反而把不相关 PR 永久堵死。
+
+`[FACT]` 修法是**把过滤从 workflow 层搬到 job 内**：
+
+| 层 | 被过滤时的行为 | 能否当 required check |
+| --- | --- | --- |
+| workflow 级 `paths:` | workflow 不启动，**什么都不报**，check 永远 pending | ❌ 反而堵死 PR |
+| job 级 `if:` | job 被跳过，**报 Success** | ✅ 满足 required check |
+
+`[FACT]` 机制由三样东西组成：
+
+1. **`scripts/ci/changed-areas.ps1`** —— 算出本次变更命中了哪几个「区域」，
+   每个区域输出一个 `area=true|false` 的 job output。五个区域：
+   `rust_backend`、`gm_console`、`gm_desktop`、`gm_desktop_bundle`、
+   `frontend_audit`。
+2. **每个 workflow 的 `pull_request` 触发器去掉 `paths:`**，每个作业内部加一步
+   检测，每个干活的步骤加 `if: steps.detect.outputs.<区域> == 'true'`。
+3. **`scripts/ci/required-checks.json`** —— 登记哪些作业名是 required check 的
+   context（GitHub 按**作业的 `name:`** 报 check，所以 context 字符串就是作业名）。
+
+`[FACT]` **覆盖范围一个字节都没有变。** 五个区域的模式列表就是各 workflow 原来
+`paths:` 块的逐字。`apps/gm-desktop/tests/unit/workflow-gate.test.ts` 把这份列表
+钉住（它读脚本自己打印出来的模式列表，再与测试里记录的逐字比对），所以「改了什么
+被门禁覆盖」这件事会出现在 diff 里。
+
+`[FACT]` **`push` 触发器保留 workflow 级 `paths:`。** 直接推分支不是 PR，为每次
+推 dev 付全部门禁的钱买不到 PR 已经买到的东西。
+
+`[FACT]` **检测步骤放在作业内部，不是独立的 `detect` 作业。** 独立作业会让
+「检测失败」变成「门禁被跳过」，而被跳过的门禁报 Success——绿色放行，正是这个
+机制要消灭的死锁。放在内部，检测失败就让**这个作业**变红。
+
+`[FACT]` **诊断性的 `if: always()` 上传刻意不加区域条件**：它们存在的意义就是把
+**失败**那一步的日志/覆盖率交出来；加了条件就把唯一有用的那次产出拿走了。
+
+`[FACT]` **变更集必须用 `git diff --no-renames --name-only`。** git 默认开启重命名
+检测，只报重命名的**目标**路径：把 `src/foo.rs` 移到 `docs/foo.md` 时，`src/`
+里的移除就整个消失，Rust 门禁会被**跳过**。实测（2026-10-25，临时仓库）：
+
+```
+git diff --cached --name-only              -> docs/foo.md
+git diff --cached --no-renames --name-only -> docs/foo.md
+                                             src/foo.rs
+```
+
+`[FACT]` 脚本的其它安全属性：**基线算不出变更集时非零退出**（绝不把「算不出来」
+当成「什么都没变」）；**没有基线时（`schedule` / `workflow_dispatch`）所有区域都算
+命中**（多跑一次门禁是安全的，少跑一次不是）；**模式里出现它实现不了的通配符时
+直接报错**（当字面量比较会让门禁看起来在工作、实际匹配错文件）。
+
+`[FACT]` 完整记录见 `docs/plan/deep-gate-enforcement.md`（含风险表、回滚流程与
+验证计划）。
 
 ## Ulysses 接入步骤
 
