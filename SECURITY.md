@@ -169,13 +169,20 @@ after the project root names the direct dependency. For all 15 the first hop is
 
 `[FACT]` **`package.json` says what is declared; only an import says what
 ships.** A source-level import scan of `apps/gm-desktop/src` and
-`apps/gm-desktop/tests` finds that of the declared production dependencies only
-`@tauri-apps/api` (`core`, `event`) and `@tauri-apps/plugin-dialog` are
-imported anywhere; the other `@tauri-apps/plugin-*` packages are imported
-nowhere. The same scan of `apps/gm-console/src` and `apps/gm-console/tests`
-finds `zod`, `react-hook-form` and `@hookform/resolvers` imported nowhere.
-Vite bundles what is imported, so none of those packages ever reached a
-packaged artefact.
+`apps/gm-desktop/tests` found that of the declared production dependencies
+only `@tauri-apps/api` (`core`, `event`) and `@tauri-apps/plugin-dialog`
+were imported anywhere, and that the other `@tauri-apps/plugin-*` packages
+were imported nowhere. The same scan of `apps/gm-console/src` and
+`apps/gm-console/tests` found `zod`, `react-hook-form` and
+`@hookform/resolvers` imported nowhere. Vite bundles what is imported, so
+none of those packages ever reached a packaged artefact.
+
+[FACT] All of them have since been **removed** rather than left declared and
+unused: the six unreferenced `@tauri-apps/plugin-*` packages — with their Rust
+crates and the capabilities that granted them — on 2026-10-24, and `zod`,
+`felte`, `react-hook-form` and `@hookform/resolvers` the same day. What
+`gm-desktop` declares as production dependencies today is `@tauri-apps/api`
+and `@tauri-apps/plugin-dialog`, and **both** are imported.
 
 `[FACT]` **`zod` was declared as a production dependency of both frontends and
 carried a HIGH advisory (GHSA-mrhx-c7xc-m3w5, memory exhaustion while

@@ -45,13 +45,28 @@ gitgit = { path = "../../.." }
 
 # Tauri 2.x runtime.
 tauri = { version = "2", features = ["tray-icon", "image-png"] }
+# Only the plugins the frontend actually calls are declared here.
+#
+# `[FACT]` The frontend imports exactly one Tauri plugin package:
+# `@tauri-apps/plugin-dialog`, used by `src/lib/stores/worktreeRoot.ts` for
+# the working-tree root picker. The `fs`, `shell`, `opener`,
+# `clipboard-manager` and `notification` plugins were declared and
+# registered but imported nowhere in `src/`, and they are not called from the
+# Rust side either — `commands/system.rs::set_clipboard_text` does not touch
+# the clipboard plugin, and `commands/repos.rs::open_repo_in_shell` shells
+# out through `tokio::process::Command`.
+#
+# `tauri-plugin-log` is the exception and stays: it is how the BACKEND
+# writes its log lines to stdout and to the log directory
+# (`tauri_plugin_log::Builder::new()` in `lib.rs`). That is a Rust-side
+# facility and is independent of the webview's `log:default` capability,
+# which would grant the JavaScript a sink of its own.
+#
+# `tests/unit/capability-surface-gate.test.ts` asserts that the plugins
+# registered in `lib.rs` and the plugins granted in
+# `capabilities/default.json` cannot drift apart.
 tauri-plugin-log = "2"
-tauri-plugin-notification = "2"
-tauri-plugin-clipboard-manager = "2"
 tauri-plugin-dialog = "2"
-tauri-plugin-shell = "2"
-tauri-plugin-opener = "2"
-tauri-plugin-fs = "2"
 # The updater plugin requires a sidecar manifest at the configured
 # endpoint; we ship a stub endpoint in `tauri.conf.json` so the binary
 # compiles even when no real release channel is configured.

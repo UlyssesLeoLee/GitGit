@@ -35,13 +35,19 @@ pub fn app_info(state: State<'_, DesktopState>) -> AppResult<AppInfo> {
     })
 }
 
-/// Copy `text` to the clipboard. The Svelte layer normally uses
-/// `tauri-plugin-clipboard-manager` directly; this command exists for
-/// tests and as an explicit capability-bearing surface.
+/// Validate a clipboard payload.
+///
+/// The Svelte layer copies text with the Web Clipboard API
+/// (`navigator.clipboard.writeText`, `src/lib/utils/clipboard.ts`), not
+/// with a Tauri plugin, and this command does not touch a plugin either.
+/// It exists so that the payload contract — a non-empty string — has a
+/// testable home.
+///
+/// The desktop app does not register `tauri-plugin-clipboard-manager` and
+/// grants it no capability; `tests/unit/capability-surface-gate.test.ts`
+/// asserts that.
 #[tauri::command]
 pub fn set_clipboard_text(text: String) -> AppResult<()> {
-    // We deliberately route through the clipboard plugin at runtime;
-    // for tests we just verify the string survives serialization.
     if text.is_empty() {
         return Err(AppError::Bridge("empty clipboard payload".into()));
     }
