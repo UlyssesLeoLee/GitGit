@@ -169,6 +169,24 @@ describe('msi-launch — the script checks the right thing', () => {
     ).not.toMatch(/exit 0\s*\r?\n\s*Write-Ok 'PASS[^']*'/);
   });
 
+  it('searches for the executable BY ITS FILE NAME, extension and all', () => {
+    // [FACT] `Get-ChildItem -Filter` matches the WHOLE file name, so
+    // `-Filter 'gm-desktop'` does NOT match 'gm-desktop.exe'. The first CI
+    // run of this job failed on exactly that: the install had succeeded,
+    // the file was sitting in Program Files, and the check reported that
+    // no executable had been found. The application was never even
+    // started.
+    expect(
+      script,
+      'the script does not derive the executable FILE name from the crate name, so the file ' +
+        "search can never match the file that is actually installed"
+    ).toMatch(/\$exeFile\s*=\s*if\s*\(\$ExeName\s+-like\s+'\*\.exe'\)/);
+    expect(
+      script,
+      'the file search does not use the executable FILE name'
+    ).toMatch(/-Filter\s+\$exeFile/);
+  });
+
   it('removes the package and stops the process afterwards', () => {
     expect(
       script,

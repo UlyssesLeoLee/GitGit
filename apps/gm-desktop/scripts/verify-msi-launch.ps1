@@ -132,6 +132,14 @@ try {
     # the installing user's privileges, and the point of this check is the
     # application's start-up rather than the scope question (which the
     # install proof already settles).
+    #
+    # [FACT] `Get-ChildItem -Filter` matches the WHOLE file name, so the
+    # filter has to carry the extension: `-Filter 'gm-desktop'` does NOT
+    # match 'gm-desktop.exe'. The first CI run of this job failed with
+    # "the install succeeded but no 'gm-desktop' was found under C:\Program
+    # Files\" for exactly that reason — the install had succeeded and the
+    # file was sitting right there.
+    $exeFile = if ($ExeName -like '*.exe') { $ExeName } else { "$ExeName.exe" }
     $roots = @(
         (Join-Path $env:ProgramFiles ''),
         (Join-Path $env:LOCALAPPDATA 'Programs')
@@ -139,11 +147,11 @@ try {
     $found = @()
     foreach ($root in $roots) {
         if (-not $root -or -not (Test-Path -LiteralPath $root)) { continue }
-        $found += @(Get-ChildItem -LiteralPath $root -Filter $ExeName -File -Recurse `
+        $found += @(Get-ChildItem -LiteralPath $root -Filter $exeFile -File -Recurse `
             -ErrorAction SilentlyContinue | Select-Object -First 3)
     }
     if ($found.Count -eq 0) {
-        Write-Error ("LAUNCH PROOF FAILED: the install succeeded but no '$ExeName' was found under " +
+        Write-Error ("LAUNCH PROOF FAILED: the install succeeded but no '$exeFile' was found under " +
             ($roots -join ' or '))
         exit 1
     }
@@ -188,14 +196,14 @@ try {
     Write-Ok "the application is running with a window: '$title'"
 
     # --- and it did not start a second copy ------------------------------
-    $copies = @(Get-Process -Name ([System.IO.Path]::GetFileNameWithoutExtension($ExeName)) -ErrorAction SilentlyContinue)
+    $copies = @(Get-Process -Name ([System.IO.Path]::GetFileNameWithoutExtension($exeFile)) -ErrorAction SilentlyContinue)
     if ($copies.Count -gt 1) {
         Write-Note "$($copies.Count) processes named '$ExeName' are running; the launch may have re-executed itself"
     }
 }
 finally {
     # --- stop it ---------------------------------------------------------
-    Get-Process -Name ([System.IO.Path]::GetFileNameWithoutExtension($ExeName)) -ErrorAction SilentlyContinue |
+    Get-Process -Name ([System.IO.Path]::GetFileNameWithoutExtension($exeFile)) -ErrorAction SilentlyContinue |
         ForEach-Object {
             Write-Note "stopping pid $($_.Id)"
             try { $_.Kill() } catch { }
