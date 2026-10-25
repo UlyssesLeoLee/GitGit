@@ -621,3 +621,59 @@ jobs:
           $ErrorActionPreference = 'Stop'
           pwsh -NoProfile -File ./apps/gm-desktop/scripts/verify-msi-install.ps1 -Dir msi-out
           if ($LASTEXITCODE -ne 0) { throw "verify-msi-install.ps1 exited $LASTEXITCODE" }
+
+  # ---------------------------------------------------------------------------
+  # The Windows counterpart of the question the Linux container cannot answer.
+  # ---------------------------------------------------------------------------
+  msi-launch:
+    name: the packaged application starts and presents a window
+    # The PACKAGED artefact, not a dev build: `msi` produced this package,
+    # and the point is what a user would actually receive.
+    needs: msi
+    runs-on: windows-latest
+    timeout-minutes: 30
+
+    # [FACT] Why this job exists, and why it is not the same as
+    # `msi-install`. That job proves the package installs, registers and
+    # removes itself, and deliberately does NOT launch the application —
+    # the reason it gives is a LINUX one: a webkit/GTK app fails to start
+    # in a container with no dbus, no seat and no hardware, for reasons
+    # that have nothing to do with packaging, and a gate that reddens for
+    # those reasons gets switched off.
+    #
+    # That reason does not hold here. `windows-latest` has a real
+    # interactive desktop and the Edge WebView2 runtime is part of the
+    # image, so the question can be asked of the packaged artefact at
+    # all: does the thing we ship actually start?
+    #
+    # Until now it had never been asked. The repository's own documents
+    # record "the GUI has never been observed running" as an open
+    # unknown, and every statement about the artefacts was structural:
+    # the right bytes, in the right place, in a package that installs.
+    #
+    # It is a SEPARATE job, with a separate script, so the `msi-install`
+    # contract ("installs and removes; does not launch") stays exactly as
+    # it is. A gate that asserts a boundary is worth keeping intact.
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download the built MSIs
+        uses: actions/download-artifact@v4
+        with:
+          pattern: gm-desktop-msi-*-perMachine
+          path: msi-out
+          merge-multiple: true
+
+      # Shelled out to `pwsh -File` rather than invoked with `&` so the
+      # script's exit code lands in $LASTEXITCODE and the explicit check
+      # below is live code: a `pwsh -command` step that only runs a
+      # failing native command would otherwise still report the step as
+      # passed.
+      - name: Install, launch, assert a window appeared, remove
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $msi = Get-ChildItem -Path msi-out -Filter '*_perMachine_*.msi' -File | Select-Object -First 1
+          if (-not $msi) { throw 'no perMachine .msi was downloaded' }
+          pwsh -NoProfile -File ./apps/gm-desktop/scripts/verify-msi-launch.ps1 -Msi $msi.FullName
+          if ($LASTEXITCODE -ne 0) { throw "verify-msi-launch.ps1 exited $LASTEXITCODE" }
