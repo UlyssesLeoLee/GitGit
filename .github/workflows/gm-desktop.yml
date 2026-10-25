@@ -647,10 +647,13 @@ jobs:
     # image, so the question can be asked of the packaged artefact at
     # all: does the thing we ship actually start?
     #
-    # Until now it had never been asked. The repository's own documents
-    # record "the GUI has never been observed running" as an open
-    # unknown, and every statement about the artefacts was structural:
-    # the right bytes, in the right place, in a package that installs.
+    # Until now it had never been asked IN CI. The repository's own task
+    # ledger records a real-machine observation from 2026-10-04 (T10 in
+    # `docs/plan/v0-tasks.md`: the installed binary was startable, window
+    # title `gitgit Desktop`), but every statement about the artefacts in
+    # the AUTOMATED gates was structural: the right bytes, in the right
+    # place, in a package that installs. A package that installs and then
+    # crashes on start-up would have satisfied all of them.
     #
     # It is a SEPARATE job, with a separate script, so the `msi-install`
     # contract ("installs and removes; does not launch") stays exactly as
