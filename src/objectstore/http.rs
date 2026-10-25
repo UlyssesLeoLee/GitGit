@@ -184,7 +184,21 @@ async fn handle(State(state): State<ServerState>, request: Request) -> Response 
             let version_id = query_value(&query_pairs, "versionId");
             get_object(&state, &bucket, &key, version_id.as_deref(), true).await
         }
-        ("DELETE", Some(key)) => delete_object(&state, &bucket, &key).await,
+        ("DELETE", Some(key)) => {
+            // [FACT] Deleting a *specific* version is not one of the
+            // operations this store implements. The version id is
+            // ignored by this handler, and silently deleting the current
+            // version when the caller asked for an older one would destroy
+            // the wrong object — so the request is refused instead.
+            if query_value(&query_pairs, "versionId").is_some() {
+                return error_response(
+                    StatusCode::BAD_REQUEST,
+                    "InvalidArgument",
+                    "Deleting a specific version is not supported by this object store.",
+                );
+            }
+            delete_object(&state, &bucket, &key).await
+        }
         _ => error_response(
             StatusCode::METHOD_NOT_ALLOWED,
             "MethodNotAllowed",
@@ -250,17 +264,36 @@ fn verify_signature(
     };
 
     if let Some(authorization) = &authorization {
-        // A replay of an old request still carries a valid signature, so
-        // the date is checked against the server's clock.
-        if let Some(date) = headers.get("x-amz-date") {
-            if let Some(parsed) = sigv4::parse_amz_date(date) {
-                let now = now_epoch_secs();
-                if (now - parsed.epoch_secs).abs() > sigv4::MAX_CLOCK_SKEW_SECS {
-                    return Err(Sigv4Error::DateOutsideWindow);
-                }
-            }
-        }
+        // [FACT] The signature is checked **first**. A request that does
+        // not verify is not a request whose date matters, and answering
+        // "your clock is off" to a request that carries no valid signature
+        // would tell a caller something about this machine's clock that
+        // the signature has not earned.
+        // [FACT] The signature is checked **first**. A request that does
+        // not verify is not a request whose date matters, and answering
+        // "your clock is off" to a request that carries no valid signature
+        // would tell a caller something about this machine's clock that
+        // the signature has not earned.
         sigv4::verify_header(credentials, &request, authorization)?;
+
+        // [FACT] A replay of an old request still carries a valid
+        // signature, so the date is checked against the server's clock.
+        //
+        // [FACT] A date this server cannot read is **refused**, not
+        // skipped. Skipping the check would leave a signed request with an
+        // unreadable timestamp outside the window; the date is inside the
+        // signature, so only the holder of the secret could have produced
+        // one, but a gate that opens itself on input it cannot parse is a
+        // gate with a hole in it.
+        let date = headers
+            .get("x-amz-date")
+            .ok_or_else(|| Sigv4Error::MissingSignedHeader("x-amz-date".to_string()))?;
+        let parsed =
+            sigv4::parse_amz_date(date).ok_or_else(|| Sigv4Error::MalformedDate(date.clone()))?;
+        let now = now_epoch_secs();
+        if (now - parsed.epoch_secs).abs() > sigv4::MAX_CLOCK_SKEW_SECS {
+            return Err(Sigv4Error::DateOutsideWindow);
+        }
     } else {
         sigv4::verify_query(credentials, &request, now_epoch_secs())?;
     }
@@ -598,6 +631,11 @@ fn signature_error_response(err: &Sigv4Error) -> Response {
             StatusCode::FORBIDDEN,
             "RequestTimeTooSkewed",
             "The request date is too far from the server's clock.",
+        ),
+        Sigv4Error::MalformedDate(_) => error_response(
+            StatusCode::FORBIDDEN,
+            "RequestTimeTooSkewed",
+            "The request date could not be read.",
         ),
         _ => error_response(
             StatusCode::FORBIDDEN,

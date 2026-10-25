@@ -11,8 +11,8 @@ use crate::objectstore::sigv4;
 use crate::objectstore::xml::ListingShape;
 
 use super::common::{
-    amz_date_now, client_bucket, send_signed, start_server, start_server_with, temp_root,
-    ACCESS_KEY, BUCKET, SECRET_KEY,
+    amz_date_at_offset, amz_date_now, client_bucket, send_signed, send_signed_shape, start_server,
+    start_server_with, temp_root, RequestShape, ACCESS_KEY, BUCKET, SECRET_KEY,
 };
 
 /// A request that carries a SigV4 signature in the `Authorization` header.
@@ -526,6 +526,174 @@ async fn a_version_id_that_is_not_a_version_id_is_refused() {
     );
 }
 
+/// [FACT] `rust-s3` 0.38 signs a header value by trimming it and leaving
+/// the inside alone; AWS's rule collapses a run of internal whitespace
+/// into a single space. The two rules disagree for exactly this case, and
+/// the server has to accept the rule the client signed with — otherwise a
+/// correctly signed request is refused for a reason that has nothing to
+/// do with the credential.
+#[tokio::test]
+async fn a_header_value_with_an_internal_whitespace_run_is_accepted() {
+    let root = temp_root("http-header-rule");
+    let server = start_server(&root).await;
+    signed(
+        &server,
+        "PUT",
+        &format!("/{BUCKET}"),
+        "",
+        b"",
+        ACCESS_KEY,
+        SECRET_KEY,
+    )
+    .await;
+
+    let response = send_signed_shape(
+        &server,
+        RequestShape {
+            method: "PUT",
+            path: &format!("/{BUCKET}/openai"),
+            query: "",
+            payload: b"sk-secret",
+            // Two spaces in the middle of the value — the one case the two
+            // rules disagree about.
+            extra_headers: &[("x-amz-meta-note", "a  b")],
+            amz_date: None,
+        },
+        ACCESS_KEY,
+        SECRET_KEY,
+    )
+    .await;
+    assert_eq!(
+        response.status(),
+        200,
+        "a request signed the way the client signs must be accepted"
+    );
+}
+
+/// [FACT] A request date the server cannot read is **refused**. The
+/// clock-skew window is a gate, and a gate that opens itself on input it
+/// cannot parse is a gate with a hole in it.
+#[tokio::test]
+async fn a_request_date_the_server_cannot_read_is_refused() {
+    let root = temp_root("http-unreadable-date");
+    let server = start_server(&root).await;
+
+    let response = send_signed_shape(
+        &server,
+        RequestShape {
+            method: "GET",
+            path: &format!("/{BUCKET}/openai"),
+            query: "",
+            payload: b"",
+            extra_headers: &[],
+            // The right shape, one character too long — and a trailing
+            // character that is not part of the format.
+            amz_date: Some("20260101T000000ZX"),
+        },
+        ACCESS_KEY,
+        SECRET_KEY,
+    )
+    .await;
+    assert_eq!(response.status(), 403);
+    let body = response.text().await.unwrap();
+    assert!(
+        body.contains("<Code>RequestTimeTooSkewed</Code>"),
+        "body was {body}"
+    );
+}
+
+/// [FACT] A request outside the clock-skew window is refused, and it is
+/// refused **as a skewed request** rather than as a bad signature: the
+/// signature is over the date, so a correctly signed old request is still
+/// a correctly signed request — it is just too old.
+#[tokio::test]
+async fn a_request_outside_the_clock_window_is_refused() {
+    let root = temp_root("http-stale-date");
+    let server = start_server(&root).await;
+
+    let stale = amz_date_at_offset(-3_600);
+    let response = send_signed_shape(
+        &server,
+        RequestShape {
+            method: "GET",
+            path: &format!("/{BUCKET}/openai"),
+            query: "",
+            payload: b"",
+            extra_headers: &[],
+            amz_date: Some(&stale),
+        },
+        ACCESS_KEY,
+        SECRET_KEY,
+    )
+    .await;
+    assert_eq!(response.status(), 403);
+    let body = response.text().await.unwrap();
+    assert!(
+        body.contains("<Code>RequestTimeTooSkewed</Code>"),
+        "body was {body}"
+    );
+}
+
+/// [FACT] Deleting a *specific* version is not one of the operations this
+/// store implements, and ignoring the version id would delete the current
+/// version instead — the wrong object. The request is refused, and the
+/// object is still there afterwards.
+#[tokio::test]
+async fn deleting_a_specific_version_is_refused_instead_of_deleting_the_current_one() {
+    let root = temp_root("http-delete-version");
+    let server = start_server(&root).await;
+    signed(
+        &server,
+        "PUT",
+        &format!("/{BUCKET}"),
+        "",
+        b"",
+        ACCESS_KEY,
+        SECRET_KEY,
+    )
+    .await;
+    signed(
+        &server,
+        "PUT",
+        &format!("/{BUCKET}/openai"),
+        "",
+        b"sk-secret",
+        ACCESS_KEY,
+        SECRET_KEY,
+    )
+    .await;
+
+    let response = signed(
+        &server,
+        "DELETE",
+        &format!("/{BUCKET}/openai"),
+        "versionId=00000000000000000000000000000000",
+        b"",
+        ACCESS_KEY,
+        SECRET_KEY,
+    )
+    .await;
+    assert_eq!(response.status(), 400);
+    let body = response.text().await.unwrap();
+    assert!(
+        body.contains("<Code>InvalidArgument</Code>"),
+        "body was {body}"
+    );
+
+    // Refusing is not the same as deleting: the object is still readable.
+    let response = signed(
+        &server,
+        "GET",
+        &format!("/{BUCKET}/openai"),
+        "",
+        b"",
+        ACCESS_KEY,
+        SECRET_KEY,
+    )
+    .await;
+    assert_eq!(response.status(), 200);
+}
+
 // ---- the three failure modes the brief names -----------------------------
 #[tokio::test]
 async fn failure_mode_the_server_cannot_start_on_a_port_that_is_taken() {
@@ -657,6 +825,7 @@ fn the_test_signer_produces_a_signature_the_server_accepts() {
         &headers,
         &signed_headers,
         sigv4::EMPTY_PAYLOAD_SHA256,
+        sigv4::HeaderValueRule::TrimOnly,
     );
     assert!(canonical.starts_with("GET\n/gitgit-vault/openai\n"));
 }

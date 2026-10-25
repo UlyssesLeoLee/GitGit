@@ -9,8 +9,8 @@
     "os": "Windows 11 (git-bash + PowerShell 5.1)"
   },
   "ut": {
-    "expectedTotal": 309,
-    "expectedPassed": 307,
+    "expectedTotal": 316,
+    "expectedPassed": 314,
     "expectedFailed": 0,
     "expectedIgnored": 2,
     "ignoredTest": "server::vault::tests::minio_vault_e2e_roundtrip and server::vault_versioned::tests::minio_vault_versioned_e2e (both require a running minIO server)",
@@ -26,9 +26,9 @@
       "cli::tests": 4,
       "config::tests": 13,
       "credentials::tests": 4,
-      "objectstore::sigv4": 16,
+      "objectstore::sigv4": 19,
       "objectstore::store": 3,
-      "objectstore::tests": 47,
+      "objectstore::tests": 51,
       "objectstore::xml": 6,
       "remote::sync": 5,
       "remote::tests": 15,

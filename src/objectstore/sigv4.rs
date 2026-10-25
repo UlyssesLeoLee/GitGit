@@ -27,9 +27,8 @@
 //!
 //! ## Canonicalisation rules (and why they look like this)
 //!
-//! [FACT] The canonicalisation below is byte-for-byte what `rust-s3`
-//! 0.38 produces, because the server has to reproduce the client's view of
-//! the request:
+//! [FACT] The canonicalisation reproduces what the **client** signs, because
+//! the server has to reproduce the client's view of the request:
 //!
 //! * **canonical URI** — percent-decode the raw request path, then
 //!   re-encode it with everything except the RFC 3986 unreserved set
@@ -39,10 +38,27 @@
 //!   name and value with the unreserved set only (`/` *is* escaped in a
 //!   query), then sort by (name, value);
 //! * **canonical headers** — the signed headers, in the order the
-//!   `SignedHeaders` list gives, each value trimmed and with runs of
-//!   internal whitespace collapsed to one space (the AWS rule);
+//!   `SignedHeaders` list gives, each value trimmed;
 //! * **payload hash** — the `x-amz-content-sha256` header for the header
 //!   variant, the literal `UNSIGNED-PAYLOAD` for the query variant.
+//!
+//! [FACT] **One place where two rules disagree, and both are accepted.**
+//! AWS's rule for a canonical header value trims the ends *and* collapses
+//! a run of internal whitespace into a single space; the published
+//! `get-header-value-trim` vector pins that down (`"a   b   c"` becomes
+//! `"a b c"`). `rust-s3` 0.38 trims the ends and leaves the inside alone.
+//! The two produce the same canonical request for every header value
+//! without an internal whitespace run — which is every value this
+//! product's client actually signs (`host`, `x-amz-content-sha256`,
+//! `x-amz-date`, `accept`, `content-length`, `content-type`,
+//! `content-md5`).
+//!
+//! [INFERENCE] The server therefore verifies against **both** rules: the
+//! canonical request is built once per rule, and the request is accepted
+//! if the signature matches either. That is not a widening of what a valid
+//! signature is — each candidate is still an HMAC over the request under
+//! the secret key — it is the refusal to decide on the client's behalf
+//! which of the two conventions it follows.
 //!
 //! [FACT] `X-Amz-Signature` is never part of the canonical query: it is
 //! the signature itself.
@@ -154,6 +170,9 @@ pub enum Sigv4Error {
     /// The request date is outside the accepted clock-skew window.
     #[error("request date is outside the accepted clock-skew window")]
     DateOutsideWindow,
+    /// The request date is not a date this server can read.
+    #[error("the request date could not be read: {0:?}")]
+    MalformedDate(String),
     /// The presigned URL has expired.
     #[error("the presigned request has expired")]
     Expired,
@@ -274,6 +293,33 @@ pub fn verify_query(
     verify(creds, &inner, signature, signed_headers, credential)
 }
 
+/// How a signed header's value is normalised before it is signed.
+///
+/// [FACT] The two rules differ in exactly one case: a header value that
+/// carries a run of internal whitespace. AWS's rule collapses the run to
+/// a single space; `rust-s3`'s rule leaves it alone.
+///
+/// [FACT] Which one a client uses is the client's own business — the
+/// server has to accept the rule the client signed with, or the request
+/// fails for a reason that has nothing to do with the credential.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum HeaderValueRule {
+    /// AWS's rule: trim the ends, and collapse a run of internal
+    /// whitespace into a single space.
+    ///
+    /// [FACT] This is what the published AWS test suite pins down — the
+    /// `get-header-value-trim` vector sends `"a   b   c"` and its
+    /// canonical request spells it `"a b c"`.
+    Collapse,
+    /// `rust-s3` 0.38's rule: trim the ends, and leave what is between
+    /// them exactly as it arrived.
+    ///
+    /// [FACT] `rust-s3` signs with `value.to_str()?.trim()` and nothing
+    /// more. It is the rule this product's own client uses, because the
+    /// vault's client is `rust-s3`.
+    TrimOnly,
+}
+
 /// The core verification step.
 ///
 /// `credential` is the full credential scope as it appears in the request:
@@ -304,29 +350,51 @@ pub fn verify(
         )));
     }
 
+    // [FACT] A header the client named in `SignedHeaders` but did not send
+    // is a missing header, not a bad signature. Saying so is the honest
+    // answer, and it is a closed door either way: the signature could not
+    // have been computed over a header that is not there.
+    for name in signed_headers.split(';').filter(|s| !s.is_empty()) {
+        if !req.headers.contains_key(name) {
+            return Err(Sigv4Error::MissingSignedHeader(name.to_string()));
+        }
+    }
+
     let canonical_query = canonical_query_string(&parse_query_pairs(req.query));
-    let canonical = canonical_request(
-        req.method,
-        &canonical_uri(req.path),
-        &canonical_query,
-        req.headers,
-        signed_headers,
-        req.payload_sha256,
-    );
+    let canonical_uri = canonical_uri(req.path);
     // [FACT] The string to sign carries the *scope*, not the whole
     // credential: the access key is not part of it.
-    let string_to_sign = string_to_sign(amz_date, &scope.scope_string(), &canonical);
+    let scope_string = scope.scope_string();
     let key = signing_key(
         &creds.secret_key,
         &scope.date,
         &scope.region,
         &scope.service,
     );
-    let expected = hex::encode(hmac_sha256(&key, string_to_sign.as_bytes()));
-    if !constant_time_eq(expected.as_bytes(), signature.as_bytes()) {
-        return Err(Sigv4Error::SignatureMismatch);
+
+    // [FACT] The two header-value rules are both accepted, because the
+    // rule a client signs with is the client's own business: AWS's rule
+    // collapses an internal whitespace run and `rust-s3`'s rule does not.
+    // Accepting both does not widen what a valid signature is — each
+    // candidate is still an HMAC over the request under the secret key, so
+    // a request that matches neither is refused exactly as before.
+    for rule in [HeaderValueRule::Collapse, HeaderValueRule::TrimOnly] {
+        let canonical = canonical_request(
+            req.method,
+            &canonical_uri,
+            &canonical_query,
+            req.headers,
+            signed_headers,
+            req.payload_sha256,
+            rule,
+        );
+        let string_to_sign = string_to_sign(amz_date, &scope_string, &canonical);
+        let expected = hex::encode(hmac_sha256(&key, string_to_sign.as_bytes()));
+        if constant_time_eq(expected.as_bytes(), signature.as_bytes()) {
+            return Ok(());
+        }
     }
-    Ok(())
+    Err(Sigv4Error::SignatureMismatch)
 }
 
 /// The parsed credential scope.
@@ -388,6 +456,11 @@ impl CredentialScope {
 ///
 /// [FACT] The shape is fixed by AWS:
 /// `METHOD\nURI\nQUERY\nHEADERS\n\nSIGNED_HEADERS\nPAYLOAD_HASH`.
+///
+/// [FACT] `rule` says how a signed header's value is normalised. The two
+/// rules produce the same canonical request for every header value that
+/// has no internal run of whitespace, which is every value the client
+/// this product ships actually signs.
 pub fn canonical_request(
     method: &str,
     canonical_uri: &str,
@@ -395,12 +468,13 @@ pub fn canonical_request(
     headers: &BTreeMap<String, String>,
     signed_headers: &str,
     payload_sha256: &str,
+    rule: HeaderValueRule,
 ) -> String {
     let mut lines: Vec<String> = Vec::new();
     for name in signed_headers.split(';').filter(|s| !s.is_empty()) {
         let value = headers
             .get(name)
-            .map(|v| normalize_header_value(v))
+            .map(|v| normalize_header_value(v, rule))
             .unwrap_or_default();
         lines.push(format!("{name}:{value}"));
     }
@@ -578,12 +652,26 @@ pub fn canonical_query_string(pairs: &[(String, String)]) -> String {
         .join("&")
 }
 
-/// Trim a header value and collapse internal whitespace runs.
+/// Normalise a header value for the canonical request.
 ///
-/// [FACT] This is the AWS rule for canonical headers, and it is what the
-/// published `get-header-value-trim` test vector pins down.
-fn normalize_header_value(value: &str) -> String {
+/// [FACT] Both rules trim the ends. They differ in what they do to a run
+/// of whitespace *inside* the value:
+///
+/// * [`HeaderValueRule::Collapse`] — AWS's rule: the run becomes one
+///   space. This is what the published `get-header-value-trim` vector
+///   pins down (`"a   b   c"` becomes `"a b c"`).
+/// * [`HeaderValueRule::TrimOnly`] — `rust-s3` 0.38's rule: the inside of
+///   the value is left exactly as it arrived (`"a   b   c"` stays as it
+///   is). It signs with `value.to_str()?.trim()` and nothing more.
+///
+/// [FACT] The server accepts both, because the rule a client signs with
+/// is the client's own business. A request that matches neither is
+/// refused.
+fn normalize_header_value(value: &str, rule: HeaderValueRule) -> String {
     let trimmed = value.trim();
+    if rule == HeaderValueRule::TrimOnly {
+        return trimmed.to_string();
+    }
     let mut out = String::with_capacity(trimmed.len());
     let mut in_space = false;
     for ch in trimmed.chars() {
@@ -737,6 +825,119 @@ mod tests {
         assert_eq!(sha256_hex(b""), EMPTY_PAYLOAD_SHA256);
     }
 
+    // ---- the two header-value rules -------------------------------------
+
+    /// [FACT] A request signed under **either** header-value rule has to
+    /// verify. AWS's rule collapses a run of internal whitespace and
+    /// `rust-s3`'s rule leaves it alone; which one a client uses is the
+    /// client's own business, and the server refuses to decide for it.
+    ///
+    /// [FACT] The value used here is `"a   b   c"` — the one shape the two
+    /// rules disagree about.
+    #[test]
+    fn a_request_signed_under_either_header_value_rule_verifies() {
+        let creds = Sigv4Credentials::new(TEST_ACCESS_KEY, TEST_SECRET_KEY);
+        let map = headers(&[
+            ("host", "example.amazonaws.com"),
+            ("x-amz-date", TEST_AMZ_DATE),
+            ("my-header2", "\"a   b   c\""),
+        ]);
+        let signed_headers = "host;my-header2;x-amz-date";
+        let scope = format!("{TEST_DATE_STAMP}/{TEST_REGION}/s3/aws4_request");
+        let credential = format!("{TEST_ACCESS_KEY}/{scope}");
+        let request = SignedRequest {
+            method: "GET",
+            path: "/",
+            query: "",
+            headers: &map,
+            payload_sha256: EMPTY_PAYLOAD_SHA256,
+        };
+
+        for rule in [HeaderValueRule::Collapse, HeaderValueRule::TrimOnly] {
+            let canonical = canonical_request(
+                "GET",
+                "/",
+                "",
+                &map,
+                signed_headers,
+                EMPTY_PAYLOAD_SHA256,
+                rule,
+            );
+            let signature = sign(
+                TEST_SECRET_KEY,
+                TEST_DATE_STAMP,
+                TEST_REGION,
+                "s3",
+                TEST_AMZ_DATE,
+                &canonical,
+            );
+            assert_eq!(
+                verify(&creds, &request, &signature, signed_headers, &credential),
+                Ok(()),
+                "a request signed under the {rule:?} rule must verify"
+            );
+        }
+    }
+
+    /// [FACT] The two rules really do differ, so the test above is not
+    /// passing for the wrong reason.
+    #[test]
+    fn the_two_header_value_rules_disagree_about_an_internal_whitespace_run() {
+        let map = headers(&[("my-header2", "\"a   b   c\"")]);
+        let collapsed = canonical_request(
+            "GET",
+            "/",
+            "",
+            &map,
+            "my-header2",
+            EMPTY_PAYLOAD_SHA256,
+            HeaderValueRule::Collapse,
+        );
+        let trimmed = canonical_request(
+            "GET",
+            "/",
+            "",
+            &map,
+            "my-header2",
+            EMPTY_PAYLOAD_SHA256,
+            HeaderValueRule::TrimOnly,
+        );
+        assert!(collapsed.contains("\"a b c\""));
+        assert!(trimmed.contains("\"a   b   c\""));
+        assert_ne!(collapsed, trimmed);
+    }
+
+    /// [FACT] A header the client named in `SignedHeaders` but did not
+    /// send is a **missing header**, not a bad signature. The gate has to
+    /// say what is wrong with the request.
+    #[test]
+    fn a_signed_header_that_did_not_arrive_is_reported_as_missing() {
+        let creds = Sigv4Credentials::new(TEST_ACCESS_KEY, TEST_SECRET_KEY);
+        let map = headers(&[
+            ("host", "example.amazonaws.com"),
+            ("x-amz-date", TEST_AMZ_DATE),
+        ]);
+        let request = SignedRequest {
+            method: "GET",
+            path: "/",
+            query: "",
+            headers: &map,
+            payload_sha256: EMPTY_PAYLOAD_SHA256,
+        };
+        let credential =
+            format!("{TEST_ACCESS_KEY}/{TEST_DATE_STAMP}/{TEST_REGION}/s3/aws4_request");
+        assert_eq!(
+            verify(
+                &creds,
+                &request,
+                "0000000000000000000000000000000000000000000000000000000000000000",
+                "host;x-amz-date;x-not-sent",
+                &credential,
+            ),
+            Err(Sigv4Error::MissingSignedHeader("x-not-sent".to_string()))
+        );
+    }
+
     // ---- published AWS vectors -----------------------------------------
 
     #[test]
@@ -763,6 +964,7 @@ mod tests {
             &map,
             "host;x-amz-date",
             EMPTY_PAYLOAD_SHA256,
+            HeaderValueRule::Collapse,
         );
         assert_eq!(canonical, expected_canonical);
 
@@ -818,6 +1020,7 @@ mod tests {
             &map,
             "host;x-amz-date",
             EMPTY_PAYLOAD_SHA256,
+            HeaderValueRule::Collapse,
         );
         assert_eq!(canonical, expected_canonical);
 
@@ -849,6 +1052,7 @@ mod tests {
             &map,
             "host;x-amz-date",
             EMPTY_PAYLOAD_SHA256,
+            HeaderValueRule::Collapse,
         );
         let expected_canonical = concat!(
             "POST\n",
@@ -894,6 +1098,7 @@ mod tests {
             &map,
             "host;my-header1;my-header2;x-amz-date",
             EMPTY_PAYLOAD_SHA256,
+            HeaderValueRule::Collapse,
         );
         let expected_canonical = concat!(
             "GET\n",
@@ -940,6 +1145,7 @@ mod tests {
             &map,
             "host;x-amz-date",
             EMPTY_PAYLOAD_SHA256,
+            HeaderValueRule::Collapse,
         );
         let signature = sign(
             TEST_SECRET_KEY,
@@ -972,6 +1178,7 @@ mod tests {
             &map,
             "host;x-amz-date",
             EMPTY_PAYLOAD_SHA256,
+            HeaderValueRule::Collapse,
         );
         let signature = sign(
             TEST_SECRET_KEY,
@@ -1007,6 +1214,7 @@ mod tests {
             &map,
             "host;range;x-amz-content-sha256;x-amz-date",
             EMPTY_PAYLOAD_SHA256,
+            HeaderValueRule::Collapse,
         );
         let expected_canonical = concat!(
             "GET\n",
@@ -1124,6 +1332,7 @@ mod tests {
             &map,
             "host;x-amz-content-sha256;x-amz-date",
             EMPTY_PAYLOAD_SHA256,
+            HeaderValueRule::Collapse,
         );
         let scope = format!("{TEST_DATE_STAMP}/{TEST_REGION}/s3/aws4_request");
         let string_to_sign = string_to_sign(TEST_AMZ_DATE, &scope, &canonical);

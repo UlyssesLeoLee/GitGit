@@ -137,12 +137,23 @@ pub fn client_bucket_with_keys(
 
 /// The current time in the `YYYYMMDDTHHMMSSZ` form AWS uses.
 pub fn amz_date_now() -> String {
+    amz_date_at_offset(0)
+}
+
+/// The time `offset` seconds away from now, in the `YYYYMMDDTHHMMSSZ` form
+/// AWS uses.
+///
+/// [FACT] A test that needs a request to be *old* needs a date it chose,
+/// not the current one: the clock-skew window is fifteen minutes, so a
+/// request dated an hour ago is outside it and a request dated now is not.
+pub fn amz_date_at_offset(offset: i64) -> String {
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_secs() as i64)
         .unwrap_or(0);
-    let days = now.div_euclid(86_400);
-    let time_of_day = now.rem_euclid(86_400);
+    let stamp = now + offset;
+    let days = stamp.div_euclid(86_400);
+    let time_of_day = stamp.rem_euclid(86_400);
     let (year, month, day) = crate::objectstore::store::civil_from_days(days);
     format!(
         "{year:04}{month:02}{day:02}T{:02}{:02}{:02}Z",
@@ -157,6 +168,13 @@ pub fn amz_date_now() -> String {
 /// [FACT] This is the header variant of SigV4. It exists so a test can
 /// drive the server with exact status codes, exact headers and — when it
 /// has to — a deliberately wrong secret.
+///
+/// [FACT] The header values are normalised with
+/// [`sigv4::HeaderValueRule::TrimOnly`], which is **the rule `rust-s3`
+/// 0.38 signs with**. This helper stands in for that client, so it has to
+/// sign the way the client signs: a helper that signed with the other
+/// rule would agree with the server for the wrong reason, and the
+/// agreement would say nothing about the real client.
 pub fn authorization_header(
     method: &str,
     path: &str,
@@ -182,6 +200,7 @@ pub fn authorization_header(
         headers,
         &signed_headers,
         &payload_hash,
+        sigv4::HeaderValueRule::TrimOnly,
     );
     let scope = format!("{date_stamp}/{region}/s3/aws4_request");
     let string_to_sign = sigv4::string_to_sign(&amz_date, &scope, &canonical);
@@ -190,6 +209,22 @@ pub fn authorization_header(
     format!(
         "AWS4-HMAC-SHA256 Credential={access_key}/{scope}, SignedHeaders={signed_headers}, Signature={signature}"
     )
+}
+
+/// The parts of a signed request that a test wants to vary.
+pub struct RequestShape<'a> {
+    /// The HTTP method.
+    pub method: &'a str,
+    /// The raw request path.
+    pub path: &'a str,
+    /// The raw query string, without the leading `?`.
+    pub query: &'a str,
+    /// The request body.
+    pub payload: &'a [u8],
+    /// Headers to sign and send alongside the usual ones.
+    pub extra_headers: &'a [(&'a str, &'a str)],
+    /// The `x-amz-date` to sign with; `None` means "now".
+    pub amz_date: Option<&'a str>,
 }
 
 /// Send a signed request to the running server.
@@ -202,13 +237,57 @@ pub async fn send_signed(
     access_key: &str,
     secret_key: &str,
 ) -> reqwest::Response {
+    send_signed_shape(
+        server,
+        RequestShape {
+            method,
+            path,
+            query,
+            payload,
+            extra_headers: &[],
+            amz_date: None,
+        },
+        access_key,
+        secret_key,
+    )
+    .await
+}
+
+/// Send a signed request whose headers and date the test controls.
+///
+/// [FACT] The extra headers are signed like the rest, so a test can drive
+/// the **header canonicalisation** itself: the value that arrives on the
+/// wire is the value that gets signed, which is the only way to prove what
+/// the server does with a header value that carries an internal run of
+/// whitespace.
+pub async fn send_signed_shape(
+    server: &TestServer,
+    shape: RequestShape<'_>,
+    access_key: &str,
+    secret_key: &str,
+) -> reqwest::Response {
+    let RequestShape {
+        method,
+        path,
+        query,
+        payload,
+        extra_headers,
+        amz_date,
+    } = shape;
+
     let mut headers: BTreeMap<String, String> = BTreeMap::new();
     headers.insert("host".to_string(), server.addr.to_string());
-    headers.insert("x-amz-date".to_string(), amz_date_now());
+    headers.insert(
+        "x-amz-date".to_string(),
+        amz_date.map(str::to_string).unwrap_or_else(amz_date_now),
+    );
     headers.insert(
         "x-amz-content-sha256".to_string(),
         sigv4::sha256_hex(payload),
     );
+    for (name, value) in extra_headers {
+        headers.insert(name.to_ascii_lowercase(), value.to_string());
+    }
     let authorization = authorization_header(
         method, path, query, &headers, payload, access_key, secret_key,
     );
@@ -220,7 +299,7 @@ pub async fn send_signed(
         url.push_str(query);
     }
     let client = reqwest::Client::new();
-    client
+    let mut request = client
         .request(method, url)
         .header("host", server.addr.to_string())
         .header("x-amz-date", headers["x-amz-date"].clone())
@@ -229,8 +308,9 @@ pub async fn send_signed(
             headers["x-amz-content-sha256"].clone(),
         )
         .header("authorization", authorization)
-        .body(payload.to_vec())
-        .send()
-        .await
-        .unwrap()
+        .body(payload.to_vec());
+    for (name, value) in extra_headers {
+        request = request.header(*name, *value);
+    }
+    request.send().await.unwrap()
 }
