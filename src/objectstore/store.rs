@@ -145,6 +145,15 @@ pub enum StoreError {
     /// The bucket does not exist.
     #[error("no such bucket: {0}")]
     NoSuchBucket(String),
+    /// Versioning cannot be turned off.
+    ///
+    /// [FACT] This store always versions, because the `x-amz-version-id`
+    /// response header is load-bearing for the credential timeline in
+    /// `server::vault_versioned`. Accepting a request to stop versioning and
+    /// then reporting the state the client asked for would be a false report
+    /// about this store's own behaviour.
+    #[error("this object store always versions: {0:?} cannot be honoured")]
+    VersioningCannotBeDisabled(VersioningStatus),
 }
 
 /// The tombstone that marks a key as deleted.
@@ -258,6 +267,17 @@ impl FileStore {
     }
 
     /// The versioning state of a bucket.
+    ///
+    /// [FACT] This store **always** versions: every write creates a version
+    /// directory and the response carries an `x-amz-version-id`, because that
+    /// header is load-bearing for the credential timeline in
+    /// `server::vault_versioned` — without it every stored credential keeps
+    /// an empty `version_id`.
+    ///
+    /// [INFERENCE] So the honest answer for a bucket that has never been
+    /// explicitly versioned is `Enabled`. Reporting `Disabled` would be a
+    /// false report about this server's own behaviour, and a client that
+    /// trusted it would be wrong in a way nothing would report.
     pub async fn get_versioning(&self, bucket: &str) -> Result<VersioningStatus, StoreError> {
         match tokio::fs::read(self.versioning_path(bucket)).await {
             Ok(bytes) => {
@@ -265,13 +285,19 @@ impl FileStore {
                 Ok(file.status)
             }
             Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
-                Ok(VersioningStatus::Disabled)
+                Ok(VersioningStatus::Enabled)
             }
             Err(err) => Err(err.into()),
         }
     }
 
-    /// Turn versioning on or off for a bucket.
+    /// Turn versioning on for a bucket.
+    ///
+    /// [FACT] Versioning cannot be turned off here: the store always keeps
+    /// every version, because the `x-amz-version-id` response header is
+    /// load-bearing for the credential timeline in `server::vault_versioned`.
+    /// A request to disable it is refused with a clear error rather than
+    /// accepted and then reported back as if it had been honoured.
     pub async fn set_versioning(
         &self,
         bucket: &str,
@@ -279,6 +305,9 @@ impl FileStore {
     ) -> Result<(), StoreError> {
         if !self.bucket_dir(bucket).is_dir() {
             return Err(StoreError::NoSuchBucket(bucket.to_string()));
+        }
+        if status != VersioningStatus::Enabled {
+            return Err(StoreError::VersioningCannotBeDisabled(status));
         }
         let file = VersioningFile { status };
         let bytes = serde_json::to_vec_pretty(&file)?;

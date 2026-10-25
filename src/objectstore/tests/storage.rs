@@ -25,12 +25,21 @@ async fn a_bucket_starts_out_missing_and_can_be_created_once() {
 }
 
 #[tokio::test]
-async fn versioning_defaults_to_disabled_and_can_be_enabled() {
+async fn versioning_reports_enabled_because_the_store_always_versions() {
     let (store, _root) = store("versioning");
     store.create_bucket("gitgit-vault").await.unwrap();
+    // [FACT] The store always versions: every write creates a version
+    // directory and the response carries an `x-amz-version-id`, because that
+    // header is load-bearing for the credential timeline in
+    // `server::vault_versioned`.
+    //
+    // [INFERENCE] So "Disabled" would be a false report about this store's
+    // own behaviour, and a client that believed it would be wrong in a way
+    // nothing would report. A bucket nobody has explicitly versioned still
+    // reports Enabled, because that is what the store does.
     assert_eq!(
         store.get_versioning("gitgit-vault").await.unwrap(),
-        VersioningStatus::Disabled
+        VersioningStatus::Enabled
     );
     store
         .set_versioning("gitgit-vault", VersioningStatus::Enabled)
@@ -49,6 +58,28 @@ async fn versioning_a_missing_bucket_is_an_error() {
         .set_versioning("gitgit-vault", VersioningStatus::Enabled)
         .await
         .is_err());
+}
+
+#[tokio::test]
+async fn versioning_cannot_be_turned_off() {
+    let (store, _root) = store("versioning-cannot-disable");
+    store.create_bucket("gitgit-vault").await.unwrap();
+    // [FACT] The store always versions, so a request to stop versioning is
+    // refused with a clear error rather than accepted and then reported
+    // back as if it had been honoured.
+    let err = store
+        .set_versioning("gitgit-vault", VersioningStatus::Disabled)
+        .await
+        .expect_err("versioning cannot be turned off in this store");
+    assert!(
+        err.to_string().contains("always versions"),
+        "the error must say why the request was refused, got: {err}"
+    );
+    // And the bucket still reports the truth.
+    assert_eq!(
+        store.get_versioning("gitgit-vault").await.unwrap(),
+        VersioningStatus::Enabled
+    );
 }
 
 #[tokio::test]
