@@ -62,6 +62,10 @@ pub struct Cli {
 
     /// Bucket name for the `s3` vault backend.
     /// Env override: `GITGIT_S3_BUCKET`.
+    ///
+    /// It must not be empty: the bucket is the other half of where a
+    /// credential lives, and an empty one puts the objects at the
+    /// endpoint root -- a shared, unnamed namespace.
     #[arg(long, global = true, value_name = "NAME")]
     pub s3_bucket: Option<String>,
 
@@ -76,6 +80,14 @@ pub struct Cli {
     /// There is no default: the prefix is what isolates two instances
     /// that share a bucket, and a shared default would put them on the
     /// same object keys.
+    ///
+    /// It must end with `/`: the prefix is a path prefix, and a prefix
+    /// without the separator is a string prefix -- string prefixes
+    /// overlap, so two instances could land on the same object key
+    /// without either of them noticing.
+    ///
+    /// The namespace is the operator's to pick and must not be reused
+    /// by another instance.
     #[arg(long, global = true, value_name = "PREFIX")]
     pub s3_key_prefix: Option<String>,
 

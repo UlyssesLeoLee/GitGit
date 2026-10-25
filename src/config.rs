@@ -323,12 +323,29 @@ impl Config {
     /// credentials. The prefix is checked first because it is a
     /// property of the deployment, while the credentials are the
     /// secrets the deployment uses.
+    ///
+    /// `[FACT]` The prefix has to be a *path* prefix -- it has to end
+    /// with a separator. A prefix without one is a string prefix, and
+    /// string prefixes overlap: prefix `a` with key `bc` and prefix
+    /// `ab` with key `c` are the same object key. The bucket must be
+    /// named as well: an empty bucket puts the objects at the endpoint
+    /// root, which is a shared, unnamed namespace.
     pub fn s3_vault_config(&self) -> Result<MinioVaultConfig> {
         if self.s3_vault.key_prefix.trim().is_empty() {
             return Err(GitGitError::MissingVaultKeyPrefix(
                 S3_KEY_PREFIX_ENV,
                 "s3-key-prefix",
             ));
+        }
+        if !self.s3_vault.key_prefix.ends_with('/') {
+            return Err(GitGitError::InvalidVaultKeyPrefix(
+                S3_KEY_PREFIX_ENV,
+                "s3-key-prefix",
+                self.s3_vault.key_prefix.clone(),
+            ));
+        }
+        if self.s3_vault.bucket.trim().is_empty() {
+            return Err(GitGitError::InvalidVaultBucket(S3_BUCKET_ENV, "s3-bucket"));
         }
         if self.s3_vault.access_key.trim().is_empty() {
             return Err(GitGitError::MissingVaultCredential(
@@ -694,6 +711,98 @@ mod tests {
         cfg.s3_vault.key_prefix = "a-prefix/".to_string();
         cfg.s3_vault_config()
             .expect("an explicit prefix makes the configuration usable");
+    }
+
+    /// `[FACT]` The key prefix has to be a *path* prefix: it has to end
+    /// with a separator. A prefix without one is a string prefix, and
+    /// string prefixes overlap -- prefix `a` with key `bc` and prefix
+    /// `ab` with key `c` are the same object key, so two instances
+    /// could land on each other's credentials without either of them
+    /// noticing.
+    ///
+    /// The error names both ways to supply the prefix and says what the
+    /// rule is for.
+    #[test]
+    fn a_key_prefix_that_does_not_end_with_a_separator_is_an_error() {
+        let mut cfg = Config::new("127.0.0.1:8080", "repos", "vault");
+        cfg.vault_backend = VaultBackend::S3;
+        cfg.s3_vault.access_key = "an-access-key".to_string();
+        cfg.s3_vault.secret_key = "a-secret-key".to_string();
+
+        cfg.s3_vault.key_prefix = "tenant-a".to_string();
+        let err = cfg
+            .s3_vault_config()
+            .expect_err("a prefix without a separator must not be accepted");
+        let msg = err.to_string();
+        assert!(
+            msg.contains(S3_KEY_PREFIX_ENV),
+            "the error must name the environment variable, got: {msg}"
+        );
+        assert!(
+            msg.contains("s3-key-prefix"),
+            "the error must name the command-line flag, got: {msg}"
+        );
+        assert!(
+            msg.contains("`/`"),
+            "the error must say what the prefix has to look like, got: {msg}"
+        );
+        assert!(
+            msg.contains("tenant-a"),
+            "the error must show the rejected value, got: {msg}"
+        );
+
+        // The path prefix this repository uses everywhere is accepted.
+        cfg.s3_vault.key_prefix = "gitgit-vault/".to_string();
+        cfg.s3_vault_config()
+            .expect("a prefix with a trailing separator is a path prefix");
+
+        // A nested path prefix is a path prefix too.
+        cfg.s3_vault.key_prefix = "tenants/a/".to_string();
+        cfg.s3_vault_config()
+            .expect("a nested path prefix is still a path prefix");
+    }
+
+    /// `[FACT]` The bucket is the other half of where a credential
+    /// lives. An empty bucket puts the objects at the endpoint root --
+    /// measured as `http://127.0.0.1:1//tenant-a/probe` -- which is a
+    /// shared, unnamed namespace, and the same hazard the empty key
+    /// prefix was.
+    #[test]
+    fn an_empty_bucket_name_is_an_error() {
+        let mut cfg = Config::new("127.0.0.1:8080", "repos", "vault");
+        cfg.vault_backend = VaultBackend::S3;
+        cfg.s3_vault.access_key = "an-access-key".to_string();
+        cfg.s3_vault.secret_key = "a-secret-key".to_string();
+        cfg.s3_vault.key_prefix = "tenant-a/".to_string();
+
+        cfg.s3_vault.bucket = String::new();
+        let err = cfg
+            .s3_vault_config()
+            .expect_err("an empty bucket must not be accepted");
+        let msg = err.to_string();
+        assert!(
+            msg.contains(S3_BUCKET_ENV),
+            "the error must name the environment variable, got: {msg}"
+        );
+        assert!(
+            msg.contains("s3-bucket"),
+            "the error must name the command-line flag, got: {msg}"
+        );
+        assert!(
+            msg.contains("endpoint root"),
+            "the error must say where the objects would land, got: {msg}"
+        );
+
+        // A whitespace-only bucket is "not named" as well.
+        cfg.s3_vault.bucket = "   ".to_string();
+        assert!(
+            cfg.s3_vault_config().is_err(),
+            "a blank bucket must not count as configured"
+        );
+
+        cfg.s3_vault.bucket = "gitgit-vault".to_string();
+        cfg.s3_vault_config()
+            .expect("a named bucket makes the configuration usable");
     }
 
     /// `[FACT]` The debug output of a configuration must not carry the

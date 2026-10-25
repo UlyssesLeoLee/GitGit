@@ -111,6 +111,29 @@ pub enum GitGitError {
     #[error("the `s3` vault backend requires a key prefix: set {0} or pass `--{1}` (the prefix isolates two instances that share a bucket, so a shared default would let them overwrite each other's credentials)")]
     MissingVaultKeyPrefix(&'static str, &'static str),
 
+    /// The `s3` credential-vault backend was given a key prefix that is
+    /// not a path prefix.
+    ///
+    /// `[FACT]` A prefix without a trailing separator is a *string*
+    /// prefix, and string prefixes overlap: prefix `a` with key `bc`
+    /// and prefix `ab` with key `c` are the same object key, so two
+    /// instances could land on each other's credentials without either
+    /// of them noticing. A prefix that ends with a separator is a path
+    /// prefix, which is what the vault documents the prefix as -- and
+    /// what every prefix in this repository already is.
+    #[error("the `s3` vault backend requires a key prefix that ends with `/`: set {0} or pass `--{1}` with a trailing separator (a prefix without the separator is a string prefix, and two instances can overlap on the same object key); got `{2}`")]
+    InvalidVaultKeyPrefix(&'static str, &'static str, String),
+
+    /// The `s3` credential-vault backend was given an empty bucket
+    /// name.
+    ///
+    /// `[FACT]` The bucket is the other half of where a credential
+    /// lives. An empty bucket puts the objects at the endpoint root --
+    /// a shared, unnamed namespace, and the same hazard the empty key
+    /// prefix was.
+    #[error("the `s3` vault backend requires a bucket name: set {0} or pass `--{1}` (an empty bucket puts the objects at the endpoint root, which is a shared namespace)")]
+    InvalidVaultBucket(&'static str, &'static str),
+
     /// A remote name or URL failed validation (V0 T8 `gitremote`).
     #[error("invalid remote URL: {0:?}")]
     InvalidRemoteUrl(String),
