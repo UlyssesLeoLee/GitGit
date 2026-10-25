@@ -333,6 +333,10 @@ T5 (PG/sqlx) ─→ T6 (MinioVault) → T7 (AI provider)
 
 ## 决策日志
 
+- 2026-10-25 11:37 JST: 拍板 **发布通路的签名策略** = 强制签名不变（`sign-msi.ps1 -Required`），采购代码签名证书并配置 `MSI_SIGN_PFX_BASE64` / `MSI_SIGN_PFX_PASSWORD`；同时把 draft release 标题里的 `(unsigned draft)` 去掉——该标题与「强制签名」自相矛盾，且无证书时根本不产出任何 release（PR #55）
+- 2026-10-25 11:37 JST: 拍板 **第一次真正跑通发布通路** = 切一个预发布 tag（如 `v0.1.0-rc.1`）做端到端验证。**该步骤依赖上一条的证书**，证书未到位前推 tag 只会得到一个 msi 变红、且不产出任何 release 的 run，并留下一个切不掉的 tag
+- 2026-10-25 11:37 JST: 拍板 **`dev` / `main` 开启 branch protection** = 要求 PR、要求线性历史、要求分支最新、stale review 失效、**管理员同样受约束**；required status check = `repo gate (always runs)`（新增的 `.github/workflows/gate.yml`，无 `paths:` 过滤，故每个 PR 都会报状态）。深门禁（打包 / Rust 测试 / 审计 / 两个 ratchet）**仍是 path 过滤的，未被自动强制**——GitHub 文档明写 path 过滤掉的 workflow 会让 required check 永远 pending 从而堵死 PR（PR #55 实地验证：`rust-backend` 的 paths 一个都不匹配所以根本没跑）。要「深门禁也自动强制」需把 path 过滤下沉到 job 级（让 job 跳过而非 workflow 不跑），是五个 workflow 的重构，尚未做
+- 2026-10-25 11:37 JST: 拍板 **minIO 的 AGPL-3.0 商业风险** = 采购 minIO Enterprise License。**发布前必须完成采购；未采购即不得对外分发。** 备选（若采购不成）= 改用 Ceph RGW / SeaweedFS / Garage，届时要重做凭据管理与版本化逻辑
 - 2026-08-30 15:42 JST: 拍板 Credential Vault 从 FileVault 改为 minIO S3-compatible bucket `gitgit-vault` + `MinioVault` 默认实现；FileVault 降级为 V1 fallback（per ADR-0021）
 - 2026-08-26 17:06: 拍板 V0 范围 = GUI 骨架 + 两套 API Key
 - 2026-08-26 17:00: 环境核实（Rust 1.98.0 / PG 18.6 / Git 2.41 / Node 22）
