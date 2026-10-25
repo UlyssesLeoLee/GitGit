@@ -554,3 +554,58 @@ jobs:
             apps/gm-desktop/src-tauri/target/release/bundle/msi/
           if-no-files-found: ignore
           retention-days: 7
+
+  # ---------------------------------------------------------------------------
+  # The Windows counterpart of the `deb installs and links on a stock Ubuntu`
+  # job in gm-desktop-bundle.yml.
+  # ---------------------------------------------------------------------------
+  msi-install:
+    name: msi installs and removes itself on a stock Windows machine
+    # `needs: msi` so the artefact under test is the one the job above built,
+    # not a rebuild. A second build would be a different set of bytes, and the
+    # whole point is to install what is going to be shipped.
+    needs: msi
+    runs-on: windows-latest
+    timeout-minutes: 30
+
+    # Deliberately NOT claiming that the GUI opens. The desktop application has
+    # never been observed running, and this repository records that as a
+    # deliberate, explained boundary (`.github/CI.md`, `docs/plan/v0-tasks.md`):
+    # a webkit app fails to start on a runner for reasons that have nothing to
+    # do with packaging, and a gate that reddens for those reasons gets
+    # switched off. What is proven here is the part packaging controls — the
+    # package installs on a machine that has nothing but Windows, registers
+    # itself, and removes itself cleanly.
+    #
+    # The boundary is enforced, not just stated: the script asserts that no
+    # `gm-desktop.exe` process is running after an install, and the MSI's own
+    # `LaunchApplication` custom action is bound to the WixUI ExitDialog, which
+    # `/qn` never reaches.
+    steps:
+      - uses: actions/checkout@v4
+
+      # The three artefacts the `msi` job uploaded: the two per-scope
+      # installers and the manifest. `merge-multiple: true` flattens them into
+      # one directory, which is the layout `verify-msi-install.ps1` expects
+      # (`-Dir msi-out`, manifest at `msi-out/manifest.json`).
+      #
+      # `pattern: gm-desktop-msi-*` also matches `gm-desktop-msi-build-log`,
+      # which exists only when the `msi` job FAILED — and then this job is
+      # skipped anyway, because it needs `msi`.
+      - name: Download the built MSIs
+        uses: actions/download-artifact@v4
+        with:
+          pattern: gm-desktop-msi-*
+          path: msi-out
+          merge-multiple: true
+
+      # Shelled out to `pwsh -File` rather than invoked with `&` so the
+      # script's exit code lands in $LASTEXITCODE and the explicit check
+      # below is live code: a `pwsh -command` step that only runs a failing
+      # native command would otherwise still report the step as passed.
+      - name: Install, assert, uninstall, assert gone
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          pwsh -NoProfile -File ./apps/gm-desktop/scripts/verify-msi-install.ps1 -Dir msi-out
+          if ($LASTEXITCODE -ne 0) { throw "verify-msi-install.ps1 exited $LASTEXITCODE" }

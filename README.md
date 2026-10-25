@@ -140,11 +140,24 @@ pnpm test
 | workflow | 跑什么 |
 | --- | --- |
 | `rust-backend.yml` | fmt、clippy `-D warnings`、单元测试、doc 测试、release build，以及**独立的 `audit` job** |
-| `gm-desktop.yml` | lint、svelte-check、vitest、Vite 生产构建、`src-tauri` 的 fmt/clippy/test；`msi` job 在 Windows 上真实打包并校验产物 |
+| `gm-desktop.yml` | lint、svelte-check、vitest、Vite 生产构建、`src-tauri` 的 fmt/clippy/test；`msi` job 在 Windows 上真实打包并校验产物，`msi-install` job 再把每个变体**真装上去**、断言装到位、卸干净 |
 | `gm-console.yml` | typecheck、lint、vitest、coverage 门禁、format check、生产构建 |
 
 `audit` 做成独立 job 而不是 `test` 里的一个 step：CVE 应该在秒级失败，而不是等完整个 release 构建。
 该 job 同时区分「扫描到公告」与「公告库不可达」这两种不同的失败。
+
+`[FACT]` 2026-10-25 起，Windows 主产物也有**真机安装证明**了。此前
+`verify-msi.ps1` 只做结构校验——用 `msiexec /a` 拆出 FILE 表、用 COM 读 MSI
+表，它自己的最后一行写着 `no install, no elevation`。而 `.deb` 早在 PR #46 就
+拿到了裸机容器里的真装证明（`deb installs and links on a stock Ubuntu`），
+**Windows 主产物反倒是唯一没有安装证明的那个**。新增的 `msi-install` job 逐变体
+执行：先断言机器是干净的（否则后一个变体可能悄悄继承了前一个的安装）→ 真装 →
+断言文件落位且与包内载荷**逐字节相同**、包已注册、作用域与包自己声明的一致 →
+真卸 → 断言注册项与文件都已消失。四个变体（perMachine/perUser × en-US/zh-CN）
+**必须逐个来**：它们共用 UpgradeCode，Windows Installer 会把第二次安装当成升级
+并**移除**第一个，一起装最后只剩一个，而 job 会报四次成功。
+`[UNVERIFIED-FACT]` 该证明只覆盖「装得上、装得对、卸得干净」，**不覆盖程序能跑起来**
+——桌面 GUI 从未被观测运行过，这是本仓明确记录的边界，不是遗漏。
 
 ### 实测快照
 

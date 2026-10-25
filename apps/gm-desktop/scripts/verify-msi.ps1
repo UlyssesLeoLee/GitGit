@@ -208,7 +208,22 @@ function Invoke-MsiQuery {
         $rows += ,$row
     }
     $view.GetType().InvokeMember('Close', $flags::InvokeMethod, $null, $view, $null) | Out-Null
-    return $rows
+    # `return ,$rows` and NOT `return $rows`.
+    #
+    # PowerShell unrolls an array on the way out of a function, and the
+    # unrolling bites in exactly one case: when the query matched a SINGLE
+    # row, the caller is handed that row's fields as a flat list instead of
+    # a list of rows, and `$rows[0][0]` is then the first CHARACTER of the
+    # first field rather than the field itself.
+    #
+    # [FACT] The only property this script reads is ALLUSERS, whose value is
+    # the single character "1", so the bug has been invisible here. It is
+    # not invisible in general: `verify-msi-install.ps1` reads
+    # ProductVersion, and on its first CI run it reported the package's
+    # ProductVersion as '0' — the first character of "0.1.0". The comma
+    # wraps the array so the rows survive the trip intact, in both the
+    # single-row and the multi-row case.
+    return ,$rows
 }
 
 function Get-MsiProperty {
