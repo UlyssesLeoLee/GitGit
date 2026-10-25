@@ -15,9 +15,9 @@ use std::path::{Path, PathBuf};
 use gitgit::ai::{diff::DiffRequest, Invocation, Task, API_KEY_ENV};
 use gitgit::cli::{Cli, Command, GitaiCommand, GitaiTaskArgs, GitremoteCommand, KeyCommand};
 use gitgit::config::{
-    Config, VaultBackend, DEFAULT_S3_BUCKET, DEFAULT_S3_ENDPOINT, DEFAULT_S3_KEY_PREFIX,
-    DEFAULT_S3_REGION, DEFAULT_VAULT_FILE_ROOT, S3_ACCESS_KEY_ENV, S3_BUCKET_ENV, S3_ENDPOINT_ENV,
-    S3_KEY_PREFIX_ENV, S3_REGION_ENV, S3_SECRET_KEY_ENV, VAULT_BACKEND_ENV,
+    Config, VaultBackend, DEFAULT_S3_BUCKET, DEFAULT_S3_ENDPOINT, DEFAULT_S3_REGION,
+    DEFAULT_VAULT_FILE_ROOT, S3_ACCESS_KEY_ENV, S3_BUCKET_ENV, S3_ENDPOINT_ENV, S3_KEY_PREFIX_ENV,
+    S3_KEY_PREFIX_UNSET, S3_REGION_ENV, S3_SECRET_KEY_ENV, VAULT_BACKEND_ENV,
 };
 use gitgit::error::GitGitError;
 use gitgit::server::vault::{FileVault, MinioVault, VaultError};
@@ -53,6 +53,25 @@ fn resolve_setting(cli_value: Option<&str>, env_name: &str, default: &str) -> St
     match std::env::var(env_name) {
         Ok(value) if !value.trim().is_empty() => value,
         _ => default.to_string(),
+    }
+}
+
+/// Read a credential from the environment.
+///
+/// `[FACT]` The S3 credentials have no command-line flag: a flag would
+/// put a long-lived secret in the process arguments (`ps`) and in the
+/// shell history. This is the same rule the AI API key is held to
+/// (`src/ai/mod.rs`: "If this ever moves to a CLI flag it becomes
+/// visible in `ps` and in shell history").
+///
+/// An empty or whitespace-only value counts as unset, the same way the
+/// vault root and the admin password treat theirs: an operator who
+/// exported an empty variable has configured nothing, and the error
+/// that follows says exactly what is missing.
+fn credential_from_env(env_name: &str) -> String {
+    match std::env::var(env_name) {
+        Ok(value) if !value.trim().is_empty() => value,
+        _ => String::new(),
     }
 }
 
@@ -103,15 +122,14 @@ fn build_config(cli: &Cli) -> anyhow::Result<Config> {
     config.s3_vault.key_prefix = resolve_setting(
         cli.s3_key_prefix.as_deref(),
         S3_KEY_PREFIX_ENV,
-        DEFAULT_S3_KEY_PREFIX,
+        S3_KEY_PREFIX_UNSET,
     );
-    // The credentials have no default. An unset value stays empty, and
+    // The credentials come from the environment only, and they have no
+    // default. An unset value stays empty, and
     // `Config::s3_vault_config` turns that into an error instead of an
     // invented credential.
-    config.s3_vault.access_key =
-        resolve_setting(cli.s3_access_key.as_deref(), S3_ACCESS_KEY_ENV, "");
-    config.s3_vault.secret_key =
-        resolve_setting(cli.s3_secret_key.as_deref(), S3_SECRET_KEY_ENV, "");
+    config.s3_vault.access_key = credential_from_env(S3_ACCESS_KEY_ENV);
+    config.s3_vault.secret_key = credential_from_env(S3_SECRET_KEY_ENV);
 
     Ok(config)
 }
@@ -673,8 +691,11 @@ mod tests {
 
     /// `[FACT]` The six S3 settings follow the same precedence as the
     /// backend: flag, then environment, then default. The credentials
-    /// are settings too -- they are read from the same two places, and
-    /// they have no default.
+    /// are settings too -- they are read from the environment, and they
+    /// have no default.
+    ///
+    /// The key prefix is the exception that proves the rule: it has no
+    /// default at all, so the only way to get one is to say so.
     #[test]
     fn the_s3_settings_follow_the_flag_then_the_environment_then_the_default() {
         let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
@@ -685,38 +706,42 @@ mod tests {
         assert_eq!(config.s3_vault.endpoint, DEFAULT_S3_ENDPOINT);
         assert_eq!(config.s3_vault.bucket, DEFAULT_S3_BUCKET);
         assert_eq!(config.s3_vault.region, DEFAULT_S3_REGION);
-        assert_eq!(config.s3_vault.key_prefix, DEFAULT_S3_KEY_PREFIX);
+        assert_eq!(config.s3_vault.key_prefix, S3_KEY_PREFIX_UNSET);
+        assert!(
+            config.s3_vault.key_prefix.is_empty(),
+            "the key prefix must have no default"
+        );
         assert!(config.s3_vault.access_key.is_empty());
         assert!(config.s3_vault.secret_key.is_empty());
 
         std::env::set_var(S3_ENDPOINT_ENV, "http://env.example:9000");
         std::env::set_var(S3_BUCKET_ENV, "env-bucket");
+        std::env::set_var(S3_KEY_PREFIX_ENV, "env-prefix/");
         std::env::set_var(S3_ACCESS_KEY_ENV, "env-access-key");
         std::env::set_var(S3_SECRET_KEY_ENV, "env-secret-key");
         let cli = cli_with(&[]);
         let config = build_config(&cli).unwrap();
         assert_eq!(config.s3_vault.endpoint, "http://env.example:9000");
         assert_eq!(config.s3_vault.bucket, "env-bucket");
+        assert_eq!(config.s3_vault.key_prefix, "env-prefix/");
         assert_eq!(config.s3_vault.access_key, "env-access-key");
         assert_eq!(config.s3_vault.secret_key, "env-secret-key");
         // Untouched by the environment, so still the default.
         assert_eq!(config.s3_vault.region, DEFAULT_S3_REGION);
 
-        let cli = cli_with(&[
-            "--s3-bucket",
-            "flag-bucket",
-            "--s3-access-key",
-            "flag-access-key",
-        ]);
+        let cli = cli_with(&["--s3-bucket", "flag-bucket"]);
         let config = build_config(&cli).unwrap();
         assert_eq!(
             config.s3_vault.bucket, "flag-bucket",
             "the flag must beat the environment variable"
         );
-        assert_eq!(config.s3_vault.access_key, "flag-access-key");
+        assert_eq!(
+            config.s3_vault.access_key, "env-access-key",
+            "the credentials come from the environment, which the flag cannot override"
+        );
         assert_eq!(
             config.s3_vault.secret_key, "env-secret-key",
-            "the environment still fills in what the flag did not name"
+            "the credentials come from the environment, which the flag cannot override"
         );
 
         clear_vault_env();
@@ -775,6 +800,7 @@ mod tests {
         let root = unique_temp("no-credentials");
         let mut config = Config::new("127.0.0.1:0", root.clone(), root.clone());
         config.vault_backend = VaultBackend::S3;
+        config.s3_vault.key_prefix = "a-prefix/".to_string();
 
         // `expect_err` is not available here: it needs `Debug` on the
         // success type, and `Arc<dyn VersionedVault>` does not implement

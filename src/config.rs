@@ -79,11 +79,26 @@ pub const DEFAULT_S3_BUCKET: &str = "gitgit-vault";
 /// is the SigV4 default and keeps the signing parameters boring.
 pub const DEFAULT_S3_REGION: &str = "us-east-1";
 
-/// Default key prefix applied to every object in the bucket.
+/// The S3 key-prefix value that means "not configured".
 ///
-/// `[FACT]` The prefix is what keeps two gitgit instances sharing one
-/// bucket from overwriting each other's credentials.
-pub const DEFAULT_S3_KEY_PREFIX: &str = "gitgit-vault/";
+/// `[FACT]` The key prefix has **no default**. `src/server/vault.rs`
+/// documents the prefix as "the natural way to isolate multiple gitgit
+/// instances or to share a single bucket across unrelated tooling
+/// without collision" -- a shared default would defeat the one job the
+/// prefix has. Two instances that both fell back to the same prefix
+/// would write the same object keys and the same version sidecars, and
+/// each could read or overwrite the other's credentials.
+///
+/// `[FACT]` The prefix also has to be stable across restarts: a
+/// namespace derived per boot would leave an instance unable to find
+/// its own history.
+///
+/// `[FACT]` The vault's own contract still allows an empty prefix
+/// (objects live at the bucket root). What this layer refuses is to
+/// *supply* one, because then "not configured" and "explicitly the
+/// bucket root" would be the same value -- and the first one is a
+/// collision waiting to happen.
+pub const S3_KEY_PREFIX_UNSET: &str = "";
 
 /// Environment variable holding the S3-compatible endpoint.
 pub const S3_ENDPOINT_ENV: &str = "GITGIT_S3_ENDPOINT";
@@ -281,7 +296,9 @@ impl Config {
                 endpoint: DEFAULT_S3_ENDPOINT.to_string(),
                 bucket: DEFAULT_S3_BUCKET.to_string(),
                 region: DEFAULT_S3_REGION.to_string(),
-                key_prefix: DEFAULT_S3_KEY_PREFIX.to_string(),
+                // No default key prefix: the prefix is the isolation
+                // between two instances that share a bucket.
+                key_prefix: S3_KEY_PREFIX_UNSET.to_string(),
                 // No default credentials: a made-up key would fail at
                 // the first request with a 403 that reads like a
                 // permissions problem.
@@ -291,27 +308,38 @@ impl Config {
         }
     }
 
-    /// The S3 vault configuration, or an error if a credential is
-    /// missing.
+    /// The S3 vault configuration, or an error if it is incomplete.
     ///
     /// `[FACT]` Credentials have no default. Selecting the `s3` backend
     /// without an access key and a secret key is an error, because the
     /// alternative — connecting with an invented credential — produces a
     /// 403 on the first read and leaves the operator with no way to
     /// tell that the key they configured was never used.
+    ///
+    /// `[FACT]` The key prefix has no default either, for a different
+    /// reason: the prefix is the isolation. An instance that fell back
+    /// to a shared prefix would write the same object keys as another
+    /// instance on the same bucket and could read or overwrite its
+    /// credentials. The prefix is checked first because it is a
+    /// property of the deployment, while the credentials are the
+    /// secrets the deployment uses.
     pub fn s3_vault_config(&self) -> Result<MinioVaultConfig> {
+        if self.s3_vault.key_prefix.trim().is_empty() {
+            return Err(GitGitError::MissingVaultKeyPrefix(
+                S3_KEY_PREFIX_ENV,
+                "s3-key-prefix",
+            ));
+        }
         if self.s3_vault.access_key.trim().is_empty() {
             return Err(GitGitError::MissingVaultCredential(
                 "an access key",
                 S3_ACCESS_KEY_ENV,
-                "s3-access-key",
             ));
         }
         if self.s3_vault.secret_key.trim().is_empty() {
             return Err(GitGitError::MissingVaultCredential(
                 "a secret key",
                 S3_SECRET_KEY_ENV,
-                "s3-secret-key",
             ));
         }
         Ok(self.s3_vault.clone())
@@ -556,18 +584,25 @@ mod tests {
         assert_eq!(cfg.vault_backend.as_str(), "file");
     }
 
-    /// `[FACT]` The S3 settings have documented defaults; the
-    /// credentials do not. A default access key would be a credential
-    /// nobody chose, which is exactly what this repository has been
-    /// removing from the binary (see
-    /// `no_compiled_source_hard_codes_the_admin_password`).
+    /// `[FACT]` The S3 settings have documented defaults; the key
+    /// prefix and the credentials do not. A default access key would
+    /// be a credential nobody chose, which is exactly what this
+    /// repository has been removing from the binary (see
+    /// `no_compiled_source_hard_codes_the_admin_password`). A default
+    /// key prefix would be worse: the prefix is the isolation between
+    /// two instances that share a bucket, so a shared default would put
+    /// them on the same object keys.
     #[test]
-    fn the_s3_settings_have_defaults_and_the_credentials_do_not() {
+    fn the_s3_settings_have_defaults_but_the_prefix_and_the_credentials_do_not() {
         let cfg = Config::new("127.0.0.1:8080", "repos", "vault");
         assert_eq!(cfg.s3_vault.endpoint, DEFAULT_S3_ENDPOINT);
         assert_eq!(cfg.s3_vault.bucket, DEFAULT_S3_BUCKET);
         assert_eq!(cfg.s3_vault.region, DEFAULT_S3_REGION);
-        assert_eq!(cfg.s3_vault.key_prefix, DEFAULT_S3_KEY_PREFIX);
+        assert_eq!(cfg.s3_vault.key_prefix, S3_KEY_PREFIX_UNSET);
+        assert!(
+            cfg.s3_vault.key_prefix.is_empty(),
+            "the key prefix must not have a default: it is the isolation between instances"
+        );
         assert!(
             cfg.s3_vault.access_key.is_empty(),
             "an access key must not have a default"
@@ -586,6 +621,7 @@ mod tests {
     fn selecting_s3_without_credentials_is_an_error() {
         let mut cfg = Config::new("127.0.0.1:8080", "repos", "vault");
         cfg.vault_backend = VaultBackend::S3;
+        cfg.s3_vault.key_prefix = "a-prefix/".to_string();
 
         let err = cfg
             .s3_vault_config()
@@ -611,7 +647,53 @@ mod tests {
             .s3_vault_config()
             .expect("both credentials present means the configuration is usable");
         assert_eq!(ok.bucket, DEFAULT_S3_BUCKET);
-        assert_eq!(ok.key_prefix, DEFAULT_S3_KEY_PREFIX);
+        assert_eq!(ok.key_prefix, "a-prefix/");
+    }
+
+    /// `[FACT]` The key prefix has no default, so selecting the S3
+    /// backend without one is an error. The prefix is the isolation
+    /// between instances that share a bucket: a shared default would
+    /// put two of them on the same object keys and the same version
+    /// sidecars, where either could read or overwrite the other's
+    /// credentials.
+    ///
+    /// The error names both ways to supply it, and says why it is
+    /// required -- an operator who hits it has to understand what the
+    /// prefix is for, not just that something is missing.
+    #[test]
+    fn selecting_s3_without_a_key_prefix_is_an_error() {
+        let mut cfg = Config::new("127.0.0.1:8080", "repos", "vault");
+        cfg.vault_backend = VaultBackend::S3;
+        cfg.s3_vault.access_key = "an-access-key".to_string();
+        cfg.s3_vault.secret_key = "a-secret-key".to_string();
+
+        let err = cfg
+            .s3_vault_config()
+            .expect_err("the s3 backend must not start without a key prefix");
+        let msg = err.to_string();
+        assert!(
+            msg.contains(S3_KEY_PREFIX_ENV),
+            "the error must name the environment variable, got: {msg}"
+        );
+        assert!(
+            msg.contains("s3-key-prefix"),
+            "the error must name the command-line flag, got: {msg}"
+        );
+        assert!(
+            msg.contains("isolate"),
+            "the error must say what the prefix is for, got: {msg}"
+        );
+
+        // A whitespace-only prefix is "not configured" as well.
+        cfg.s3_vault.key_prefix = "   ".to_string();
+        assert!(
+            cfg.s3_vault_config().is_err(),
+            "a blank prefix must not count as configured"
+        );
+
+        cfg.s3_vault.key_prefix = "a-prefix/".to_string();
+        cfg.s3_vault_config()
+            .expect("an explicit prefix makes the configuration usable");
     }
 
     /// `[FACT]` The debug output of a configuration must not carry the

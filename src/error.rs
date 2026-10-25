@@ -90,11 +90,26 @@ pub enum GitGitError {
     /// `[FACT]` Credentials have no default on purpose. A made-up key
     /// would fail later with a 403 that reads like a permissions
     /// problem, and the operator would have no way to tell that the key
-    /// they configured was never used. The message names both the
-    /// environment variable and the CLI flag, so it is fixable either
-    /// way.
-    #[error("the `s3` vault backend requires {0}: set {1} or pass `--{2}`")]
-    MissingVaultCredential(&'static str, &'static str, &'static str),
+    /// they configured was never used.
+    ///
+    /// `[FACT]` The message names the environment variable only. There
+    /// is deliberately no command-line flag for a credential: a flag
+    /// would put the secret in the process arguments and in the shell
+    /// history.
+    #[error("the `s3` vault backend requires {0}: set {1}")]
+    MissingVaultCredential(&'static str, &'static str),
+
+    /// The `s3` credential-vault backend was selected without a key
+    /// prefix.
+    ///
+    /// `[FACT]` The prefix is the isolation: `src/server/vault.rs`
+    /// documents it as the way to keep several gitgit instances from
+    /// sharing a bucket without collision. A shared default prefix
+    /// would put two instances on the same object keys and the same
+    /// version sidecars, where either could read or overwrite the
+    /// other's credentials.
+    #[error("the `s3` vault backend requires a key prefix: set {0} or pass `--{1}` (the prefix isolates two instances that share a bucket, so a shared default would let them overwrite each other's credentials)")]
+    MissingVaultKeyPrefix(&'static str, &'static str),
 
     /// A remote name or URL failed validation (V0 T8 `gitremote`).
     #[error("invalid remote URL: {0:?}")]
