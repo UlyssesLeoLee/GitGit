@@ -51,6 +51,23 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', '..');
+
+/**
+ * The time budget for a test that spawns the script.
+ *
+ * [FACT] Vitest's default per-test timeout is 5s. This script is a PowerShell
+ * program, and on a GitHub-hosted ubuntu runner a cold `pwsh` start alone
+ * costs several seconds: the whole script was measured at ~17s inside a test
+ * on 2026-10-25, against 0.7s on a developer machine. The 5s default is
+ * therefore a property of the MACHINE, not of the code under test.
+ *
+ * [FACT] Only the BUDGET is raised here. The assertions are untouched — what
+ * the script computes, and what is rejected, is exactly as strict as before.
+ * The alternative would be to leave a test that fails on CI for a reason that
+ * has nothing to do with what it asserts, and a gate that fails for reasons
+ * unrelated to its subject is a gate that gets switched off.
+ */
+const SPAWN_TIMEOUT_MS = 60_000;
 const SCRIPT = join(REPO_ROOT, 'scripts', 'ci', 'changed-areas.ps1');
 
 /** The five areas, in the order the script emits them. */
@@ -162,7 +179,7 @@ function computeAreas(files: string[]): { run: Run; flags: AreaFlags; outputFile
   };
 }
 
-describe('changed-areas — the script computes the five areas', () => {
+describe('changed-areas — the script computes the five areas', { timeout: SPAWN_TIMEOUT_MS }, () => {
   it('reports every area, and only the areas', () => {
     const { flags } = computeAreas(['src/main.rs']);
 
@@ -286,7 +303,7 @@ describe('changed-areas — the script computes the five areas', () => {
   });
 });
 
-describe('changed-areas — the script fails loudly rather than silently', () => {
+describe('changed-areas — the script fails loudly rather than silently', { timeout: SPAWN_TIMEOUT_MS }, () => {
   it('fails when the change set cannot be computed', () => {
     // The case the whole script is written around: a base ref that exists
     // but cannot be diffed (a shallow clone without it, a typo) must NOT be
@@ -341,7 +358,7 @@ describe('changed-areas — the script fails loudly rather than silently', () =>
   });
 });
 
-describe('changed-areas — the script writes what it says it writes', () => {
+describe('changed-areas — the script writes what it says it writes', { timeout: SPAWN_TIMEOUT_MS }, () => {
   it('writes the same flags to the output file as to stdout', () => {
     const { flags, outputFile } = computeAreas(['apps/gm-console/src/App.tsx']);
 

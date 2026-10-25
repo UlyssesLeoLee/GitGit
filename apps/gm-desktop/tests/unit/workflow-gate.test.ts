@@ -54,6 +54,23 @@ const WORKFLOW_DIR = join(REPO_ROOT, '.github', 'workflows');
 const REQUIRED_CHECKS = join(REPO_ROOT, 'scripts', 'ci', 'required-checks.json');
 const SCRIPT = join(REPO_ROOT, 'scripts', 'ci', 'changed-areas.ps1');
 
+/**
+ * The time budget for the test that spawns the script.
+ *
+ * [FACT] Vitest's default per-test timeout is 5s. This script is a PowerShell
+ * program, and on a GitHub-hosted ubuntu runner a cold `pwsh` start alone
+ * costs several seconds: the whole script was measured at ~17s inside this
+ * test on 2026-10-25 (the case failed with "Test timed out in 5000ms" after
+ * 16987ms), against 0.7s on a developer machine. The 5s default is therefore
+ * a property of the MACHINE, not of the code under test.
+ *
+ * [FACT] Only the BUDGET is raised. The assertion is untouched: the pattern
+ * lists the script evaluates must still equal the recorded ones, list by
+ * list. A gate that fails for a reason unrelated to what it asserts is a gate
+ * that gets switched off.
+ */
+const SPAWN_TIMEOUT_MS = 60_000;
+
 type Step = {
   name?: string;
   id?: string;
@@ -284,7 +301,7 @@ describe('the deep gates inside the required jobs', () => {
   });
 });
 
-describe('the area patterns the script evaluates', () => {
+describe('the area patterns the script evaluates', { timeout: SPAWN_TIMEOUT_MS }, () => {
   it('are exactly the lists the workflows used to filter on', () => {
     // The script prints its effective pattern lists in a machine-readable
     // form. Reading them back from the SCRIPT — rather than from its source

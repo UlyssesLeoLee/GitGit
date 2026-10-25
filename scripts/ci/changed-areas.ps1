@@ -90,6 +90,14 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
+# [FACT] The stopwatch exists because the script's cost was measured and did
+# not match expectations: on a GitHub-hosted ubuntu runner this script took
+# ~17s inside a test, while the same script on a developer machine takes
+# 0.7s. A gate that cannot say where its time goes is a gate that gets
+# "optimised" by being switched off. The timings are printed so the next
+# measurement can be a measurement and not a guess.
+$script:Stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
+
 # ── The five areas ───────────────────────────────────────────────────────────
 #
 # [FACT] These lists are the `paths:` blocks of the five workflows, verbatim,
@@ -463,9 +471,12 @@ else {
     $resolvedBaseRef = $resolved.Ref
 
     if ($hasBase) {
+        $diffWatch = [System.Diagnostics.Stopwatch]::StartNew()
         $diff = Invoke-Git -RepositoryRoot $repoRoot -Arguments @(
             'diff', '--name-only', "$resolvedBaseRef...$HeadRef"
         )
+        $diffWatch.Stop()
+        Write-Line ("[info] changed-areas: the change set took {0}ms to compute" -f $diffWatch.ElapsedMilliseconds)
         if ($diff.ExitCode -ne 0) {
             # [FACT] This is the case the whole script is written around: a
             # base ref that exists but cannot be diffed (a shallow clone that
@@ -563,5 +574,8 @@ if ($OutputPath) {
         $utf8NoBom)
     Write-Line ("[info] changed-areas: wrote {0} output(s) to {1}" -f $outputLines.Count, $OutputPath)
 }
+
+$script:Stopwatch.Stop()
+Write-Line ("[info] changed-areas: {0}ms in total" -f $script:Stopwatch.ElapsedMilliseconds)
 
 exit 0
