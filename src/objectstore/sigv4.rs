@@ -72,7 +72,13 @@ pub const SERVICE: &str = "s3";
 /// [FACT] There is deliberately no `region` field: AWS derives the signing
 /// key from the credential scope that the *client* sent, so a server that
 /// pins its own region would reject perfectly valid clients.
-#[derive(Clone, Debug, PartialEq, Eq)]
+///
+/// [FACT] `Debug` is written by hand and redacts the secret key, following
+/// the repository's own rule for credentials (`MinioVault` does the same, and
+/// `minio_vault_debug_does_not_leak_credentials` holds it in place). Nothing
+/// logs this today, but a derived `Debug` that prints the secret is one
+/// `tracing::info!` away from leaking it.
+#[derive(Clone, PartialEq, Eq)]
 pub struct Sigv4Credentials {
     /// The access key (the "user name" half of the credential).
     pub access_key: String,
@@ -87,6 +93,15 @@ impl Sigv4Credentials {
             access_key: access_key.into(),
             secret_key: secret_key.into(),
         }
+    }
+}
+
+impl std::fmt::Debug for Sigv4Credentials {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Sigv4Credentials")
+            .field("access_key", &self.access_key)
+            .field("secret_key", &"<redacted>")
+            .finish()
     }
 }
 
@@ -646,6 +661,26 @@ pub fn days_from_civil(year: i64, month: u32, day: u32) -> i64 {
 #[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 mod tests {
     use super::*;
+
+    /// [FACT] The credentials must not leak through `Debug`.
+    ///
+    /// The repository's own rule for credentials is written down on
+    /// `MinioVault`, which redacts the secret and has
+    /// `minio_vault_debug_does_not_leak_credentials` to hold it in place.
+    /// This is the same rule on the server side of the same credential.
+    #[test]
+    fn the_debug_print_of_the_credentials_does_not_leak_the_secret() {
+        let creds = Sigv4Credentials::new("an-access-key", "a-secret-key");
+        let printed = format!("{creds:?}");
+        assert!(
+            !printed.contains("a-secret-key"),
+            "the secret key must not appear in the debug print, got: {printed}"
+        );
+        assert!(
+            printed.contains("an-access-key"),
+            "the access key is an identifier, not a secret, so it may be printed: {printed}"
+        );
+    }
 
     // [FACT] The published AWS SigV4 test-suite vectors. They live in
     // AWS's own `aws4_testsuite` and are mirrored in botocore at
