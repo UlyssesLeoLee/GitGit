@@ -393,8 +393,140 @@ async fn a_missing_bucket_answers_404_with_the_no_such_bucket_code() {
     );
 }
 
-// ---- the three failure modes the brief names -----------------------------
+/// [FACT] The bucket name becomes a directory name under the store's root,
+/// so a name that is not a legal S3 bucket name is refused with
+/// `400 InvalidBucketName` — and nothing is written.
+///
+/// [INFERENCE] The name is percent-encoded on the wire (`..%2f…`) so that
+/// it survives as one URL segment: a WHATWG URL parser removes `..`
+/// segments, so a literal `../` would never reach the server at all. The
+/// server decodes it, and the decoded name is the one that would be joined
+/// onto the root.
+#[tokio::test]
+async fn a_bucket_name_that_would_escape_the_root_is_refused() {
+    let root = temp_root("http-bucket-escape");
+    let server = start_server(&root).await;
 
+    // The directory the escape would land in. It exists on purpose: the
+    // name check is the only thing standing between the request and the
+    // write.
+    let target_name = format!(
+        "gitgit-objectstore-http-escape-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0)
+    );
+    let outside = root.parent().unwrap().join(&target_name);
+    std::fs::create_dir_all(&outside).unwrap();
+
+    let response = signed(
+        &server,
+        "PUT",
+        &format!("/..%2f{target_name}"),
+        "versioning",
+        b"",
+        ACCESS_KEY,
+        SECRET_KEY,
+    )
+    .await;
+    assert_eq!(response.status(), 400, "the request must be refused");
+    let body = response.text().await.unwrap();
+    assert!(
+        body.contains("<Code>InvalidBucketName</Code>"),
+        "body was {body}"
+    );
+    assert!(
+        !outside.join("versioning.json").exists(),
+        "nothing may be written outside the store's root"
+    );
+}
+
+/// [FACT] A bucket name that is not a legal S3 bucket name is refused even
+/// when it does not try to escape — the name is checked, not just screened
+/// for the shapes that would escape.
+#[tokio::test]
+async fn a_bucket_name_that_is_not_a_legal_s3_name_is_refused() {
+    let root = temp_root("http-bucket-name");
+    let server = start_server(&root).await;
+
+    for name in ["UPPERCASE", "has_underscore", "ab", "trailing."] {
+        let response = signed(
+            &server,
+            "PUT",
+            &format!("/{name}"),
+            "",
+            b"",
+            ACCESS_KEY,
+            SECRET_KEY,
+        )
+        .await;
+        assert_eq!(response.status(), 400, "the name {name:?} must be refused");
+        let body = response.text().await.unwrap();
+        assert!(
+            body.contains("<Code>InvalidBucketName</Code>"),
+            "the name {name:?} must be reported as invalid, body was {body}"
+        );
+    }
+}
+
+/// [FACT] A version id that this store could not have issued is refused
+/// with `400 InvalidArgument`, which is the code S3 uses for a malformed
+/// version id. A well-formed id that simply does not exist stays a 404.
+#[tokio::test]
+async fn a_version_id_that_is_not_a_version_id_is_refused() {
+    let root = temp_root("http-version-id");
+    let server = start_server(&root).await;
+    signed(
+        &server,
+        "PUT",
+        &format!("/{BUCKET}"),
+        "",
+        b"",
+        ACCESS_KEY,
+        SECRET_KEY,
+    )
+    .await;
+
+    let response = signed(
+        &server,
+        "GET",
+        &format!("/{BUCKET}/openai"),
+        "versionId=..%2f..%2fescape",
+        b"",
+        ACCESS_KEY,
+        SECRET_KEY,
+    )
+    .await;
+    assert_eq!(response.status(), 400);
+    let body = response.text().await.unwrap();
+    assert!(
+        body.contains("<Code>InvalidArgument</Code>"),
+        "body was {body}"
+    );
+
+    // A well-formed id that was never issued is a different thing: the
+    // version is missing, not the request.
+    let response = signed(
+        &server,
+        "GET",
+        &format!("/{BUCKET}/openai"),
+        "versionId=00000000000000000000000000000000",
+        b"",
+        ACCESS_KEY,
+        SECRET_KEY,
+    )
+    .await;
+    assert_eq!(response.status(), 404);
+    let body = response.text().await.unwrap();
+    assert!(
+        body.contains("<Code>NoSuchVersion</Code>"),
+        "body was {body}"
+    );
+}
+
+// ---- the three failure modes the brief names -----------------------------
 #[tokio::test]
 async fn failure_mode_the_server_cannot_start_on_a_port_that_is_taken() {
     // [FACT] The binary's startup path is: bind the listen address, then

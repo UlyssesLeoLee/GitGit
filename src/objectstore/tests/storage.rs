@@ -368,3 +368,86 @@ async fn putting_into_a_bucket_that_does_not_exist_is_an_error() {
         .await
         .is_err());
 }
+
+/// A name that is unique to this test run, for the directory an escape
+/// would land in.
+fn escape_target_name(label: &str) -> String {
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    format!(
+        "gitgit-objectstore-escape-{label}-{}-{stamp}",
+        std::process::id()
+    )
+}
+
+/// [FACT] The bucket name becomes a directory name, so a name that is not
+/// a legal S3 bucket name is refused before it is used as one.
+///
+/// [INFERENCE] Two shapes would escape the root: a relative name with `..`
+/// in it, and an **absolute** one — on Windows a `Path::join` with an
+/// absolute argument replaces the path it joins onto, so the root would be
+/// dropped on the floor rather than kept as a prefix.
+#[tokio::test]
+async fn a_bucket_name_that_would_escape_the_root_is_refused() {
+    let (store, root) = store("bucket-escape");
+    // The directory the escape would land in. It exists on purpose: the
+    // name check is the only thing standing between the request and the
+    // write.
+    let target_name = escape_target_name("bucket");
+    let outside = root.parent().unwrap().join(&target_name);
+    std::fs::create_dir_all(&outside).unwrap();
+
+    for name in [
+        format!("../{target_name}"),
+        format!("..\\{target_name}"),
+        format!("C:/{target_name}"),
+        format!("C:\\{target_name}"),
+    ] {
+        assert!(
+            store
+                .set_versioning(&name, VersioningStatus::Enabled)
+                .await
+                .is_err(),
+            "the bucket name {name:?} must be refused"
+        );
+        assert!(
+            !outside.join("versioning.json").exists(),
+            "nothing may be written outside the root for the name {name:?}"
+        );
+        assert!(
+            store.bucket_exists(&name).await.is_err(),
+            "the bucket name {name:?} must be refused when it is looked up"
+        );
+    }
+}
+
+/// [FACT] The version id becomes a directory name too, so it is checked
+/// before it is used as one. A well-formed id that this store never issued
+/// is a 404 at the HTTP layer; a malformed one is refused outright.
+#[tokio::test]
+async fn a_version_id_that_would_escape_the_root_is_refused() {
+    let (store, _root) = store("version-escape");
+    store.create_bucket("gitgit-vault").await.unwrap();
+    store
+        .put("gitgit-vault", "openai", b"x", None)
+        .await
+        .unwrap();
+
+    for version_id in [
+        "../../escape",
+        "..\\..\\escape",
+        "C:/escape",
+        "not-a-version-id",
+        "",
+    ] {
+        assert!(
+            store
+                .get_version("gitgit-vault", "openai", version_id)
+                .await
+                .is_err(),
+            "the version id {version_id:?} must be refused"
+        );
+    }
+}

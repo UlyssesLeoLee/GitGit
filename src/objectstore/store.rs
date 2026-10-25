@@ -136,6 +136,9 @@ pub enum StoreError {
     /// The bucket name is not a legal S3 bucket name.
     #[error("invalid bucket name: {0:?}")]
     InvalidBucketName(String),
+    /// The version id is not one this store could have issued.
+    #[error("invalid version id: {0:?}")]
+    InvalidVersionId(String),
     /// The object key is empty.
     #[error("invalid object key: {0:?}")]
     InvalidKey(String),
@@ -249,6 +252,7 @@ impl FileStore {
 
     /// Whether the bucket exists.
     pub async fn bucket_exists(&self, bucket: &str) -> Result<bool, StoreError> {
+        validate_bucket_name(bucket)?;
         Ok(self.bucket_dir(bucket).is_dir())
     }
 
@@ -279,6 +283,7 @@ impl FileStore {
     /// false report about this server's own behaviour, and a client that
     /// trusted it would be wrong in a way nothing would report.
     pub async fn get_versioning(&self, bucket: &str) -> Result<VersioningStatus, StoreError> {
+        validate_bucket_name(bucket)?;
         match tokio::fs::read(self.versioning_path(bucket)).await {
             Ok(bytes) => {
                 let file: VersioningFile = serde_json::from_slice(&bytes)?;
@@ -301,6 +306,7 @@ impl FileStore {
         bucket: &str,
         status: VersioningStatus,
     ) -> Result<(), StoreError> {
+        validate_bucket_name(bucket)?;
         if !self.bucket_dir(bucket).is_dir() {
             return Err(StoreError::NoSuchBucket(bucket.to_string()));
         }
@@ -358,6 +364,7 @@ impl FileStore {
         bucket: &str,
         key: &str,
     ) -> Result<Option<StoredObject>, StoreError> {
+        validate_bucket_name(bucket)?;
         validate_key(key)?;
         let key_hash = key_hash(key);
         // A tombstoned key has no current version.
@@ -377,7 +384,9 @@ impl FileStore {
         key: &str,
         version_id: &str,
     ) -> Result<Option<StoredObject>, StoreError> {
+        validate_bucket_name(bucket)?;
         validate_key(key)?;
+        validate_version_id(version_id)?;
         let key_hash = key_hash(key);
         if !self.blob_path(bucket, version_id, &key_hash).exists() {
             return Ok(None);
@@ -391,6 +400,7 @@ impl FileStore {
     /// but older versions stay on disk and remain readable through their
     /// version id. Deleting a key that is not there is not an error.
     pub async fn delete(&self, bucket: &str, key: &str) -> Result<(), StoreError> {
+        validate_bucket_name(bucket)?;
         validate_key(key)?;
         let key_hash = key_hash(key);
         let Some(object) = self.get_current(bucket, key).await? else {
@@ -431,6 +441,7 @@ impl FileStore {
         continuation_token: Option<&str>,
         max_keys: usize,
     ) -> Result<ListPage, StoreError> {
+        validate_bucket_name(bucket)?;
         let max_keys = max_keys.clamp(1, MAX_MAX_KEYS);
 
         // Step 1: the current version of every key in the bucket.
@@ -626,8 +637,30 @@ pub fn sha256_hex(bytes: &[u8]) -> String {
 ///
 /// [FACT] S3 bucket names are lowercase, 3-63 characters long, and made of
 /// letters, digits, dots and hyphens.
+///
+/// [FACT] The length is checked on **both** ends: the name has to be at
+/// least 3 characters long and at most 63. The upper bound is S3's; the
+/// lower one is the same rule, and it was written down here before the code
+/// enforced it — the check now matches what this comment says.
+///
+/// [FACT] This check is the store's **containment boundary**, not a
+/// cosmetic rule. The bucket name arrives from the request path, is
+/// percent-decoded, and is then joined onto the root directory. Two shapes
+/// would escape the root, and both are refused here:
+///
+/// * a relative name with `..` in it (`../escape`) — the join walks up out
+///   of the root;
+/// * an **absolute** name (`C:/escape`) — on Windows a `Path::join` with an
+///   absolute argument *replaces* the path it is joining onto, so the root
+///   would be dropped on the floor entirely.
+///
+/// [INFERENCE] The name reaches the server percent-encoded often enough
+/// that the `..` does not have to be literal: `..%2fescape` is one URL
+/// segment (a WHATWG URL parser does not treat `%2f` as a separator), and
+/// the server decodes it into `../escape`. The check therefore happens
+/// **after** the decoding, which is where the name becomes a path.
 pub fn validate_bucket_name(bucket: &str) -> Result<(), StoreError> {
-    let acceptable = !bucket.is_empty()
+    let acceptable = bucket.len() >= 3
         && bucket.len() <= 63
         && bucket
             .chars()
@@ -639,6 +672,27 @@ pub fn validate_bucket_name(bucket: &str) -> Result<(), StoreError> {
         Ok(())
     } else {
         Err(StoreError::InvalidBucketName(bucket.to_string()))
+    }
+}
+
+/// Reject a version id this store could not have issued.
+///
+/// [FACT] A version id is a UUIDv4 in its simple form: 32 lowercase hex
+/// characters. The id arrives from the client (as `?versionId=`) and
+/// becomes a directory name, so it is checked before it is used as one.
+///
+/// [FACT] The check is the same kind of boundary as the bucket name's: a
+/// version id of `../../escape` would walk out of the bucket directory,
+/// and an absolute one (`C:/escape`) would replace it.
+pub fn validate_version_id(version_id: &str) -> Result<(), StoreError> {
+    let acceptable = version_id.len() == 32
+        && version_id
+            .chars()
+            .all(|c| c.is_ascii_digit() || ('a'..='f').contains(&c));
+    if acceptable {
+        Ok(())
+    } else {
+        Err(StoreError::InvalidVersionId(version_id.to_string()))
     }
 }
 

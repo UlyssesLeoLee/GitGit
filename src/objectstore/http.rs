@@ -16,6 +16,40 @@
 //!
 //! So the handler splits the raw path itself: the first segment is the
 //! bucket, the rest is the key.
+//!
+//! ## What the path may contain
+//!
+//! [FACT] The bucket name and the version id both end up as **directory
+//! names** under the store's root, so both are checked before they are used
+//! as one. A bucket name that is not a legal S3 bucket name is answered
+//! with `400 InvalidBucketName`; a version id that this store could not
+//! have issued is answered with `400 InvalidArgument`, which is the code S3
+//! uses for a malformed version id.
+//!
+//! [INFERENCE] The check has to happen **after** the percent-decoding, not
+//! before it: `..%2fescape` is a single URL segment (a WHATWG URL parser
+//! does not treat `%2f` as a separator), and it only becomes `../escape`
+//! once it is decoded. The decoded name is the one that would be joined
+//! onto the root.
+//!
+//! ## A note on the order of the work
+//!
+//! [FACT] The request body is read before the request is answered, and the
+//! declared payload hash is compared against the hash of the body that
+//! actually arrived: the signature covers the *declared* hash, so the two
+//! have to be checked against each other.
+//!
+//! [INFERENCE] The body is therefore buffered before the signature is
+//! verified, so an unsigned request can still make the server hold up to
+//! `MAX_BODY_BYTES` in memory before it is refused. The signature itself
+//! does not need the body — it needs the declared hash and the headers —
+//! so verifying it first would close that window. It is not done here
+//! because the handler is the one place where the declared hash and the
+//! body are both in hand, and reordering the two paths is a change to the
+//! one piece of this server that decides whether a request is allowed at
+//! all. The server binds to the loopback address by default and the bound
+//! is a fixed 64 MB per request, so this is a **named trade-off** rather
+//! than an unbounded hole.
 
 use std::collections::BTreeMap;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -29,7 +63,7 @@ use axum::Router;
 use crate::objectstore::sigv4::{
     self, SignedRequest, Sigv4Credentials, Sigv4Error, EMPTY_PAYLOAD_SHA256, UNSIGNED_PAYLOAD,
 };
-use crate::objectstore::store::{StoreError, VersioningStatus, DEFAULT_MAX_KEYS};
+use crate::objectstore::store::{self, StoreError, VersioningStatus, DEFAULT_MAX_KEYS};
 use crate::objectstore::xml::{self, ListingShape};
 use crate::objectstore::ObjectStore;
 
@@ -103,6 +137,20 @@ async fn handle(State(state): State<ServerState>, request: Request) -> Response 
     let (bucket, key) = split_path(&raw_path);
     let query_pairs = sigv4::parse_query_pairs(&raw_query);
     let key = key.filter(|key| !key.is_empty());
+
+    // [FACT] The bucket name becomes a directory name, so it is checked
+    // before it is used as one. The check is here, at the boundary, rather
+    // than only in the storage layer, so that a name that would escape the
+    // root is answered with "that name is not valid" instead of a 500.
+    // The signature has already been verified at this point, so an
+    // unsigned request still gets 403 and not 400.
+    if store::validate_bucket_name(&bucket).is_err() {
+        return error_response(
+            StatusCode::BAD_REQUEST,
+            "InvalidBucketName",
+            &format!("The specified bucket is not valid: {bucket}"),
+        );
+    }
 
     match (method.as_str(), key) {
         ("PUT", None) => {
@@ -361,6 +409,11 @@ async fn put_object(
             "InvalidArgument",
             "The object key is not valid.",
         ),
+        Err(StoreError::InvalidBucketName(name)) => error_response(
+            StatusCode::BAD_REQUEST,
+            "InvalidBucketName",
+            &format!("The specified bucket is not valid: {name}"),
+        ),
         Err(err) => internal_error(&err),
     }
 }
@@ -379,6 +432,19 @@ async fn get_object(
             "NoSuchBucket",
             "The specified bucket does not exist.",
         );
+    }
+    // [FACT] A version id becomes a directory name too, so a malformed one
+    // is refused with the code S3 uses for it: `InvalidArgument`. A
+    // well-formed id that this store never issued stays a 404
+    // (`NoSuchVersion`), which is a different thing entirely.
+    if let Some(version_id) = version_id {
+        if store::validate_version_id(version_id).is_err() {
+            return error_response(
+                StatusCode::BAD_REQUEST,
+                "InvalidArgument",
+                "The specified version id is not valid.",
+            );
+        }
     }
     let result = match version_id {
         Some(version_id) => {
@@ -405,6 +471,20 @@ async fn get_object(
                 } else {
                     "The specified key does not exist."
                 },
+            )
+        }
+        Err(StoreError::InvalidVersionId(_)) => {
+            return error_response(
+                StatusCode::BAD_REQUEST,
+                "InvalidArgument",
+                "The specified version id is not valid.",
+            )
+        }
+        Err(StoreError::InvalidBucketName(name)) => {
+            return error_response(
+                StatusCode::BAD_REQUEST,
+                "InvalidBucketName",
+                &format!("The specified bucket is not valid: {name}"),
             )
         }
         Err(err) => return internal_error(&err),
