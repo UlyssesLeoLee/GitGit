@@ -78,13 +78,23 @@ on:
       - 'src/**'
   pull_request:
     branches: [dev, main]
-    paths:
-      - 'apps/gm-desktop/**'
-      - '.github/workflows/gm-desktop-bundle.yml'
-      - '.github/workflows/gm-desktop.yml'
-      - 'Cargo.toml'
-      - 'Cargo.lock'
-      - 'src/**'
+    # [FACT] No workflow-level `paths:` filter on the pull_request trigger.
+    #
+    # A workflow-level filter decides whether the WORKFLOW starts at all, and a
+    # workflow that never starts reports nothing: GitHub's own documentation
+    # says a workflow skipped by path filtering leaves its checks in a
+    # "Pending" state, and a required check that is Pending blocks the pull
+    # request for ever. That is why these jobs could never be required status
+    # checks, and why "the bundle gate is red" had no power to stop a merge.
+    #
+    # The filter now lives INSIDE the jobs (see the "Detect changed areas"
+    # step in each of the three build jobs below). A job whose `if:` condition
+    # is false is reported as "Success", which satisfies a required check. So
+    # these jobs report on every pull request and run only when they apply.
+    #
+    # The `push` trigger keeps its `paths:` filter: a direct push to a branch
+    # is not a pull request, and paying for a macOS release build on every
+    # push to dev buys nothing that the pull request does not already buy.
   # A first run on a pull request from this branch is the intended way to
   # exercise it, but a manual trigger costs nothing and does not need a branch.
   workflow_dispatch:
@@ -140,6 +150,25 @@ jobs:
       APPLE_SIGNING_IDENTITY: '-'
     steps:
       - uses: actions/checkout@v4
+        with:
+          # [FACT] The full history is needed: the detection step diffs the
+          # change set against origin/<base>, and a shallow clone does not
+          # have that merge base.
+          fetch-depth: 0
+
+      # [FACT] The detection step lives INSIDE the job, not in front of the
+      # workflow. If it fails, this job goes red and blocks the merge. If it
+      # were a separate job that the gates depended on, a failed detection
+      # would SKIP the gate, and a skipped job reports "Success" — the exact
+      # deadlock this lane exists to close.
+      #
+      # [FACT] A `workflow_dispatch` event has no base ref, so the detection
+      # reports every area as changed and this job runs exactly as it did
+      # before. That matters here: a manual run is how this workflow is
+      # exercised at all, and it must not silently become a no-op.
+      - name: Detect changed areas
+        id: detect
+        run: pwsh -NoProfile -File scripts/ci/changed-areas.ps1
 
       # Same ordering constraint as every other job in this repo: pnpm BEFORE
       # setup-node, because setup-node shells out to `pnpm store path` to
@@ -147,11 +176,13 @@ jobs:
       # afterwards and setup-node fails with "Unable to locate executable
       # file: pnpm", skipping every later step.
       - name: Install pnpm
+        if: steps.detect.outputs.gm_desktop_bundle == 'true'
         uses: pnpm/action-setup@v4
         with:
           version: 9
 
       - name: Set up Node.js
+        if: steps.detect.outputs.gm_desktop_bundle == 'true'
         uses: actions/setup-node@v4
         with:
           node-version: '22'
@@ -163,6 +194,7 @@ jobs:
       # the manifest exactly; if it does not, this fails here instead of
       # silently resolving something new and skipping every later gate.
       - name: Install dependencies
+        if: steps.detect.outputs.gm_desktop_bundle == 'true'
         working-directory: apps/gm-desktop
         run: pnpm install --frozen-lockfile
 
@@ -170,6 +202,7 @@ jobs:
       # it from this directory downwards, so `@stable` installs a toolchain
       # that is then overridden by the pin. Same shape as the other jobs.
       - name: Install Rust toolchain
+        if: steps.detect.outputs.gm_desktop_bundle == 'true'
         uses: dtolnay/rust-toolchain@stable
 
       # No `pnpm build` step: `tauri.conf.json > build.beforeBuildCommand` is
@@ -198,9 +231,11 @@ jobs:
       # above the message, and the lock byte-identical afterwards — it refuses,
       # it does not repair.
       - name: Prove the committed lock is what this build will use
+        if: steps.detect.outputs.gm_desktop_bundle == 'true'
         run: bash apps/gm-desktop/scripts/assert-lock-current.sh
 
       - name: Build the .dmg
+        if: steps.detect.outputs.gm_desktop_bundle == 'true'
         working-directory: apps/gm-desktop
         run: pnpm tauri build --bundles dmg --ci
 
@@ -210,6 +245,7 @@ jobs:
       # if the image cannot be mounted, the job is red, because an artifact we
       # could not open is not evidence that the bundler worked.
       - name: Verify the .dmg
+        if: steps.detect.outputs.gm_desktop_bundle == 'true'
         run: |
           bash apps/gm-desktop/scripts/verify-bundle.sh \
             --target dmg \
@@ -220,6 +256,7 @@ jobs:
       # manifest fails here rather than producing an artifact named
       # `gm-desktop-dmg-`.
       - name: Read bundle metadata
+        if: steps.detect.outputs.gm_desktop_bundle == 'true'
         id: meta
         run: |
           set -euo pipefail
@@ -243,6 +280,7 @@ jobs:
       # leaves a GREEN job with no installer at all. A packaging gate that
       # cannot fail when it produces nothing is not a gate.
       - name: Upload the .dmg
+        if: success() && steps.detect.outputs.gm_desktop_bundle == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: gm-desktop-dmg-${{ steps.meta.outputs.version }}
@@ -251,6 +289,7 @@ jobs:
           retention-days: 14
 
       - name: Upload bundle manifest
+        if: success() && steps.detect.outputs.gm_desktop_bundle == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: gm-desktop-dmg-${{ steps.meta.outputs.version }}-manifest
@@ -283,13 +322,29 @@ jobs:
       version: ${{ steps.meta.outputs.version }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          # [FACT] The full history is needed: the detection step diffs the
+          # change set against origin/<base>, and a shallow clone does not
+          # have that merge base.
+          fetch-depth: 0
+
+      # [FACT] The detection step lives INSIDE the job, not in front of the
+      # workflow. If it fails, this job goes red and blocks the merge. If it
+      # were a separate job that the gates depended on, a failed detection
+      # would SKIP the gate, and a skipped job reports "Success" — the exact
+      # deadlock this lane exists to close.
+      - name: Detect changed areas
+        id: detect
+        run: pwsh -NoProfile -File scripts/ci/changed-areas.ps1
 
       - name: Install pnpm
+        if: steps.detect.outputs.gm_desktop_bundle == 'true'
         uses: pnpm/action-setup@v4
         with:
           version: 9
 
       - name: Set up Node.js
+        if: steps.detect.outputs.gm_desktop_bundle == 'true'
         uses: actions/setup-node@v4
         with:
           node-version: '22'
@@ -297,10 +352,12 @@ jobs:
           cache-dependency-path: apps/gm-desktop/pnpm-lock.yaml
 
       - name: Install dependencies
+        if: steps.detect.outputs.gm_desktop_bundle == 'true'
         working-directory: apps/gm-desktop
         run: pnpm install --frozen-lockfile
 
       - name: Install Rust toolchain
+        if: steps.detect.outputs.gm_desktop_bundle == 'true'
         uses: dtolnay/rust-toolchain@stable
 
       # The same package set the `build` job in gm-desktop.yml already
@@ -320,6 +377,7 @@ jobs:
       # is part of the base image; if it were ever absent the verify script
       # fails with a message saying so rather than skipping the check.
       - name: Install Tauri Linux prerequisites
+        if: steps.detect.outputs.gm_desktop_bundle == 'true'
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
@@ -330,9 +388,11 @@ jobs:
             file
 
       - name: Prove the committed lock is what this build will use
+        if: steps.detect.outputs.gm_desktop_bundle == 'true'
         run: bash apps/gm-desktop/scripts/assert-lock-current.sh
 
       - name: Build the .deb
+        if: steps.detect.outputs.gm_desktop_bundle == 'true'
         working-directory: apps/gm-desktop
         run: pnpm tauri build --bundles deb --ci
 
@@ -352,6 +412,7 @@ jobs:
       # (the `-dev` packages installed for the build pull them in), so
       # `dpkg-query` is a real existence check, not a guess.
       - name: Assert the declared dependencies are real packages
+        if: steps.detect.outputs.gm_desktop_bundle == 'true'
         run: |
           set -euo pipefail
           mapfile -t deps < <(jq -r '.bundle.linux.deb.depends // [] | .[]' \
@@ -375,12 +436,14 @@ jobs:
           done
 
       - name: Verify the .deb
+        if: steps.detect.outputs.gm_desktop_bundle == 'true'
         run: |
           bash apps/gm-desktop/scripts/verify-bundle.sh \
             --target deb \
             --dir apps/gm-desktop/src-tauri/target/release/bundle/deb
 
       - name: Read bundle metadata
+        if: steps.detect.outputs.gm_desktop_bundle == 'true'
         id: meta
         run: |
           set -euo pipefail
@@ -399,6 +462,7 @@ jobs:
           echo "deb built, version=${version}" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload the .deb
+        if: success() && steps.detect.outputs.gm_desktop_bundle == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: gm-desktop-deb-${{ steps.meta.outputs.version }}
@@ -407,6 +471,7 @@ jobs:
           retention-days: 14
 
       - name: Upload bundle manifest
+        if: success() && steps.detect.outputs.gm_desktop_bundle == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: gm-desktop-deb-${{ steps.meta.outputs.version }}-manifest
@@ -618,13 +683,29 @@ jobs:
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
+        with:
+          # [FACT] The full history is needed: the detection step diffs the
+          # change set against origin/<base>, and a shallow clone does not
+          # have that merge base.
+          fetch-depth: 0
+
+      # [FACT] The detection step lives INSIDE the job, not in front of the
+      # workflow. If it fails, this job goes red and blocks the merge. If it
+      # were a separate job that the gates depended on, a failed detection
+      # would SKIP the gate, and a skipped job reports "Success" — the exact
+      # deadlock this lane exists to close.
+      - name: Detect changed areas
+        id: detect
+        run: pwsh -NoProfile -File scripts/ci/changed-areas.ps1
 
       - name: Install pnpm
+        if: steps.detect.outputs.gm_desktop_bundle == 'true'
         uses: pnpm/action-setup@v4
         with:
           version: 9
 
       - name: Set up Node.js
+        if: steps.detect.outputs.gm_desktop_bundle == 'true'
         uses: actions/setup-node@v4
         with:
           node-version: '22'
@@ -632,10 +713,12 @@ jobs:
           cache-dependency-path: apps/gm-desktop/pnpm-lock.yaml
 
       - name: Install dependencies
+        if: steps.detect.outputs.gm_desktop_bundle == 'true'
         working-directory: apps/gm-desktop
         run: pnpm install --frozen-lockfile
 
       - name: Install Rust toolchain
+        if: steps.detect.outputs.gm_desktop_bundle == 'true'
         uses: dtolnay/rust-toolchain@stable
 
       # Identical to the `deb` job above, and identical to the `build` job in
@@ -644,6 +727,7 @@ jobs:
       # indirection in a file whose whole value is being readable, and the
       # drift risk is nil while the two lists sit eleven lines apart.
       - name: Install Tauri Linux prerequisites
+        if: steps.detect.outputs.gm_desktop_bundle == 'true'
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
@@ -654,9 +738,11 @@ jobs:
             file
 
       - name: Prove the committed lock is what this build will use
+        if: steps.detect.outputs.gm_desktop_bundle == 'true'
         run: bash apps/gm-desktop/scripts/assert-lock-current.sh
 
       - name: Build the .AppImage
+        if: steps.detect.outputs.gm_desktop_bundle == 'true'
         working-directory: apps/gm-desktop
         run: pnpm tauri build --bundles appimage --ci
 
@@ -665,12 +751,14 @@ jobs:
       # bundle, and the tightened `file` match is what fails a file whose only
       # correct property is four magic bytes.
       - name: Verify the .AppImage
+        if: steps.detect.outputs.gm_desktop_bundle == 'true'
         run: |
           bash apps/gm-desktop/scripts/verify-bundle.sh \
             --target appimage \
             --dir apps/gm-desktop/src-tauri/target/release/bundle/appimage
 
       - name: Read bundle metadata
+        if: steps.detect.outputs.gm_desktop_bundle == 'true'
         id: meta
         run: |
           set -euo pipefail
@@ -689,6 +777,7 @@ jobs:
           echo "appimage built, version=${version}" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload the .AppImage
+        if: success() && steps.detect.outputs.gm_desktop_bundle == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: gm-desktop-appimage-${{ steps.meta.outputs.version }}
@@ -697,6 +786,7 @@ jobs:
           retention-days: 14
 
       - name: Upload bundle manifest
+        if: success() && steps.detect.outputs.gm_desktop_bundle == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: gm-desktop-appimage-${{ steps.meta.outputs.version }}-manifest

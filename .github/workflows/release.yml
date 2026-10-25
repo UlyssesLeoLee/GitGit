@@ -279,7 +279,29 @@ jobs:
   # definition of correct.
   # ---------------------------------------------------------------------------
   dmg:
-    name: dmg (unsigned, ad-hoc app)
+    # [FACT] The `release ` prefix on the job's DISPLAY NAME is what keeps
+    # this job's check run distinct from the pull-request job of the same
+    # name in `gm-desktop-bundle.yml`.
+    #
+    # GitHub reports a check under a job's `name:`, and it does not document
+    # which of two same-named check runs on one commit counts. This file has a
+    # `workflow_dispatch` trigger, so a manual release run on a branch really
+    # can put two same-named checks on one commit — and a required status
+    # check that names one of them would then be undefined.
+    #
+    # The RELEASE side is the one that carries the prefix, for a reason that
+    # is about the evidence rather than about the mechanics: the pull-request
+    # names are the ones quoted in `README.md`, `.github/CI.md`,
+    # `docs/plan/v0-tasks.md` and two of this app's unit tests, because they
+    # describe what happened in a pull request's run. Renaming those would
+    # turn a pile of accurate records into stale ones, whereas the release
+    # side's names appear nowhere outside a tag-triggered run.
+    #
+    # [FACT] Only the `name:` changes. The job KEY (`dmg`) is untouched,
+    # because `needs:` and `needs.<job>.outputs.*` refer to the key, and the
+    # artefact names, the outputs and the release body are all built from
+    # keys and outputs — never from the display name.
+    name: release dmg (unsigned, ad-hoc app)
     needs: verify-tag
     runs-on: macos-latest
     timeout-minutes: 60
@@ -361,7 +383,11 @@ jobs:
           retention-days: 30
 
   deb:
-    name: deb (unsigned)
+    # [FACT] See the note on the `dmg` job above: the `release ` prefix keeps
+    # this job's check run distinct from the pull-request job of the same
+    # name, and only the display NAME changes — the key (`deb`) is what
+    # `needs:` and `needs.deb.outputs.version` refer to.
+    name: release deb (unsigned)
     needs: verify-tag
     runs-on: ubuntu-latest
     timeout-minutes: 60
@@ -579,7 +605,11 @@ jobs:
   # otherwise identical: same container image, same job-level shell, same
   # `run:` bodies, same assertions.
   deb-install:
-    name: deb installs and links on a stock Ubuntu
+    # [FACT] See the note on the `dmg` job above: the `release ` prefix keeps
+    # this job's check run distinct from the pull-request job of the same
+    # name, and only the display NAME changes — the key (`deb-install`) is
+    # what `needs:` refers to.
+    name: release deb installs and links on a stock Ubuntu
     needs: deb
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -704,7 +734,11 @@ jobs:
       # "[UNVERIFIED-FACT] The GUI has still never been observed running."
 
   appimage:
-    name: appimage (unsigned)
+    # [FACT] See the note on the `dmg` job above: the `release ` prefix keeps
+    # this job's check run distinct from the pull-request job of the same
+    # name, and only the display NAME changes — the key (`appimage`) is what
+    # `needs:` refers to.
+    name: release appimage (unsigned)
     needs: verify-tag
     runs-on: ubuntu-latest
     timeout-minutes: 60
@@ -780,7 +814,11 @@ jobs:
           retention-days: 30
 
   msi:
-    name: msi (per-user + per-machine)
+    # [FACT] See the note on the `dmg` job above: the `release ` prefix keeps
+    # this job's check run distinct from the pull-request job of the same
+    # name, and only the display NAME changes — the key (`msi`) is what
+    # `needs:` refers to.
+    name: release msi (per-user + per-machine)
     needs: verify-tag
     runs-on: windows-latest
     timeout-minutes: 45
