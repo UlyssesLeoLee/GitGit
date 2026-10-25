@@ -240,4 +240,27 @@ describe('msi-install — the script is committed and does what the job says', (
         'is the one that was built'
     ).toMatch(/manifest\.json/);
   });
+
+  it('parses as PowerShell', () => {
+    // [FACT] This gate exists because the first version of the script did not
+    // parse, and nothing here noticed: 48 KB of PowerShell with 36 invalid
+    // variable references, every one of them of the form `"$Label: ..."`. In
+    // PowerShell `$Label:` is not a variable reference — the parser reads the
+    // colon as part of the name and stops with "Variable reference is not
+    // valid", so the file was dead on arrival. The CI job caught it in twelve
+    // seconds; nothing local had, because nothing local had RUN it.
+    //
+    // The check is a pattern rather than a parse, because the unit suite must
+    // not require a PowerShell host to run. It targets the one syntactic trap
+    // this script walked into, and the parse itself is the CI job's job.
+    const invalidVariableReferences = [
+      ...scriptCode.matchAll(/"\$[A-Za-z_][A-Za-z0-9_]*:/g),
+    ].map((m) => m[0]);
+
+    expect(
+      invalidVariableReferences,
+      'these are not variable references in PowerShell — the parser reads the colon as part ' +
+        'of the name and the file does not parse at all. Write ${Var}: instead.'
+    ).toEqual([]);
+  });
 });

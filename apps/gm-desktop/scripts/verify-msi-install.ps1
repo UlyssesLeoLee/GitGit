@@ -517,7 +517,7 @@ function Assert-CleanMachine {
     })
     if ($entries.Count -gt 0) {
         $where = ($entries | ForEach-Object { "$($_.Root)\$($_.Leaf)" }) -join ', '
-        throw ("$Label: the machine already has '$ProductName' registered ($where) before this variant was installed. " +
+        throw ("${Label}: the machine already has '$ProductName' registered ($where) before this variant was installed. " +
                "A previous variant's install was not removed, so this variant's install would be measured against it.")
     }
 
@@ -525,7 +525,7 @@ function Assert-CleanMachine {
         $files = @(Get-ChildItem -LiteralPath $ExpectedDir -File -Recurse -ErrorAction SilentlyContinue)
         if ($files.Count -gt 0) {
             $names = ($files | ForEach-Object { $_.FullName }) -join ', '
-            throw ("$Label: '$ExpectedDir' already holds $($files.Count) file(s) before this variant was installed ($names). " +
+            throw ("${Label}: '$ExpectedDir' already holds $($files.Count) file(s) before this variant was installed ($names). " +
                    "The previous variant's files are still there, so this variant's install cannot be told apart from it.")
         }
     }
@@ -546,26 +546,26 @@ function Assert-Installed {
         }
     }
     if (-not $installDir) {
-        throw ("$Label: the package did not record its install directory at '$appKeyPath' (value 'InstallDir'). " +
+        throw ("${Label}: the package did not record its install directory at '$appKeyPath' (value 'InstallDir'). " +
                "A package that installs without registering where it put itself cannot be uninstalled by the user either.")
     }
 
     # --- the payload landed ------------------------------------------------
     $exePath = Join-Path $installDir $ExeName
     if (-not (Test-Path -LiteralPath $exePath)) {
-        throw "$Label: the install reported success but '$exePath' does not exist."
+        throw "${Label}: the install reported success but '$exePath' does not exist."
     }
     $exe = Get-Item -LiteralPath $exePath
     if ($exe.Length -ne $Facts.ExeBytes) {
-        throw ("$Label: the installed '$ExeName' is $($exe.Length) B, but the package's own File table records " +
+        throw ("${Label}: the installed '$ExeName' is $($exe.Length) B, but the package's own File table records " +
                "$($Facts.ExeBytes) B. The install did not put the package's payload on disk.")
     }
     if ($exe.Length -lt 1MB) {
-        throw "$Label: the installed '$ExeName' is only $($exe.Length) B, below the 1 MB floor: it carries no program."
+        throw "${Label}: the installed '$ExeName' is only $($exe.Length) B, below the 1 MB floor: it carries no program."
     }
     $installedHash = (Get-FileHash -LiteralPath $exePath -Algorithm SHA256).Hash.ToLowerInvariant()
     if ($installedHash -ne $Facts.PayloadSha256) {
-        throw ("$Label: the installed '$ExeName' has SHA-256 $installedHash, but the payload the package carries " +
+        throw ("${Label}: the installed '$ExeName' has SHA-256 $installedHash, but the payload the package carries " +
                "has $($Facts.PayloadSha256). The file on disk is not the file the package ships.")
     }
 
@@ -577,7 +577,7 @@ function Assert-Installed {
     if ($licence) {
         $licencePath = Join-Path $installDir $licence
         if (-not (Test-Path -LiteralPath $licencePath)) {
-            throw ("$Label: the package carries '$licence' but the install did not put it next to the executable. " +
+            throw ("${Label}: the package carries '$licence' but the install did not put it next to the executable. " +
                    "AGPL-3.0 section 4 requires a copy of the Licence with every copy of the Program.")
         }
     }
@@ -585,20 +585,20 @@ function Assert-Installed {
     # --- the package is registered ----------------------------------------
     $entries = @(Get-UninstallEntryFor -ProductCode $Facts.ProductCode)
     if ($entries.Count -eq 0) {
-        throw ("$Label: the install reported success but no Add/Remove Programs entry exists for " +
+        throw ("${Label}: the install reported success but no Add/Remove Programs entry exists for " +
                "product code '$($Facts.ProductCode)'. The package is not registered.")
     }
     if ($entries.Count -gt 1) {
-        throw ("$Label: $($entries.Count) Add/Remove Programs entries exist for product code " +
+        throw ("${Label}: $($entries.Count) Add/Remove Programs entries exist for product code " +
                "'$($Facts.ProductCode)': $(($entries | ForEach-Object { $_.Root }) -join ', ').")
     }
     $entry = $entries[0]
     if ($entry.DisplayVersion -ne $Facts.Version) {
-        throw ("$Label: the registered package reports version '$($entry.DisplayVersion)', but the manifest records " +
+        throw ("${Label}: the registered package reports version '$($entry.DisplayVersion)', but the manifest records " +
                "'$($Facts.Version)'.")
     }
     if ($entry.DisplayName -and $entry.DisplayName -ine $Facts.ProductName) {
-        throw ("$Label: the registered package is called '$($entry.DisplayName)', but the package's own ProductName " +
+        throw ("${Label}: the registered package is called '$($entry.DisplayName)', but the package's own ProductName " +
                "is '$($Facts.ProductName)'.")
     }
 
@@ -606,7 +606,7 @@ function Assert-Installed {
     $expectedHive = if ($Facts.Scope -eq 'perUser') { 'HKCU:' } else { 'HKLM:' }
     $otherHive   = if ($Facts.Scope -eq 'perUser') { 'HKLM:' } else { 'HKCU:' }
     if (-not $entry.Root.StartsWith($expectedHive, [System.StringComparison]::OrdinalIgnoreCase)) {
-        throw ("$Label: a $($Facts.Scope) package registered itself under '$($entry.Root)', not under '$expectedHive'. " +
+        throw ("${Label}: a $($Facts.Scope) package registered itself under '$($entry.Root)', not under '$expectedHive'. " +
                "The install took the wrong scope.")
     }
     $otherEntries = @(Get-UninstallEntries | Where-Object {
@@ -614,7 +614,7 @@ function Assert-Installed {
         $_.Root.StartsWith($otherHive, [System.StringComparison]::OrdinalIgnoreCase)
     })
     if ($otherEntries.Count -gt 0) {
-        throw ("$Label: a $($Facts.Scope) package also registered itself under '$otherHive' " +
+        throw ("${Label}: a $($Facts.Scope) package also registered itself under '$otherHive' " +
                "($(($otherEntries | ForEach-Object { $_.Leaf }) -join ', ')). A per-user package that writes machine-wide " +
                "state needs elevation, which is exactly what 'per-user' must not need.")
     }
@@ -623,27 +623,27 @@ function Assert-Installed {
         # The load-bearing property. ALLUSERS=2 would make the package dual
         # purpose and it would fail with error 1925 for an unprivileged user.
         if ($Facts.AllUsers) {
-            throw ("$Label: the perUser package carries ALLUSERS='$($Facts.AllUsers)'. That overrides the scope the " +
+            throw ("${Label}: the perUser package carries ALLUSERS='$($Facts.AllUsers)'. That overrides the scope the " +
                    "package declares and fails with error 1925 in a non-elevated session.")
         }
         $programsRoot = Join-Path $env:LOCALAPPDATA 'Programs'
         if (-not (Test-PathUnder -Path $installDir -Root $programsRoot)) {
-            throw ("$Label: a perUser package installed into '$installDir', which is not under " +
+            throw ("${Label}: a perUser package installed into '$installDir', which is not under " +
                    "'$programsRoot'. A per-user package must install into the user profile.")
         }
         $machineAppKey = "HKLM:\$($Facts.AppRegKey)"
         if (Test-Path -LiteralPath $machineAppKey) {
-            throw ("$Label: a perUser package created the machine-wide key '$machineAppKey'. A per-user install must " +
+            throw ("${Label}: a perUser package created the machine-wide key '$machineAppKey'. A per-user install must " +
                    "not write machine-wide state, because writing it is what requires elevation.")
         }
         $machineDir = Join-Path $env:ProgramFiles $Facts.ProductName
         if (Test-Path -LiteralPath $machineDir) {
-            throw ("$Label: a perUser package created '$machineDir'. The per-machine footprint is exactly what a " +
+            throw ("${Label}: a perUser package created '$machineDir'. The per-machine footprint is exactly what a " +
                    "per-user install must not have.")
         }
     } else {
         if (-not (Test-PathUnder -Path $installDir -Root $env:ProgramFiles)) {
-            throw ("$Label: a perMachine package installed into '$installDir', which is not under " +
+            throw ("${Label}: a perMachine package installed into '$installDir', which is not under " +
                    "'$($env:ProgramFiles)'.")
         }
     }
@@ -651,7 +651,7 @@ function Assert-Installed {
     # --- the job installs; it does not launch the app ---------------------
     $running = @(Get-Process -Name ([System.IO.Path]::GetFileNameWithoutExtension($ExeName)) -ErrorAction SilentlyContinue)
     if ($running.Count -gt 0) {
-        throw ("$Label: '$ExeName' is running after the install. This job installs and uninstalls; it does not start " +
+        throw ("${Label}: '$ExeName' is running after the install. This job installs and uninstalls; it does not start " +
                "the application. The desktop GUI has never been observed running, and a gate that asserts it starts " +
                "would go red for reasons packaging does not control.")
     }
@@ -677,24 +677,24 @@ function Assert-Removed {
 
     $entries = @(Get-UninstallEntryFor -ProductCode $Facts.ProductCode)
     if ($entries.Count -gt 0) {
-        throw ("$Label: the package is still registered after the uninstall ($((($entries | ForEach-Object { $_.Root }) -join ', '))). " +
+        throw ("${Label}: the package is still registered after the uninstall ($((($entries | ForEach-Object { $_.Root }) -join ', '))). " +
                "An installer that does not deregister itself cannot be reinstalled cleanly.")
     }
     if (Test-Path -LiteralPath $ExePath) {
-        throw ("$Label: '$ExePath' still exists after the uninstall. An installer that leaves the program behind is a " +
+        throw ("${Label}: '$ExePath' still exists after the uninstall. An installer that leaves the program behind is a " +
                "defect, and it is the one most likely to be missed.")
     }
     if ($Facts.LicenceName) {
         $licencePath = Join-Path $InstallDir $Facts.LicenceName
         if (Test-Path -LiteralPath $licencePath) {
-            throw ("$Label: '$licencePath' still exists after the uninstall.")
+            throw ("${Label}: '$licencePath' still exists after the uninstall.")
         }
     }
     if (Test-Path -LiteralPath $InstallDir) {
         $files = @(Get-ChildItem -LiteralPath $InstallDir -File -Recurse -ErrorAction SilentlyContinue)
         if ($files.Count -gt 0) {
             $names = ($files | ForEach-Object { $_.FullName }) -join ', '
-            throw ("$Label: '$InstallDir' still holds $($files.Count) file(s) after the uninstall: $names.")
+            throw ("${Label}: '$InstallDir' still holds $($files.Count) file(s) after the uninstall: $names.")
         }
     }
 }
@@ -735,17 +735,17 @@ try {
 
         $msiPath = Join-Path $Dir $v.file
         if (-not (Test-Path -LiteralPath $msiPath)) {
-            throw "$label: the manifest lists '$($v.file)' but it is not in '$Dir'. The artifact under test would not be the one that was built."
+            throw "${label}: the manifest lists '$($v.file)' but it is not in '$Dir'. The artifact under test would not be the one that was built."
         }
 
         # --- the artefact under test is the one that was built ------------
         $item = Get-Item -LiteralPath $msiPath
         if ($item.Length -ne [long]$v.bytes) {
-            throw "$label: '$($v.file)' is $($item.Length) B on disk but the manifest records $($v.bytes) B."
+            throw "${label}: '$($v.file)' is $($item.Length) B on disk but the manifest records $($v.bytes) B."
         }
         $hash = (Get-FileHash -LiteralPath $msiPath -Algorithm SHA256).Hash.ToLowerInvariant()
         if ($hash -ne $v.sha256) {
-            throw "$label: '$($v.file)' has SHA-256 $hash but the manifest records $($v.sha256)."
+            throw "${label}: '$($v.file)' has SHA-256 $hash but the manifest records $($v.sha256)."
         }
         Write-Ok "artefact matches the manifest ($($item.Length) B, sha256:$($hash.Substring(0, 16))...)"
 
@@ -754,21 +754,21 @@ try {
         $productName = Get-MsiProperty -Path $msiPath -Name 'ProductName'
         $productVersion = Get-MsiProperty -Path $msiPath -Name 'ProductVersion'
         $allUsers = Get-MsiProperty -Path $msiPath -Name 'ALLUSERS'
-        if (-not $productCode) { throw "$label: the package carries no ProductCode property." }
-        if (-not $productVersion) { throw "$label: the package carries no ProductVersion property." }
+        if (-not $productCode) { throw "${label}: the package carries no ProductCode property." }
+        if (-not $productVersion) { throw "${label}: the package carries no ProductVersion property." }
         if ($productVersion -ne $manifest.version) {
-            throw "$label: the package's ProductVersion is '$productVersion' but the manifest records '$($manifest.version)'."
+            throw "${label}: the package's ProductVersion is '$productVersion' but the manifest records '$($manifest.version)'."
         }
 
         $chain = Get-MsiInstallDirChain -Path $msiPath
         $expectedDir = Get-ExpectedInstallDir -Path $msiPath
         $appReg = Get-MsiRegistryKeyFor -Path $msiPath -ValueName 'InstallDir'
         if ($null -eq $appReg) {
-            throw "$label: the package's Registry table records no 'InstallDir' value, so the install cannot be located."
+            throw "${label}: the package's Registry table records no 'InstallDir' value, so the install cannot be located."
         }
         $exeRow = Get-MsiFileRow -Path $msiPath -FileName $ExeName
         if ($null -eq $exeRow) {
-            throw "$label: the package's File table has no '$ExeName' row."
+            throw "${label}: the package's File table has no '$ExeName' row."
         }
         $fileNames = @(Get-MsiFileNames -Path $msiPath)
         Write-Host "    package  : product $($productCode), version $($productVersion), scope $($v.scope)"
@@ -789,7 +789,7 @@ try {
         $run = Invoke-MsiExec -Arguments @('/i', "`"$msiPath`"", '/qn', '/norestart') -LogPath $installLog
         if ($run.ExitCode -ne 0) {
             $tail = (Get-Content -LiteralPath $installLog -Tail 12 -ErrorAction SilentlyContinue) -join ' | '
-            throw "$label: msiexec /i exited $($run.ExitCode). Log tail: $tail"
+            throw "${label}: msiexec /i exited $($run.ExitCode). Log tail: $tail"
         }
 
         # --- the install is observable, not merely scheduled ----------------
@@ -807,7 +807,7 @@ try {
             return $true
         }
         if (-not $ready) {
-            throw ("$label: msiexec /i exited 0 but the install did not become observable within $TimeoutSeconds s " +
+            throw ("${label}: msiexec /i exited 0 but the install did not become observable within $TimeoutSeconds s " +
                    "(no '$ExeName' under the recorded install directory, or no Add/Remove Programs entry).")
         }
         Write-Ok "installed (msiexec exit 0, payload and registration both observable)"
@@ -833,7 +833,7 @@ try {
         $un = Invoke-MsiExec -Arguments @('/x', "`"$productCode`"", '/qn', '/norestart') -LogPath $uninstallLog
         if ($un.ExitCode -ne 0) {
             $tail = (Get-Content -LiteralPath $uninstallLog -Tail 12 -ErrorAction SilentlyContinue) -join ' | '
-            throw "$label: msiexec /x exited $($un.ExitCode). Log tail: $tail"
+            throw "${label}: msiexec /x exited $($un.ExitCode). Log tail: $tail"
         }
         $gone = Wait-For -TimeoutSeconds $TimeoutSeconds -What 'the uninstall to become observable' -Condition {
             $stillRegistered = @(Get-UninstallEntryFor -ProductCode $productCode).Count -gt 0
@@ -841,7 +841,7 @@ try {
             return (-not $stillRegistered) -and (-not $stillThere)
         }
         if (-not $gone) {
-            throw ("$label: msiexec /x exited 0 but the uninstall did not become observable within $TimeoutSeconds s " +
+            throw ("${label}: msiexec /x exited 0 but the uninstall did not become observable within $TimeoutSeconds s " +
                    "(the registration or the installed file is still there).")
         }
         Assert-Removed -Facts $facts -InstallDir $state.InstallDir -ExePath $state.ExePath -Label $label
