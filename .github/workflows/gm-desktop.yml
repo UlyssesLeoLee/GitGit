@@ -580,14 +580,15 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 30
 
-    # Deliberately NOT claiming that the GUI opens. The desktop application has
-    # never been observed running, and this repository records that as a
-    # deliberate, explained boundary (`.github/CI.md`, `docs/plan/v0-tasks.md`):
-    # a webkit app fails to start on a runner for reasons that have nothing to
-    # do with packaging, and a gate that reddens for those reasons gets
-    # switched off. What is proven here is the part packaging controls — the
-    # package installs on a machine that has nothing but Windows, registers
-    # itself, and removes itself cleanly.
+    # Deliberately NOT claiming that the GUI opens. [FACT] It does — the
+    # `msi-launch` job below starts the packaged application and asserts
+    # that a top-level window appears (measured 2026-10-25: the window is
+    # titled 'gitgit Desktop'). This job stays out of it on purpose: a
+    # webkit app fails to start in a LINUX container for reasons that have
+    # nothing to do with packaging, and a gate that reddens for those
+    # reasons gets switched off. What is proven here is the part packaging
+    # controls — the package installs on a machine that has nothing but
+    # Windows, registers itself, and removes itself cleanly.
     #
     # The boundary is enforced, not just stated: the script asserts that no
     # `gm-desktop.exe` process is running after an install, and the MSI's own

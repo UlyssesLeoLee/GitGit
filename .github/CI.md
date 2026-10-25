@@ -321,6 +321,39 @@ lock 与 `Cargo.toml`（含 `gitgit = { path = "../../.." }` 的按路径依赖�
 > 以复核基线。registry 不可达时 checker **失败退出（exit 2）**而不是通过 ——
 > 「因为什么都没检查到而通过」比没有门禁更糟。
 
+## 打包产物启动证明：`msi-launch`（2026-10-25）
+
+`[FACT]` **Windows 打包产物现在会被真的启动。** 新 job `msi-launch`
+（`.github/workflows/gm-desktop.yml`）装好 `msi` job 产出的**打包后**的包、启动它、
+断言弹出**顶层窗口**，然后停掉进程并卸载。实测 2026-10-25：
+
+```
+ok  installed executable: C:\Program Files\gitgit Desktop\gm-desktop.exe (19164160 B)
+==> started 'C:\Program Files\gitgit Desktop\gm-desktop.exe' (pid 7552); waiting for a window
+ok  the application is running with a window: 'gitgit Desktop'
+--  stopping pid 7552
+ok  uninstalled
+ok  PASS: the packaged application installed, started, presented a window, and was removed
+```
+
+`[FACT]` **它与 `msi-install` 分开，是有意的。** `msi-install` 的契约是
+「四个变体逐个装、断言、卸干净」，**不启动应用**；理由是 **Linux** 容器里
+webkit 应用起不来（无 dbus、无 seat），那是与打包无关的失败，这类门禁最终只会被关掉。
+而 `windows-latest` 有真实桌面、镜像里带 Edge WebView2，所以同一个问题在 Windows
+上可以问——而且问的是**打包后的产物**，比此前所有关于产物的断言（字节对不对、位置
+对不对、包装不装得上）都强一档：装得上却在启动时崩掉的包，此前会满足每一道检查。
+
+`[FACT]` **判据是窗口出现，不是进程起来。** 进程可能起一秒就死，窗口也可能创建了
+却不显示；`MainWindowHandle` 非零才说明进程拥有一个顶层窗口，标题也一并检查。
+
+`[FACT]` **setup 问题一律判失败。** 缺包、找不到可执行名、缺 `msiexec` 都是非零
+退出——「因为什么都没检查到而通过」比没有门禁更糟。
+
+> `[FACT]` **可执行文件名带扩展名。** `Get-ChildItem -Filter` 匹配**整个文件名**，
+> `-Filter 'gm-desktop'` 匹配不到 `gm-desktop.exe`。本 job 第一次 CI 运行就栽在
+> 这里：装成功了、文件就在 Program Files、脚本却说「没找到」——应用一次都没被启动。
+> 现在文件名从 crate 名派生一次（`"$ExeName.exe"`），文件搜索与进程名都从同一个变量取。
+
 ## 触发器定义
 
 > `[FACT]` 2026-10-24 核验：下表逐字段核对自**六个** workflow 的 `on:` 块，不是凭印象写的。
