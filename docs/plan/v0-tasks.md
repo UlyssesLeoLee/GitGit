@@ -364,7 +364,7 @@ T5 (PG/sqlx) ─→ T6 (MinioVault) → T7 (AI provider)
 | pnpm 不可用 | 中 | 低 | 退回 npm 装 Svelte 模板 |
 | WebView2 runtime 缺失 | 低 | 高 | Win 11 默认有；缺则引导装 Edge WebView2 |
 | PG 18.6 新版 sqlx 兼容 | 低 | 中 | sqlx 0.8 已声明支持 PG ≥ 11 |
-| **minIO AGPL-3.0 商业风险** | 中 | 高 | 商业部署需 Enterprise License；V0 阶段 dev/OSS 用 AGPL-3.0 即可，发布前评估 license 切换 (Ceph RGW / SeaweedFS / Garage 等备选) |
+| **minIO AGPL-3.0 商业风险** | 中 | 高 | `[DECIDED 2026-10-25]` **采购 minIO Enterprise License** —— 改动最小，代码不动；本仓自身已按 AGPL-3.0 发布，与一个 AGPL 后端并不冲突。**发布前必须完成采购：未采购即不得对外分发。** 备选（若采购不成）：改用 Ceph RGW / SeaweedFS / Garage，届时要重做凭据管理与版本化逻辑，工作量最大 |
 | **minIO 部署失败 / 网络不可达** | 中 | 高 | docker-compose 部署前先 `docker --version` + `docker compose version` 验证；T11 含网络可达性验证 curl 步骤；失败则降级 FileVault |
 | **minIO 备份缺失** | 中 | 高 | 启用 versioning + 90d lifecycle policy；V1+ 推进跨节点复制（minIO erasure coding 默认 4+2 抗单盘故障） |
 | **minIO root user 凭证管理**（递归引用 vault 自身） | 中 | 中 | minIO root 凭证由 FileVault 启动时引导存（仅 dev 阶段）；V1 推进 KMS / Secret Manager；**禁止把 root 凭证明文写 .env 入仓** |

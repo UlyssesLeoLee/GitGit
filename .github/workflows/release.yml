@@ -46,13 +46,12 @@
 # records a signature. So this file cannot produce an unsigned release, and
 # the only artefact it ships unsigned is the `.dmg`.
 #
-# [TBD] That is in tension with the title the draft-release job still uses,
-# which says "(unsigned draft)". This file does not resolve it: either the
-# title is stale (a certificate-backed release is the only supported
-# outcome), or the enforcement is (an unsigned draft is a supported outcome,
-# loudly labelled). Which of the two is the product is a commercial decision,
-# not an engineering one. The note on the draft-release job records the
-# contradiction in full.
+# [DECIDED 2026-10-25] The title the draft-release job used to carry,
+# "(unsigned draft)", was stale and has been removed. Signing stays
+# required — that is the design — and a certificate-backed release is the
+# only supported outcome; the certificate is being procured. The title
+# described an outcome this file cannot produce, and a release that
+# misdescribes its own artefacts is worse than one that says less.
 #
 # TAGGING RULES, AND WHY THEY ARE ENFORCED
 # =========================================
@@ -981,8 +980,8 @@ jobs:
       # release exists and is inspectable, and nobody outside the
       # repository can reach it until a human publishes it.
       #
-      # [TBD] The title below says "(unsigned draft)" and this workflow
-      # cannot produce an unsigned draft. Both are true at once:
+      # [DECIDED 2026-10-25] The name below used to say "(unsigned draft)",
+      # and this workflow cannot produce an unsigned draft:
       #
       #   * the `msi` job signs with `-Required`, so with no certificate
       #     configured the job is red and NO release is produced at all;
@@ -990,17 +989,13 @@ jobs:
       #     records no signature, and the notice it writes into the body
       #     says "**Signed.**".
       #
-      # So the name advertises an outcome the pipeline cannot reach, and the
-      # body describes one it cannot produce. Which side gives way is not
-      # decided here, because it is not an engineering question:
+      # The name advertised an outcome the pipeline cannot reach. Signing
+      # stays required — that is the design — and the certificate is being
+      # procured, so the name is what gives way: it no longer says
+      # "(unsigned draft)".
       #
-      #   (a) signing is required -> the "(unsigned draft)" name is stale
-      #       and should go;
-      #   (b) signing is optional -> an unsigned draft is a supported
-      #       outcome, loudly labelled, which is what the name implies.
-      #
-      # What IS settled here, and holds under either answer: the release must
-      # not describe itself as something it is not. That is what the
+      # What IS settled here, and holds either way: the release must not
+      # describe itself as something it is not. That is what the
       # manifest-derived notice and the fail-closed check above enforce.
       - name: Create the draft release
         id: draft
@@ -1011,7 +1006,7 @@ jobs:
           # release would have been tagged with a version while its body
           # advertised a branch.
           tag_name: ${{ needs.verify-tag.outputs.tag }}
-          name: 'gitgit Desktop ${{ needs.verify-tag.outputs.version }} (unsigned draft)'
+          name: 'gitgit Desktop ${{ needs.verify-tag.outputs.version }}'
           draft: true
           prerelease: false
           # The Corresponding Source section in the body below is the OTHER

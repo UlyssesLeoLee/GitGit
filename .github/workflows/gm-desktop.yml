@@ -42,6 +42,12 @@ on:
       # `release.yml` would not run the tests that check it, so the gate would
       # only ever fire on a change to the app.
       - '.github/workflows/release.yml'
+      # The desktop unit tests also pin the properties of the always-running
+      # gate workflow - that it exists, that it has no path filter, and that
+      # its job carries the exact name the branch protection requires. Same
+      # reasoning as the line above: without this path, editing the gate
+      # would not run the tests that check the gate.
+      - '.github/workflows/gate.yml'
       # The desktop crate consumes the root crate by path
       # (`gitgit = { path = "../../.." }`), so a change to the root manifest
       # or lockfile can break the `--locked` cargo steps in this workflow.
@@ -66,6 +72,12 @@ on:
       - 'apps/gm-desktop/**'
       - '.github/workflows/gm-desktop.yml'
       - '.github/workflows/release.yml'
+      # The desktop unit tests also pin the properties of the always-running
+      # gate workflow - that it exists, that it has no path filter, and that
+      # its job carries the exact name the branch protection requires. Same
+      # reasoning as the line above: without this path, editing the gate
+      # would not run the tests that check the gate.
+      - '.github/workflows/gate.yml'
       - 'Cargo.toml'
       - 'Cargo.lock'
       - 'scripts/advisory-baseline.json'
