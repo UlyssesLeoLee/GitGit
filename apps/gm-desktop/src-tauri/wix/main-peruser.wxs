@@ -66,6 +66,20 @@
         <!-- reinstall all files; rewrite all registry entries; reinstall all shortcuts -->
         <Property Id="REINSTALLMODE" Value="amus" />
 
+        <!-- Force the per-user scope, whatever the installing user's
+             privileges are. [FACT] `InstallScope="perUser"` on its own
+             does NOT do this: it writes no ALLUSERS property at all,
+             and a package with no ALLUSERS is installed per-MACHINE
+             when the installer has administrative rights and per-user
+             when it does not. Measured on 2026-10-25 on the package
+             this template produces: its Property table holds 21
+             properties and no ALLUSERS, and the SAME package put its
+             files in %LOCALAPPDATA%\Programs for an unelevated user
+             and in C:\Program Files for an elevated one. The
+             per-user variant has to be per-user for an administrator
+             too, which is most Windows users. -->
+        <Property Id="MSIINSTALLPERUSER" Value="1" />
+
         <!-- Auto launch app after installation, useful for passive mode which usually used in updates -->
         <Property Id="AUTOLAUNCHAPP" Secure="yes" />
         <!-- Property to forward cli args to the launched app to not lose those of the pre-update instance -->

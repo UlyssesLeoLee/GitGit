@@ -633,22 +633,15 @@ function Assert-Installed {
     }
 
     # --- the scope the package claims is the scope it took ---------------
-    $expectedHive = if ($Facts.Scope -eq 'perUser') { 'HKCU:' } else { 'HKLM:' }
-    $otherHive   = if ($Facts.Scope -eq 'perUser') { 'HKLM:' } else { 'HKCU:' }
-    if (-not $entry.Root.StartsWith($expectedHive, [System.StringComparison]::OrdinalIgnoreCase)) {
-        throw ("${Label}: a $($Facts.Scope) package registered itself under '$($entry.Root)', not under '$expectedHive'. " +
-               "The install took the wrong scope.")
-    }
-    $otherEntries = @(Get-UninstallEntries | Where-Object {
-        $_.ProductCode -eq ($Facts.ProductCode -replace '^\{|\}$', '') -and
-        $_.Root.StartsWith($otherHive, [System.StringComparison]::OrdinalIgnoreCase)
-    })
-    if ($otherEntries.Count -gt 0) {
-        throw ("${Label}: a $($Facts.Scope) package also registered itself under '$otherHive' " +
-               "($(($otherEntries | ForEach-Object { $_.Leaf }) -join ', ')). A per-user package that writes machine-wide " +
-               "state needs elevation, which is exactly what 'per-user' must not need.")
-    }
-
+    # [FACT] The Add/Remove Programs entry is NOT the oracle for the scope.
+    # Measured on 2026-10-25 on the real per-user package: the ARP entry
+    # was under HKLM in BOTH cases — for an unelevated install (files in
+    # %LOCALAPPDATA%\Programs) and for an elevated one (files in
+    # C:\Program Files). Windows Installer registers the PRODUCT in the
+    # machine-wide installer database either way; what the scope decides is
+    # where the FILES go and which hive the package's OWN keys are written
+    # under. So the oracle is the install directory and the package's own
+    # key, and the per-scope checks below use those.
     if ($Facts.Scope -eq 'perUser') {
         # The load-bearing property. ALLUSERS=2 would make the package dual
         # purpose and it would fail with error 1925 for an unprivileged user.
@@ -656,10 +649,16 @@ function Assert-Installed {
             throw ("${Label}: the perUser package carries ALLUSERS='$($Facts.AllUsers)'. That overrides the scope the " +
                    "package declares and fails with error 1925 in a non-elevated session.")
         }
+        if (-not $appKeyPath.StartsWith('HKCU:', [System.StringComparison]::OrdinalIgnoreCase)) {
+            throw ("${Label}: a perUser package recorded its install directory under '$appKeyPath'. " +
+                   "A per-user package writes its own keys under HKCU; the package's own Registry table says " +
+                   "Root=$($Facts.AppRegRoot).")
+        }
         $programsRoot = Join-Path $env:LOCALAPPDATA 'Programs'
         if (-not (Test-PathUnder -Path $installDir -Root $programsRoot)) {
             throw ("${Label}: a perUser package installed into '$installDir', which is not under " +
-                   "'$programsRoot'. A per-user package must install into the user profile.")
+                   "'$programsRoot'. A per-user package must install into the user profile, and it must do so " +
+                   "whatever the installing user's privileges are.")
         }
         $machineAppKey = "HKLM:\$($Facts.AppRegKey)"
         if (Test-Path -LiteralPath $machineAppKey) {

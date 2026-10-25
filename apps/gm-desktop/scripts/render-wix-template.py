@@ -18,26 +18,38 @@ never depends on running this first, and so a reviewer can read the diff.
 
 THE SIX EDITS
 =============
-1. `InstallScope` on `<Package>`: perMachine -> perUser. This is the
-   setting that makes msiexec refuse an unelevated install with
-   `Error 1925: You do not have sufficient privileges` (return code
-   1603), which is what made the installer untestable in a
-   non-administrator session.
+1. `InstallScope` on `<Package>`: perMachine -> perUser, AND
+   `MSIINSTALLPERUSER=1` is added.
+
+   [FACT] `InstallScope="perUser"` on its own does **not** produce a
+   per-user package. It writes no `ALLUSERS` property at all, and a
+   package with no `ALLUSERS` is installed per-MACHINE when the
+   installing user has administrative rights and per-user when they do
+   not. Measured on 2026-10-25 on the package this template produced:
+   its Property table holds 21 properties and no `ALLUSERS`, and the
+   SAME package put its files in `%LOCALAPPDATA%\\Programs` for an
+   unelevated user and in `C:\\Program Files` for an elevated one.
+
+   `MSIINSTALLPERUSER=1` is the documented way to force a per-user
+   installation regardless of the installing user's privileges, and that
+   is what the second half of this edit adds. Without it the per-user
+   variant is per-user only for the users who cannot install
+   per-machine — which is the opposite of who needs it.
 
    Do NOT also add an explicit `<Property Id="ALLUSERS" Value="2"/>`.
    That is the single most misleading part of this whole exercise and
    it was tried here first, from several blog posts that recommend it.
    `ALLUSERS=2` does not mean "per user"; it means "dual purpose, let
-   the installer decide at run time based on the user's privileges".
-   Adding it on top of `InstallScope="perUser"` overrides the scope WiX
-   already wrote, and on a non-elevated session the system then picks
-   per-machine - so the package installs as per-user in some respects
-   and still fails at `InstallFinalize` with Error 1925 in others. A
-   pure per-user package wants `ALLUSERS` to be the empty string, which
-   WiX expresses through `InstallScope` and refuses to let you spell as
-   a `Property` (`CNDL0006: The Property/@Value attribute's value cannot
-   be an empty string`). The absence of an explicit ALLUSERS property
-   here is load-bearing; do not "helpfully" add one.
+   the installer decide at run time based on the user's privileges" —
+   which is exactly the behaviour `MSIINSTALLPERUSER=1` exists to
+   remove. Adding it on top of `InstallScope="perUser"` overrides the
+   scope WiX already wrote, and on a non-elevated session the system
+   then picks per-machine - so the package installs as per-user in some
+   respects and still fails at `InstallFinalize` with Error 1925 in
+   others. WiX also refuses to let you spell an empty `ALLUSERS` as a
+   `Property` (`CNDL0006: The Property/@Value attribute's value cannot
+   be an empty string`), and it is `MSIINSTALLPERUSER` that expresses
+   the empty-`ALLUSERS` intent.
 
 2. The install directory moves from `ProgramFiles[64]Folder` to
    `LocalAppDataFolder\\Programs`. A per-machine package writing to
@@ -125,6 +137,25 @@ EDITS = [
         "InstallScope: perMachine -> perUser",
         '                 InstallScope="perMachine"\n',
         '                 InstallScope="perUser"\n',
+    ),
+    (
+        "force the per-user scope: MSIINSTALLPERUSER=1",
+        '        <Property Id="REINSTALLMODE" Value="amus" />\n',
+        '        <Property Id="REINSTALLMODE" Value="amus" />\n'
+        "\n"
+        "        <!-- Force the per-user scope, whatever the installing user's\n"
+        "             privileges are. [FACT] `InstallScope=\"perUser\"` on its own\n"
+        "             does NOT do this: it writes no ALLUSERS property at all,\n"
+        "             and a package with no ALLUSERS is installed per-MACHINE\n"
+        "             when the installer has administrative rights and per-user\n"
+        "             when it does not. Measured on 2026-10-25 on the package\n"
+        "             this template produces: its Property table holds 21\n"
+        "             properties and no ALLUSERS, and the SAME package put its\n"
+        "             files in %LOCALAPPDATA%\\Programs for an unelevated user\n"
+        "             and in C:\\Program Files for an elevated one. The\n"
+        "             per-user variant has to be per-user for an administrator\n"
+        "             too, which is most Windows users. -->\n"
+        '        <Property Id="MSIINSTALLPERUSER" Value="1" />\n',
     ),
     (
         "install directory: Program Files -> %LOCALAPPDATA%\\Programs",

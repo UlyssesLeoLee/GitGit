@@ -53,6 +53,15 @@ const WORKFLOW = join(REPO_ROOT, '.github', 'workflows', 'gm-desktop.yml');
 const SCRIPT = join(REPO_ROOT, 'apps', 'gm-desktop', 'scripts', 'verify-msi-install.ps1');
 /** The MSI gate that has run in CI since 2026-10-05. */
 const LEGACY_SCRIPT = join(REPO_ROOT, 'apps', 'gm-desktop', 'scripts', 'verify-msi.ps1');
+/** The generated per-user WiX template. */
+const PER_USER_TEMPLATE = join(
+  REPO_ROOT,
+  'apps',
+  'gm-desktop',
+  'src-tauri',
+  'wix',
+  'main-peruser.wxs'
+);
 
 type Step = {
   name?: string;
@@ -224,6 +233,32 @@ describe('msi-install — the script is committed and does what the job says', (
       jobRuns,
       'the job launches the application, which this repository deliberately does not do'
     ).not.toMatch(/gm-desktop\.exe/);
+  });
+
+  it('the per-user template forces the per-user scope', () => {
+    // [FACT] `InstallScope="perUser"` on `<Package>` does NOT produce a
+    // per-user package. It writes no `ALLUSERS` property at all, and a
+    // package with no `ALLUSERS` is installed per-MACHINE when the
+    // installing user has administrative rights and per-user when they do
+    // not. Measured on 2026-10-25 on the package the template produced: its
+    // Property table holds 21 properties and no `ALLUSERS`, and the SAME
+    // package put its files in `%LOCALAPPDATA%\Programs` for an unelevated
+    // user and in `C:\Program Files` for an elevated one.
+    //
+    // `MSIINSTALLPERUSER=1` is what forces the scope regardless of the
+    // installing user's privileges, so the per-user template has to carry
+    // it. Without this, the "per-user" variant is per-user only for the
+    // users who cannot install per-machine — the opposite of who needs it.
+    const template = existsSync(PER_USER_TEMPLATE)
+      ? readFileSync(PER_USER_TEMPLATE, 'utf8')
+      : '';
+
+    expect(template, 'the per-user WiX template was not found').not.toEqual('');
+    expect(
+      template,
+      'the per-user template must carry MSIINSTALLPERUSER=1 — without it the package is ' +
+        'per-machine for any administrator'
+    ).toMatch(/<Property\s+Id="MSIINSTALLPERUSER"\s+Value="1"\s*\/>/);
   });
 
   it('extracts each variant into its own directory', () => {
