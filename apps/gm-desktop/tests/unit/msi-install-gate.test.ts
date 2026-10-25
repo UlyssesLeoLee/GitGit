@@ -226,6 +226,30 @@ describe('msi-install — the script is committed and does what the job says', (
     ).not.toMatch(/gm-desktop\.exe/);
   });
 
+  it('extracts each variant into its own directory', () => {
+    // [FACT] The fourth CI run of this job failed on the third variant with
+    // "administrative extraction ... yielded 2 'gm-desktop.exe' file(s);
+    // expected exactly 1", because every variant extracted into the SAME
+    // `extract` directory and the first variant's payload was still there.
+    //
+    // That is the very defect this script exists to catch in an INSTALLER —
+    // a previous variant's artefacts making the next variant's measurement
+    // look like it succeeded — and it was in the measuring instrument
+    // instead. The extraction target therefore has to be unique per call.
+    const extractor = /function\s+Get-ExtractedPayload[\s\S]*?\n}/.exec(scriptCode)?.[0] ?? '';
+
+    expect(
+      extractor,
+      'the extraction helper was not found in the script, so this gate is checking nothing'
+    ).not.toEqual('');
+
+    expect(
+      extractor,
+      'the extraction target must be unique per call — a shared directory lets one ' +
+        "variant's payload satisfy the next variant's measurement"
+    ).toMatch(/NewGuid\(\)/);
+  });
+
   it('reads the long file name out of the File table, not the generated short one', () => {
     // [FACT] The File table's FileName column is a SHORT|LONG pair when the
     // file has a generated short name — WiX gives files with long names an

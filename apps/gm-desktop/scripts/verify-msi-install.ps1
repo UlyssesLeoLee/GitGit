@@ -491,7 +491,18 @@ function Get-ExtractedPayload {
         [Parameter(Mandatory)][string]$ExeName,
         [Parameter(Mandatory)][string]$WorkDir
     )
-    $target = Join-Path $WorkDir 'extract'
+    # The extraction target is PER CALL, not per script run.
+    #
+    # [FACT] The fourth CI run of this job failed on the third variant with
+    # "administrative extraction ... yielded 2 'gm-desktop.exe' file(s);
+    # expected exactly 1" — because every variant extracted into the SAME
+    # `extract` directory, so the first variant's payload was still sitting
+    # there when the third variant extracted into it.
+    #
+    # That is the very defect this script exists to catch in an INSTALLER: a
+    # previous variant's artefacts making the next variant's measurement look
+    # like it succeeded. It was in the measuring instrument instead.
+    $target = Join-Path $WorkDir ('extract-' + [guid]::NewGuid().ToString('N'))
     New-Item -ItemType Directory -Path $target -Force | Out-Null
     $log = Join-Path $WorkDir 'extract.log'
     $run = Invoke-MsiExec -Arguments @('/a', "`"$MsiPath`"", '/qn', "TARGETDIR=`"$target`"") -LogPath $log
