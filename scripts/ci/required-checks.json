@@ -1,19 +1,28 @@
 {
-  "$comment": "GitGit required status-check contexts — the JOB NAMES that the branch protection is expected to require. GitHub reports a check under a job's `name:`, so these strings are the context strings: changing one of them here without changing the protection leaves the protection requiring a check that is never reported, which is the same deadlock as a path-filtered workflow, one string away. The names below are the EXISTING job names, character for character, which is why adding them to the branch protection cannot silently miss. The deep-gate refactor (docs/plan/deep-gate-enforcement.md) moved the path filter from the workflow level into the jobs, so these jobs now report on EVERY pull request — a job skipped by its own `if:` condition is reported as 'Success', which satisfies a required check, whereas a workflow that never starts reports nothing and leaves the check Pending forever. NOT ENFORCED YET: as of this commit the GitHub branch protection still requires only `repo gate (always runs)`. This file is the declared list, not the enforcement.",
+  "$comment": "GitGit required status-check contexts — the JOB NAMES that the branch protection is expected to require. GitHub reports a check under a job's `name:`, so these strings are the context strings: changing one of them here without changing the protection leaves the protection requiring a check that is never reported, which is the same deadlock as a path-filtered workflow, one string away. The names below are the EXISTING job names, character for character, which is why adding them to the branch protection cannot silently miss. The deep-gate refactor (docs/plan/deep-gate-enforcement.md) moved the path filter from the workflow level into the jobs in ALL FIVE workflows, so these jobs now report on EVERY pull request — a job skipped by its own `if:` condition is reported as 'Success', which satisfies a required check, whereas a workflow that never starts reports nothing and leaves the check Pending forever. PARTLY ENFORCED: the branch protection on GitHub requires `repo gate (always runs)` plus the five contexts of rust-backend.yml, gm-console.yml and frontend-audit.yml; the nine desktop and packaging contexts below are DECLARED but NOT YET REQUIRED. The notes below say which is which, so this file never claims more than is true.",
   "schemaVersion": "1.0",
   "declaredAt": "2026-10-25",
-  "owner": "ci/deep-gate-enforcement (lane L1-a)",
+  "owner": "ci/deep-gate-enforcement (lanes L1-a and L1-b)",
   "notes": {
-    "enforcedOnGitHub": false,
-    "enforcementNote": "[FACT] The branch protection on GitHub is NOT changed by this commit. It still requires only `repo gate (always runs)`. Turning the contexts below into required checks is a separate, deliberate step, and it has to be verified empirically on GitHub afterwards with a real pull request (a docs-only one must show all five contexts green, and one that touches src/** must show the Rust gates actually running).",
-    "laneScope": "[FACT] These five contexts are the ones lane L1-a owns: the three rust-backend.yml jobs, the one gm-console.yml job, and the one frontend-audit.yml job. gm-desktop.yml and gm-desktop-bundle.yml still carry workflow-level path filters and are lane L1-b; their job names are deliberately NOT listed here, because listing a context whose workflow is still path-filtered would put the branch protection back into the Pending-forever deadlock.",
-    "verification": "[UNVERIFIED-FACT] GitHub's path-matching component is not open source, so the local equivalence between scripts/ci/changed-areas.ps1 and GitHub's own `paths:` semantics is an inference, not a fact. The real verification is the empirical pull-request check described above."
+    "enforcedOnGitHub": true,
+    "enforcementNote": "[FACT] The GitHub branch protection DOES now require more than the one always-running gate. `dev` and `main` require `repo gate (always runs)` plus the five contexts of rust-backend.yml, gm-console.yml and frontend-audit.yml — the five that lane L1-a declared. That change was measured on PR #60 and PR #61: a pull request that touches none of the frontend files still reported `frontend dependency advisories (npm ratchet)`, in 15 seconds, where before the change the workflow would not have started at all and the check would have stayed Pending for ever. [FACT] The nine contexts lane L1-b adds — the three gm-desktop.yml jobs and the four gm-desktop-bundle.yml jobs — are DECLARED here but NOT YET required by the protection. Requiring them is a separate, deliberate step, and it has to be verified empirically on GitHub afterwards with a real pull request: a docs-only one must show all fourteen contexts green and not Pending, and one that touches src/** must show the Rust gates actually running.",
+    "laneScope": "[FACT] These fourteen contexts are the job names of all five gated areas. Lane L1-a owns the three rust-backend.yml jobs, the one gm-console.yml job and the one frontend-audit.yml job — the five that are required by the protection today. Lane L1-b owns the three gm-desktop.yml jobs and the four gm-desktop-bundle.yml jobs — the nine that are declared here and not yet required. [FACT] All five workflows have now moved their path filter out of the workflow and into the jobs, so every one of these fourteen jobs reports on EVERY pull request. [FACT] Five of the release.yml jobs used to carry the same display names as their pull-request counterparts; the release side now carries a `release ` prefix, so each of the fourteen names below is the name of exactly ONE job across every workflow file — which is what apps/gm-desktop/tests/unit/workflow-gate.test.ts asserts.",
+    "verification": "[UNVERIFIED-FACT] GitHub's path-matching component is not open source, so the local equivalence between scripts/ci/changed-areas.ps1 and GitHub's own `paths:` semantics is an inference, not a fact. The real verification is the empirical pull-request check described above. [UNVERIFIED-FACT] YAML that parses is not YAML GitHub accepts: the workflow parser is GitHub's own, so it is verified by a pull request and not by a test."
   },
   "contexts": [
     "fmt + clippy + test",
     "dependency audit (RUSTSEC)",
     "ST + IT regression (real git over HTTP)",
     "typecheck + lint + test + build",
-    "frontend dependency advisories (npm ratchet)"
+    "frontend dependency advisories (npm ratchet)",
+    "cargo audit (tauri crate)",
+    "lint + check + test + build + cargo check",
+    "msi (per-user + per-machine)",
+    "msi installs and removes itself on a stock Windows machine",
+    "the packaged application starts and presents a window",
+    "dmg (unsigned, ad-hoc app)",
+    "deb (unsigned)",
+    "deb installs and links on a stock Ubuntu",
+    "appimage (unsigned)"
   ]
 }

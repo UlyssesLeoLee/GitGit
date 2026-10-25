@@ -17,7 +17,9 @@
  *     re-open it;
  *   * a `needs:` chain is the subtler version of the same trap: a job that
  *     needs another one is SKIPPED when that one is skipped, and a skipped
- *     job reports "Success";
+ *     job reports "Success" — so every job a required context needs must
+ *     itself be a required context, or a red dependency turns into a green
+ *     required check;
  *   * a changed area pattern silently changes WHAT a gate covers, and the
  *     gate keeps reporting — it just stops covering the thing it was
  *     covering.
@@ -32,15 +34,17 @@
  *
  * ## Scope
  *
- * These cases cover lane L1-a: the three rust-backend.yml jobs, the one
- * gm-console.yml job and the one frontend-audit.yml job — the five contexts
- * `scripts/ci/required-checks.json` declares. `gm-desktop.yml` and
- * `gm-desktop-bundle.yml` are lane L1-b: their `msi` / `msi-launch` jobs
- * were only stabilised in PR #57 on 2026-10-25, they still carry
- * workflow-level path filters, and their `msi-install` / `msi-launch` jobs
- * carry `needs: msi` ON PURPOSE. Asserting "no `needs:`" over the whole
- * repository would be wrong, and asserting it over the wrong set would be
- * worse.
+ * These cases cover all five gated workflows and all fourteen contexts
+ * `scripts/ci/required-checks.json` declares: the three rust-backend.yml
+ * jobs, the one gm-console.yml job, the one frontend-audit.yml job, the
+ * three gm-desktop.yml jobs and the four gm-desktop-bundle.yml jobs.
+ *
+ * Three of those fourteen are CONSUMER jobs — `msi-install`, `msi-launch`
+ * and `deb-install` — and they carry `needs:` ON PURPOSE: they test the
+ * artefact the producer job built, not the source it was built from. So the
+ * rule below is not "no `needs:`" — that would be wrong for them — but the
+ * stronger one that does fit them: every job a required context needs must
+ * itself be a required context.
  */
 import { describe, expect, it } from 'vitest';
 import { spawnSync } from 'node:child_process';
@@ -83,6 +87,7 @@ type Job = {
   name?: string;
   needs?: string | string[];
   'if'?: string;
+  outputs?: Record<string, string>;
   steps?: Step[];
 };
 
@@ -117,7 +122,19 @@ const requiredChecks = JSON.parse(readFileSync(REQUIRED_CHECKS, 'utf8')) as {
 const CONTEXTS = requiredChecks.contexts;
 
 /**
- * Which area each L1-a workflow's jobs belong to.
+ * The job keys a job needs, as a list.
+ *
+ * [FACT] `needs:` is either one key or a list of them, and the assertions
+ * below read both shapes the same way.
+ */
+function needsList(job: Job): string[] {
+  const needs = job.needs;
+  if (needs === undefined) return [];
+  return Array.isArray(needs) ? needs : [needs];
+}
+
+/**
+ * Which area each gated workflow's jobs belong to.
  *
  * [FACT] The area keys are the ones `scripts/ci/changed-areas.ps1` emits, and
  * they are the ones the workflows' `if:` conditions read.
@@ -126,6 +143,8 @@ const AREA_BY_WORKFLOW: Record<string, string> = {
   'rust-backend.yml': 'rust_backend',
   'gm-console.yml': 'gm_console',
   'frontend-audit.yml': 'frontend_audit',
+  'gm-desktop.yml': 'gm_desktop',
+  'gm-desktop-bundle.yml': 'gm_desktop_bundle',
 };
 
 /**
@@ -241,33 +260,87 @@ describe('the workflows that own a required context', () => {
     }
   });
 
-  it('do not depend on another job, because a skipped dependency skips the dependent', () => {
-    // [FACT] Scope: lane L1-a's contexts only. `gm-desktop.yml`'s
-    // `msi-install` and `msi-launch` jobs carry `needs: msi` on purpose and
-    // belong to lane L1-b; they are not in CONTEXTS, so this assertion does
-    // not reach them.
+  it('a required context that needs a job needs a REQUIRED context', () => {
+    // [FACT] This replaces an earlier rule that said a required context must
+    // not sit in a `needs:` chain at all. That rule was wrong for the three
+    // consumer jobs (`msi-install`, `msi-launch`, `deb-install`), which carry
+    // `needs:` on purpose because they test the artefact the producer built.
+    //
+    // [FACT] The rule that does hold is this one, and it is STRONGER: if a
+    // required context has `needs:`, then every job it needs must itself be
+    // a required context.
+    //
+    // [INFERENCE] This is exactly what closes the hole the old rule was
+    // reaching for. A job whose dependency is skipped is itself skipped, and
+    // a skipped job reports "Success" — so a red dependency would turn into a
+    // green required check and let the merge through. With this rule the
+    // dependency is itself a required check: it is red on its own account and
+    // blocks the merge by itself, and the dependent's own colour is then
+    // irrelevant.
+    //
+    // [FACT] GitHub's documentation, "Using jobs in a workflow", states the
+    // dependency rule this rests on: "If a job fails or is skipped, all jobs
+    // that need it are skipped unless the jobs use a conditional expression
+    // that causes the job to continue."
     for (const context of CONTEXTS) {
       const owner = allJobs.find((entry) => entry.job.name === context);
       expect(owner, `no job is named "${context}"`).toBeDefined();
 
-      expect(
-        owner!.job.needs,
-        `${owner!.file}:${owner!.key} carries a needs: chain. A job whose dependency is skipped is itself skipped, and a skipped job reports "Success" — so a red dependency becomes a green required check.`
-      ).toBeUndefined();
+      for (const dependency of needsList(owner!.job)) {
+        const upstream = allJobs.find((entry) => entry.file === owner!.file && entry.key === dependency);
+        expect(
+          upstream,
+          `${owner!.file}:${owner!.key} needs "${dependency}", which is not a job in that workflow`
+        ).toBeDefined();
+
+        expect(
+          CONTEXTS,
+          `${owner!.file}:${owner!.key} is the required context "${context}" and it needs ${owner!.file}:${dependency}, whose name is "${upstream!.job.name}". That dependency is not a required context, so when it fails this job is SKIPPED — and a skipped job reports "Success", which turns a red dependency into a green required check and lets the merge through. Every job a required context needs must itself be a required context.`
+        ).toContain(upstream!.job.name);
+      }
     }
   });
 });
 
 describe('the deep gates inside the required jobs', () => {
+  /**
+   * Is this required context a CONSUMER job?
+   *
+   * [FACT] A consumer job is one that carries `needs:` — it tests the
+   * artefact another job produced. Three of the fourteen contexts are
+   * consumers: `msi-install` and `msi-launch` (which need `msi`) and
+   * `deb-install` (which needs `deb`).
+   *
+   * [FACT] A consumer job carries NO detection step and NO area condition on
+   * its steps, and that is deliberate. The area decision belongs to the
+   * producer it needs: the producer is the job that reads the changed-file
+   * set and decides whether the area applies at all, and a consumer that
+   * re-decided the area for itself would be a second place where the
+   * decision is made — and the two could disagree.
+   *
+   * [FACT] The consumer is skipped as a WHOLE, by a job-level `if:` that
+   * requires the producer's published area decision. It is NOT skipped by
+   * its `needs:` — see the assertion below for why that distinction is the
+   * whole point.
+   */
+  function isConsumer(job: Job): boolean {
+    return job.needs !== undefined;
+  }
+
   it('carry the area condition on every step that does the work', () => {
     for (const context of CONTEXTS) {
       const owner = allJobs.find((entry) => entry.job.name === context);
       expect(owner, `no job is named "${context}"`).toBeDefined();
 
+      if (isConsumer(owner!.job)) {
+        // A consumer job is not conditioned on the area; see `isConsumer`.
+        continue;
+      }
+
       const area = AREA_BY_WORKFLOW[owner!.file];
       expect(
         area,
-        `${owner!.file} owns the required context "${context}" but is not one of the lane L1-a workflows, so this file does not know which area it belongs to`
+        `${owner!.file} owns the required context "${context}" but is not one of the five gated workflows, so this file does not know which area it belongs to`
       ).toBeDefined();
 
       const condition = `steps.detect.outputs.${area} == 'true'`;
@@ -276,12 +349,22 @@ describe('the deep gates inside the required jobs', () => {
         const uses = step.uses ?? '';
         const isCheckout = uses.startsWith('actions/checkout@');
         const isDetection = step.id === 'detect' || step.name === 'Detect changed areas';
-        // [FACT] A step whose own condition is `always()` is a diagnostic
-        // upload: it exists to hand over logs or reports from a step that
-        // FAILED, and it carries `if-no-files-found: warn`, so it cannot turn
-        // the job red. Adding the area condition to it would remove the
-        // artefact of exactly the failure it was uploaded for.
-        const isDiagnosticUpload = (step.if ?? '').trim() === 'always()';
+        // [FACT] A step whose own condition is `always()` or `failure()` is a
+        // DIAGNOSTIC upload: it exists to hand over the logs, the reports or
+        // the build directory of a step that FAILED, and it carries
+        // `if-no-files-found: warn` (or `ignore`), so it cannot turn the job
+        // red. Adding the area condition to it would remove the artefact of
+        // exactly the failure it was uploaded for.
+        //
+        // [FACT] The exemption is limited to uploads. A step that does the
+        // work and happens to carry `always()` or `failure()` is still a
+        // step that does the work, and conditioning it is what keeps the
+        // gate from running when it does not apply.
+        const isDiagnosticUpload = (() => {
+          const own = (step.if ?? '').trim();
+          if (own !== 'always()' && own !== 'failure()') return false;
+          return uses.startsWith('actions/upload-artifact@');
+        })();
 
         if (isCheckout || isDetection || isDiagnosticUpload) {
           continue;
@@ -296,6 +379,105 @@ describe('the deep gates inside the required jobs', () => {
           step.if,
           `${owner!.file}:${owner!.key} — the step "${step.name ?? uses}" is not conditioned on the area. It must carry \`${condition}\`, or the gate runs when it does not apply and skips when it does.`
         ).toContain(condition);
+      }
+    }
+  });
+
+  it('a consumer job has no detection step of its own', () => {
+    // [FACT] The counterpart of the rule above: a consumer job must not
+    // carry a detection step. If it did, it would be deciding the area a
+    // second time, in a job whose whole purpose is to test what another job
+    // produced — and the two decisions could disagree, which is the class of
+    // defect this file exists to make loud.
+    for (const context of CONTEXTS) {
+      const owner = allJobs.find((entry) => entry.job.name === context);
+      expect(owner, `no job is named "${context}"`).toBeDefined();
+
+      if (!isConsumer(owner!.job)) continue;
+
+      const hasDetection = (owner!.job.steps ?? []).some(
+        (step) => step.id === 'detect' || step.name === 'Detect changed areas'
+      );
+
+      expect(
+        hasDetection,
+        `${owner!.file}:${owner!.key} is the consumer of another job's artefact and carries a detection step. The area decision belongs to the producer it needs; a second decision here could disagree with it.`
+      ).toBe(false);
+
+      // [INFERENCE] And the corollary, which is a silent failure if it ever
+      // happens: a consumer that carried an area condition on its steps
+      // would be evaluating a `steps.detect.outputs.<area>` that no step in
+      // that job ever sets — so the condition would always be false, every
+      // step would be skipped, and the job would report green while testing
+      // NOTHING. That is exactly the class of green-but-blind gate this
+      // repository has been bitten by before.
+      const area = AREA_BY_WORKFLOW[owner!.file];
+      expect(area, `${owner!.file} is not one of the five gated workflows`).toBeDefined();
+
+      for (const step of owner!.job.steps ?? []) {
+        expect(
+          step.if ?? '',
+          `${owner!.file}:${owner!.key} — the step "${step.name ?? step.uses ?? ''}" carries an area condition, but this job has no detection step to evaluate it. The condition would always be false, every step would be skipped, and the job would report green while testing nothing. The area decision belongs to the producer.`
+        ).not.toContain(`steps.detect.outputs.${area}`);
+      }
+    }
+  });
+
+  it('a consumer job is skipped whole by the producer\'s published area decision', () => {
+    // [FACT] This is the second time in this work that a DOCUMENTED GitHub
+    // behaviour was not what the design assumed, so it is written down here
+    // rather than left in a comment.
+    //
+    // [FACT] The producer is never SKIPPED. When the area does not match, the
+    // producer's steps are individually skipped and the JOB concludes
+    // SUCCESS. GitHub's documentation, "Using jobs in a workflow", says a
+    // dependent job is skipped when the job it needs "fails or is skipped" —
+    // a dependency that merely SUCCEEDS does not skip its dependents.
+    //
+    // [INFERENCE] So a `needs:` chain alone does NOT skip a consumer: the
+    // consumer would run, and then fail on an artefact that was never
+    // uploaded — three red contexts on every pull request that does not
+    // touch the area. The producer therefore publishes the area decision as
+    // a job output, and the consumer's job-level condition requires it. A
+    // job-level `if:` that is false means the job is SKIPPED, and a skipped
+    // job reports "Success" — which is what a required status check needs
+    // when the gate does not apply.
+    for (const context of CONTEXTS) {
+      const owner = allJobs.find((entry) => entry.job.name === context);
+      expect(owner, `no job is named "${context}"`).toBeDefined();
+
+      if (!isConsumer(owner!.job)) continue;
+
+      const condition = owner!.job['if'];
+      expect(
+        condition,
+        `${owner!.file}:${owner!.key} is a consumer job and carries no job-level condition. Its producer is never skipped — it runs, its steps are skipped, and it concludes SUCCESS — so a \`needs:\` chain alone leaves this job to run and then to fail on an artefact that was never uploaded. The consumer must be skipped by a job-level condition that requires the producer's area decision.`
+      ).toBeDefined();
+
+      for (const dependency of needsList(owner!.job)) {
+        const producer = allJobs.find((entry) => entry.file === owner!.file && entry.key === dependency);
+        expect(
+          producer,
+          `${owner!.file}:${owner!.key} needs "${dependency}", which is not a job in that workflow`
+        ).toBeDefined();
+
+        expect(
+          condition!,
+          `${owner!.file}:${owner!.key} must require the producer's published area decision: \`needs.${dependency}.outputs.applies == 'true'\`. Without it the consumer runs on every pull request and fails on an artefact that was never uploaded.`
+        ).toContain(`needs.${dependency}.outputs.applies == 'true'`);
+
+        expect(
+          producer!.job.outputs?.applies,
+          `${owner!.file}:${dependency} publishes no \`applies\` output, so the consumer that requires it cannot be skipped.`
+        ).toBeDefined();
+
+        const area = AREA_BY_WORKFLOW[producer!.file];
+        expect(area, `${producer!.file} is not one of the five gated workflows`).toBeDefined();
+
+        expect(
+          producer!.job.outputs!.applies,
+          `${owner!.file}:${dependency} publishes an \`applies\` output that is not the area flag \`steps.detect.outputs.${area}\`, so it does not say whether the area applies.`
+        ).toContain(`steps.detect.outputs.${area}`);
       }
     }
   });

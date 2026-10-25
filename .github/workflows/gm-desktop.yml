@@ -68,20 +68,23 @@ on:
       - 'scripts/check-advisories.ps1'
   pull_request:
     branches: [dev, main]
-    paths:
-      - 'apps/gm-desktop/**'
-      - '.github/workflows/gm-desktop.yml'
-      - '.github/workflows/release.yml'
-      # The desktop unit tests also pin the properties of the always-running
-      # gate workflow - that it exists, that it has no path filter, and that
-      # its job carries the exact name the branch protection requires. Same
-      # reasoning as the line above: without this path, editing the gate
-      # would not run the tests that check the gate.
-      - '.github/workflows/gate.yml'
-      - 'Cargo.toml'
-      - 'Cargo.lock'
-      - 'scripts/advisory-baseline.json'
-      - 'scripts/check-advisories.ps1'
+    # [FACT] No workflow-level `paths:` filter on the pull_request trigger.
+    #
+    # A workflow-level filter decides whether the WORKFLOW starts at all, and a
+    # workflow that never starts reports nothing: GitHub's own documentation
+    # says a workflow skipped by path filtering leaves its checks in a
+    # "Pending" state, and a required check that is Pending blocks the pull
+    # request for ever. That is why these jobs could never be required status
+    # checks, and why "the desktop gate is red" had no power to stop a merge.
+    #
+    # The filter now lives INSIDE the jobs (see the "Detect changed areas"
+    # step in each of the three jobs below). A job whose `if:` condition is
+    # false is reported as "Success", which satisfies a required check. So
+    # these jobs report on every pull request and run only when they apply.
+    #
+    # The `push` trigger keeps its `paths:` filter: a direct push to a branch
+    # is not a pull request, and paying for the full desktop suite on every
+    # push to dev buys nothing that the pull request does not already buy.
 
 concurrency:
   group: gm-desktop-${{ github.ref }}
@@ -119,11 +122,27 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
+        with:
+          # [FACT] The full history is needed: the detection step diffs the
+          # change set against origin/<base>, and a shallow clone does not
+          # have that merge base.
+          fetch-depth: 0
+
+      # [FACT] The detection step lives INSIDE the job, not in front of the
+      # workflow. If it fails, this job goes red and blocks the merge. If it
+      # were a separate job that the gates depended on, a failed detection
+      # would SKIP the gate, and a skipped job reports "Success" — the exact
+      # deadlock this lane exists to close.
+      - name: Detect changed areas
+        id: detect
+        run: pwsh -NoProfile -File scripts/ci/changed-areas.ps1
 
       - name: Install Rust toolchain
+        if: steps.detect.outputs.gm_desktop == 'true'
         uses: dtolnay/rust-toolchain@1.98.1
 
       - name: Install cargo-audit
+        if: steps.detect.outputs.gm_desktop == 'true'
         # Pinned to the same version `rust-backend.yml` pins, for the same
         # reason: a floating cargo-audit silently changes the rule set, and
         # a security gate whose verdicts drift with the tool's release is
@@ -131,6 +150,7 @@ jobs:
         run: cargo install cargo-audit --locked --version 0.22.2
 
       - name: Audit the Tauri crate's dependencies
+        if: steps.detect.outputs.gm_desktop == 'true'
         # `--file` is the whole point of this job: without it, `cargo audit`
         # in `src-tauri` would still be correct (it reads the nearest
         # manifest), but stating it makes the scope explicit at the point
@@ -156,6 +176,7 @@ jobs:
           fi
 
       - name: Advisory ratchet (baseline)
+        if: steps.detect.outputs.gm_desktop == 'true'
         # The step above is the plain gate and it is untouched: `cargo audit`
         # still runs as-is and still fails on vulnerabilities. What it does
         # NOT do is fail on anything else — cargo-audit exits 0 when the only
@@ -191,6 +212,28 @@ jobs:
         working-directory: apps/gm-desktop
     steps:
       - uses: actions/checkout@v4
+        with:
+          # [FACT] The full history is needed: the detection step diffs the
+          # change set against origin/<base>, and a shallow clone does not
+          # have that merge base.
+          fetch-depth: 0
+
+      # [FACT] The detection step lives INSIDE the job, not in front of the
+      # workflow. If it fails, this job goes red and blocks the merge. If it
+      # were a separate job that the gates depended on, a failed detection
+      # would SKIP the gate, and a skipped job reports "Success" — the exact
+      # deadlock this lane exists to close.
+      #
+      # [FACT] `working-directory` is set here because this job carries a
+      # job-level `defaults.run.working-directory: apps/gm-desktop`, and the
+      # script lives at the REPOSITORY root. Without this line the step would
+      # look for `apps/gm-desktop/scripts/ci/changed-areas.ps1`, fail, and turn
+      # the job red on every pull request — including the ones this lane
+      # exists to make reportable.
+      - name: Detect changed areas
+        id: detect
+        working-directory: ${{ github.workspace }}
+        run: pwsh -NoProfile -File scripts/ci/changed-areas.ps1
 
       # pnpm MUST be installed before setup-node. With `cache: 'pnpm'`,
       # setup-node shells out to `pnpm store path` to resolve the cache
@@ -198,6 +241,7 @@ jobs:
       # is the same ordering bug that used to keep gm-console red — see the
       # comment in gm-console.yml.
       - name: Install pnpm
+        if: steps.detect.outputs.gm_desktop == 'true'
         uses: pnpm/action-setup@v4
         with:
           version: 9
@@ -205,6 +249,7 @@ jobs:
       # Node 22, not 20: Node 20 ("Iron") reached EOL on 2026-04-30, and
       # `@testing-library/jest-dom@6.x` declares `engines.node: ">=22"`.
       - name: Set up Node.js
+        if: steps.detect.outputs.gm_desktop == 'true'
         uses: actions/setup-node@v4
         with:
           node-version: '22'
@@ -212,15 +257,19 @@ jobs:
           cache-dependency-path: apps/gm-desktop/pnpm-lock.yaml
 
       - name: Install dependencies
+        if: steps.detect.outputs.gm_desktop == 'true'
         run: pnpm install --frozen-lockfile
 
       - name: Lint
+        if: steps.detect.outputs.gm_desktop == 'true'
         run: pnpm lint
 
       - name: Svelte check
+        if: steps.detect.outputs.gm_desktop == 'true'
         run: pnpm check
 
       - name: Unit tests
+        if: steps.detect.outputs.gm_desktop == 'true'
         run: pnpm test
 
       # The thresholds in `vite.config.ts` were declared for a long time
@@ -248,6 +297,7 @@ jobs:
       # conditions it will actually run in. Measured locally by forcing
       # `CI=true` and colour on.
       - name: Coverage gate
+        if: steps.detect.outputs.gm_desktop == 'true'
         run: |
           # `[FACT]` `set -o pipefail` is load-bearing, not hygiene.
           # GitHub Actions runs a `run:` block as `bash -e {0}` — `-e`
@@ -334,11 +384,13 @@ jobs:
           echo "coverage gate: $expected/$reported test files accounted for"
 
       - name: Build
+        if: steps.detect.outputs.gm_desktop == 'true'
         run: pnpm build
 
       # NOTE: no `working-directory` here — that key is only valid on `run:`
       # steps, and the job-level default already points at apps/gm-desktop.
       - name: Install Rust toolchain
+        if: steps.detect.outputs.gm_desktop == 'true'
         uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
@@ -349,6 +401,7 @@ jobs:
       # by the bundler; we keep it here so the step stays valid if a full
       # `tauri build` is added later.
       - name: Install Tauri Linux prerequisites
+        if: steps.detect.outputs.gm_desktop == 'true'
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
@@ -363,6 +416,7 @@ jobs:
       # is not cosmetic debt here — it is what makes a 130-line diff
       # reviewable, and this gate is what keeps the next one small.
       - name: Rust format (src-tauri)
+        if: steps.detect.outputs.gm_desktop == 'true'
         working-directory: apps/gm-desktop/src-tauri
         run: cargo fmt --all -- --check
 
@@ -376,6 +430,7 @@ jobs:
       # only the lib, and every test in this crate lives in `#[cfg(test)]`
       # modules that a lib-only run never sees.
       - name: Clippy (deny warnings)
+        if: steps.detect.outputs.gm_desktop == 'true'
         working-directory: apps/gm-desktop/src-tauri
         run: cargo clippy --all-targets --locked -- -D warnings
 
@@ -390,6 +445,7 @@ jobs:
       # which this job has no reason to link a second time. The guard
       # below is what keeps "0 tests ran" from reading as green.
       - name: Rust unit tests (src-tauri)
+        if: steps.detect.outputs.gm_desktop == 'true'
         working-directory: apps/gm-desktop/src-tauri
         run: |
           cargo test --locked --lib 2>&1 | tee /tmp/gm-desktop-cargo-test.txt
@@ -435,21 +491,66 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 45
 
+    # [FACT] The area decision, published to the two consumer jobs below.
+    #
+    # [INFERENCE] A `needs:` chain is NOT enough to skip a consumer, and the
+    # reason is worth writing down because it is the second time in this work
+    # that a documented GitHub behaviour was not what the design assumed:
+    # this job is never SKIPPED. When the area does not match, the job runs,
+    # its steps are individually skipped, and the job concludes SUCCESS.
+    # GitHub's documentation, "Using jobs in a workflow", says a dependent
+    # job is skipped when the job it needs "fails or is skipped" — a
+    # dependency that merely SUCCEEDS does not skip its dependents, so
+    # `msi-install` and `msi-launch` would run and then fail on an artefact
+    # that was never uploaded.
+    #
+    # So the decision is published instead of inferred: the consumers read it
+    # and are skipped as a whole when it is false, and a skipped job reports
+    # "Success" — which is exactly what a required check needs when the gate
+    # does not apply.
+    #
+    # [FACT] The value already exists: the detection step prints the area
+    # flags. This publishes one of them, it does not compute anything.
+    #
+    # [FACT] When this job FAILS the output is empty, so the consumers are
+    # skipped and report Success — and this job, being a required context
+    # itself, blocks the merge on its own account. That is the invariant the
+    # structure test enforces: every job a required context needs must
+    # itself be a required context.
+    outputs:
+      applies: ${{ steps.detect.outputs.gm_desktop }}
+
     # No job-level `defaults.run.working-directory` here, unlike `build`: the
     # steps below address repo-root paths (apps/gm-desktop/scripts/...) and
     # upload paths, so an implicit working directory would only be one more
     # thing to get wrong.
     steps:
       - uses: actions/checkout@v4
+        with:
+          # [FACT] The full history is needed: the detection step diffs the
+          # change set against origin/<base>, and a shallow clone does not
+          # have that merge base.
+          fetch-depth: 0
+
+      # [FACT] The detection step lives INSIDE the job, not in front of the
+      # workflow. If it fails, this job goes red and blocks the merge. If it
+      # were a separate job that the gates depended on, a failed detection
+      # would SKIP the gate, and a skipped job reports "Success" — the exact
+      # deadlock this lane exists to close.
+      - name: Detect changed areas
+        id: detect
+        run: pwsh -NoProfile -File scripts/ci/changed-areas.ps1
 
       # Same ordering constraint as the `build` job: pnpm before setup-node,
       # because setup-node shells out to `pnpm store path` for the cache.
       - name: Install pnpm
+        if: steps.detect.outputs.gm_desktop == 'true'
         uses: pnpm/action-setup@v4
         with:
           version: 9
 
       - name: Set up Node.js
+        if: steps.detect.outputs.gm_desktop == 'true'
         uses: actions/setup-node@v4
         with:
           node-version: '22'
@@ -457,12 +558,14 @@ jobs:
           cache-dependency-path: apps/gm-desktop/pnpm-lock.yaml
 
       - name: Install dependencies
+        if: steps.detect.outputs.gm_desktop == 'true'
         working-directory: apps/gm-desktop
         run: pnpm install --frozen-lockfile
 
       # No `components:` needed: nothing here runs rustfmt or clippy, and the
       # msvc host toolchain is what `tauri build` needs on Windows.
       - name: Install Rust toolchain
+        if: steps.detect.outputs.gm_desktop == 'true'
         uses: dtolnay/rust-toolchain@stable
 
       # A cold release build of this crate tree plus two bundler runs. Shelled
@@ -471,6 +574,7 @@ jobs:
       # a `pwsh -command` step that only runs a failing native command would
       # otherwise still report the step as passed.
       - name: Build both MSI variants
+        if: steps.detect.outputs.gm_desktop == 'true'
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
@@ -488,6 +592,7 @@ jobs:
       # when they do not; `release.yml` is where "unsigned must not ship" is
       # enforced, because that is the only job whose output is distributed.
       - name: Sign the MSIs when credentials are present
+        if: steps.detect.outputs.gm_desktop == 'true'
         shell: pwsh
         env:
           GITGIT_MSI_PFX_BASE64: ${{ secrets.MSI_SIGN_PFX_BASE64 }}
@@ -502,6 +607,7 @@ jobs:
       # Installer COM automation, so this asserts real payload and real scope
       # on a stock runner.
       - name: Smoke check the MSIs (no install, no elevation)
+        if: steps.detect.outputs.gm_desktop == 'true'
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
@@ -513,6 +619,7 @@ jobs:
       # unparseable manifest fails here rather than silently yielding
       # artifact names with an empty version.
       - name: Read variant metadata
+        if: steps.detect.outputs.gm_desktop == 'true'
         id: meta
         shell: pwsh
         run: |
@@ -529,6 +636,7 @@ jobs:
       # this job exists to prevent. The scope token in the name is what makes
       # the two uploads distinct.
       - name: Upload perMachine MSI
+        if: success() && steps.detect.outputs.gm_desktop == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: gm-desktop-msi-${{ steps.meta.outputs.version }}-perMachine
@@ -537,6 +645,7 @@ jobs:
           retention-days: 14
 
       - name: Upload perUser MSI
+        if: success() && steps.detect.outputs.gm_desktop == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: gm-desktop-msi-${{ steps.meta.outputs.version }}-perUser
@@ -545,6 +654,7 @@ jobs:
           retention-days: 14
 
       - name: Upload variant manifest
+        if: success() && steps.detect.outputs.gm_desktop == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: gm-desktop-msi-${{ steps.meta.outputs.version }}-manifest
@@ -577,6 +687,7 @@ jobs:
     # not a rebuild. A second build would be a different set of bytes, and the
     # whole point is to install what is going to be shipped.
     needs: msi
+    if: needs.msi.outputs.applies == 'true'
     runs-on: windows-latest
     timeout-minutes: 30
 
@@ -631,6 +742,7 @@ jobs:
     # The PACKAGED artefact, not a dev build: `msi` produced this package,
     # and the point is what a user would actually receive.
     needs: msi
+    if: needs.msi.outputs.applies == 'true'
     runs-on: windows-latest
     timeout-minutes: 30
 
