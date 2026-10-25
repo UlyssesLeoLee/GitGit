@@ -4,7 +4,7 @@ use std::path::PathBuf;
 
 use clap::{Parser, Subcommand};
 
-use crate::config::{DEFAULT_BIND, DEFAULT_REPOS_DIR, DEFAULT_VAULT_FILE_ROOT};
+use crate::config::{VaultBackend, DEFAULT_BIND, DEFAULT_REPOS_DIR, DEFAULT_VAULT_FILE_ROOT};
 
 /// `gitgit` — a tiny local Git HTTP server (MVP).
 #[derive(Debug, Parser)]
@@ -34,6 +34,70 @@ pub struct Cli {
     #[arg(long, global = true, default_value = DEFAULT_VAULT_FILE_ROOT)]
     pub vault_file_root: PathBuf,
 
+    /// Which credential-vault backend to use: `file` (default) or `s3`.
+    ///
+    /// Env override: `GITGIT_VAULT_BACKEND`, applied in `build_config`
+    /// for the same reason as the vault root: the `env` feature is not
+    /// enabled on the clap dependency, and the flag has to win over the
+    /// variable when both are given.
+    ///
+    /// An unrecognised value is an error, never a silent fallback to
+    /// the file vault.
+    ///
+    /// The `s3` backend takes the rest of its settings from the
+    /// environment: `GITGIT_S3_ENDPOINT`, `GITGIT_S3_BUCKET`,
+    /// `GITGIT_S3_REGION`, `GITGIT_S3_KEY_PREFIX`, `GITGIT_S3_ACCESS_KEY`
+    /// and `GITGIT_S3_SECRET_KEY`. The two credentials have no
+    /// command-line flag on purpose -- a credential on the command line
+    /// is in the process arguments (`ps`) and in the shell history.
+    /// The key prefix has no default either: the prefix is what
+    /// isolates two instances that share a bucket.
+    #[arg(long, global = true, value_name = "file|s3")]
+    pub vault_backend: Option<VaultBackend>,
+
+    /// S3-compatible endpoint for the `s3` vault backend.
+    /// Env override: `GITGIT_S3_ENDPOINT`.
+    #[arg(long, global = true, value_name = "URL")]
+    pub s3_endpoint: Option<String>,
+
+    /// Bucket name for the `s3` vault backend.
+    /// Env override: `GITGIT_S3_BUCKET`.
+    ///
+    /// It must not be empty: the bucket is the other half of where a
+    /// credential lives, and an empty one puts the objects at the
+    /// endpoint root -- a shared, unnamed namespace.
+    #[arg(long, global = true, value_name = "NAME")]
+    pub s3_bucket: Option<String>,
+
+    /// SigV4 region for the `s3` vault backend.
+    /// Env override: `GITGIT_S3_REGION`.
+    #[arg(long, global = true, value_name = "REGION")]
+    pub s3_region: Option<String>,
+
+    /// Key prefix applied to every object in the bucket.
+    /// Env override: `GITGIT_S3_KEY_PREFIX`.
+    ///
+    /// There is no default: the prefix is what isolates two instances
+    /// that share a bucket, and a shared default would put them on the
+    /// same object keys.
+    ///
+    /// It must end with `/`: the prefix is a path prefix, and a prefix
+    /// without the separator is a string prefix -- string prefixes
+    /// overlap, so two instances could land on the same object key
+    /// without either of them noticing.
+    ///
+    /// The namespace is the operator's to pick and must not be reused
+    /// by another instance.
+    #[arg(long, global = true, value_name = "PREFIX")]
+    pub s3_key_prefix: Option<String>,
+
+    // `[FACT]` There is deliberately no `--s3-access-key` and no
+    // `--s3-secret-key`; the credentials come from the environment
+    // only. The `--vault-backend` help text says so, because removing
+    // the flags must not remove the operator's way to find out.
+    //
+    // `cli::tests::the_s3_credentials_are_environment_variables_not_command_line_flags`
+    // holds this in place.
     #[command(subcommand)]
     pub command: Command,
 }
@@ -255,7 +319,8 @@ pub enum KeyCommand {
 #[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 mod tests {
     use super::*;
-    use clap::Parser;
+    use crate::config::{S3_ACCESS_KEY_ENV, S3_SECRET_KEY_ENV};
+    use clap::{CommandFactory, Parser};
 
     /// `[FACT]` The default bind was `0.0.0.0:8080`, which put every
     /// interface of every attached network on the wire for a server
@@ -293,5 +358,39 @@ mod tests {
     fn an_explicit_loopback_bind_is_honoured() {
         let cli = Cli::try_parse_from(["gitgit", "--bind", "127.0.0.1:9999", "serve"]).unwrap();
         assert_eq!(cli.bind, "127.0.0.1:9999");
+    }
+
+    /// `[FACT]` The S3 credentials are environment variables and must
+    /// stay that way: a credential on the command line is in the
+    /// process arguments (`ps`) and in the shell history, and the
+    /// object-store secret is long-lived. The AI API key is held to
+    /// the same rule (`ai::tests::api_key_is_an_env_var_not_a_flag`).
+    ///
+    /// The assertion is the *absence* of the flags, not the presence
+    /// of the variables: a future "just add a flag for convenience"
+    /// would otherwise slip in unnoticed. The parser refuses an
+    /// unknown flag, and the help text does not offer one.
+    #[test]
+    fn the_s3_credentials_are_environment_variables_not_command_line_flags() {
+        for flag in ["--s3-access-key", "--s3-secret-key"] {
+            assert!(
+                Cli::try_parse_from(["gitgit", flag, "a-value", "serve"]).is_err(),
+                "{flag} must not be accepted: a credential on the command line is in `ps` and in shell history"
+            );
+            assert!(
+                !Cli::command().render_long_help().to_string().contains(flag),
+                "{flag} must not be offered in the help text"
+            );
+        }
+        // The environment still carries them.
+        assert!(!S3_ACCESS_KEY_ENV.is_empty());
+        assert!(!S3_SECRET_KEY_ENV.is_empty());
+        for name in [S3_ACCESS_KEY_ENV, S3_SECRET_KEY_ENV] {
+            assert!(
+                name.chars()
+                    .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_'),
+                "{name} must look like an environment variable name"
+            );
+        }
     }
 }

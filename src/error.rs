@@ -73,6 +73,67 @@ pub enum GitGitError {
     #[error("ai error: {0}")]
     Ai(String),
 
+    /// The requested credential-vault backend is not one of the supported
+    /// backends.
+    ///
+    /// `[FACT]` This is an error rather than a silent fallback to the
+    /// local file vault: an operator who asked for object storage and
+    /// got the file vault would keep writing credentials to disk while
+    /// believing they were in S3. The message names the accepted values
+    /// so the mistake is fixable without reading the source.
+    #[error("unknown vault backend `{0}`: expected one of `file`, `s3`")]
+    InvalidVaultBackend(String),
+
+    /// The `s3` credential-vault backend was selected but one of its
+    /// credentials was not supplied.
+    ///
+    /// `[FACT]` Credentials have no default on purpose. A made-up key
+    /// would fail later with a 403 that reads like a permissions
+    /// problem, and the operator would have no way to tell that the key
+    /// they configured was never used.
+    ///
+    /// `[FACT]` The message names the environment variable only. There
+    /// is deliberately no command-line flag for a credential: a flag
+    /// would put the secret in the process arguments and in the shell
+    /// history.
+    #[error("the `s3` vault backend requires {0}: set {1}")]
+    MissingVaultCredential(&'static str, &'static str),
+
+    /// The `s3` credential-vault backend was selected without a key
+    /// prefix.
+    ///
+    /// `[FACT]` The prefix is the isolation: `src/server/vault.rs`
+    /// documents it as the way to keep several gitgit instances from
+    /// sharing a bucket without collision. A shared default prefix
+    /// would put two instances on the same object keys and the same
+    /// version sidecars, where either could read or overwrite the
+    /// other's credentials.
+    #[error("the `s3` vault backend requires a key prefix: set {0} or pass `--{1}` (the prefix isolates two instances that share a bucket, so a shared default would let them overwrite each other's credentials)")]
+    MissingVaultKeyPrefix(&'static str, &'static str),
+
+    /// The `s3` credential-vault backend was given a key prefix that is
+    /// not a path prefix.
+    ///
+    /// `[FACT]` A prefix without a trailing separator is a *string*
+    /// prefix, and string prefixes overlap: prefix `a` with key `bc`
+    /// and prefix `ab` with key `c` are the same object key, so two
+    /// instances could land on each other's credentials without either
+    /// of them noticing. A prefix that ends with a separator is a path
+    /// prefix, which is what the vault documents the prefix as -- and
+    /// what every prefix in this repository already is.
+    #[error("the `s3` vault backend requires a key prefix that ends with `/`: set {0} or pass `--{1}` with a trailing separator (a prefix without the separator is a string prefix, and two instances can overlap on the same object key); got `{2}`")]
+    InvalidVaultKeyPrefix(&'static str, &'static str, String),
+
+    /// The `s3` credential-vault backend was given an empty bucket
+    /// name.
+    ///
+    /// `[FACT]` The bucket is the other half of where a credential
+    /// lives. An empty bucket puts the objects at the endpoint root --
+    /// a shared, unnamed namespace, and the same hazard the empty key
+    /// prefix was.
+    #[error("the `s3` vault backend requires a bucket name: set {0} or pass `--{1}` (an empty bucket puts the objects at the endpoint root, which is a shared namespace)")]
+    InvalidVaultBucket(&'static str, &'static str),
+
     /// A remote name or URL failed validation (V0 T8 `gitremote`).
     #[error("invalid remote URL: {0:?}")]
     InvalidRemoteUrl(String),
