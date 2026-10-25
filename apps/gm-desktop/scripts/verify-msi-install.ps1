@@ -191,7 +191,19 @@ function Invoke-MsiQuery {
         $rows += ,$row
     }
     $view.GetType().InvokeMember('Close', $flags::InvokeMethod, $null, $view, $null) | Out-Null
-    return $rows
+    # `return ,$rows` and NOT `return $rows`.
+    #
+    # PowerShell unrolls an array on the way out of a function. `return $rows`
+    # emits the rows one after another, so a caller that assigns the result
+    # gets a FLAT list of strings, not a list of rows — and then `$rows[0][0]`
+    # is the first CHARACTER of the first row rather than the first field of
+    # the first row.
+    #
+    # [FACT] That is not a hypothetical: with the bare `return $rows`, the
+    # first CI run of this job reported "the package's ProductVersion is '0'
+    # but the manifest records '0.1.0'" — the first character of "0.1.0".
+    # The comma wraps the array so it survives the trip intact.
+    return ,$rows
 }
 
 function Get-MsiProperty {

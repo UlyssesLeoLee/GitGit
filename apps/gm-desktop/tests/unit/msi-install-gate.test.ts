@@ -263,4 +263,27 @@ describe('msi-install — the script is committed and does what the job says', (
         'of the name and the file does not parse at all. Write ${Var}: instead.'
     ).toEqual([]);
   });
+
+  it('does not unroll the row array on the way out of the query helper', () => {
+    // [FACT] PowerShell unrolls an array when a function returns it. A helper
+    // that collects ROWS and returns them with a bare `return $rows` hands the
+    // caller a flat list of strings, so `$rows[0][0]` becomes the first
+    // CHARACTER of the first row rather than the first field of the first
+    // row.
+    //
+    // [FACT] The trap is live, and the second CI run of this job proved it:
+    // it reported "the package's ProductVersion is '0' but the manifest
+    // records '0.1.0'" — the first character of "0.1.0".
+    //
+    // The check is on the comma-wrapped return rather than on every `return`
+    // in the file, because several helpers here DO return a flat array on
+    // purpose (`Get-MsiFileNames`, `Get-UninstallEntries`). The invariant
+    // is specific to the helper that returns ROWS.
+    expect(
+      scriptCode,
+      'the query helper must return its rows comma-wrapped — a bare `return $rows` is ' +
+        'unrolled by PowerShell and the caller then reads the first CHARACTER of the first ' +
+        'row instead of its first field'
+    ).toMatch(/return\s+,\s*\$rows/);
+  });
 });
