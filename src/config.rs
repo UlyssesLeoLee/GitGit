@@ -3,6 +3,7 @@
 use std::path::PathBuf;
 
 use crate::error::{GitGitError, Result};
+use crate::server::vault::MinioVaultConfig;
 
 /// Bind address the server listens on.
 ///
@@ -43,10 +44,115 @@ pub const DEFAULT_REPOS_DIR: &str = "repos";
 /// Per ADR-0021 §1.2 the MVP is a single-crate binary with zero
 /// platform-specific code; the credential backend is therefore the
 /// `FileVault` rooted here. Operators can override via
-/// `GITGIT_VAULT_FILE_ROOT` (or `--vault-file-root` on the CLI). The
-/// commit that exposes a `MinioVault` runtime toggled by
-/// `GITGIT_VAULT_BACKEND=minio` follows in V0 close-out.
+/// `GITGIT_VAULT_FILE_ROOT` (or `--vault-file-root` on the CLI).
+///
+/// `[FACT]` The comment here used to promise "a `MinioVault` runtime
+/// toggled by `GITGIT_VAULT_BACKEND=minio`" in V0 close-out. That
+/// commit had never landed: `build_vault()` hard-coded the `FileVault`,
+/// so the S3 implementation was unreachable from the product binary and
+/// only the test suite could reach it. The toggle now exists, spelled
+/// `GITGIT_VAULT_BACKEND` with the values `file` (this default) and
+/// `s3`.
 pub const DEFAULT_VAULT_FILE_ROOT: &str = ".gitgit/vault";
+
+/// Environment variable that selects the credential-vault backend.
+///
+/// `[FACT]` The name was promised by the doc comment on
+/// [`DEFAULT_VAULT_FILE_ROOT`] before anything read it. It is read
+/// today, and an unrecognised value is an error rather than a silent
+/// fallback to the file vault.
+pub const VAULT_BACKEND_ENV: &str = "GITGIT_VAULT_BACKEND";
+
+/// Default S3-compatible endpoint for the `s3` credential-vault backend.
+///
+/// `[FACT]` This is the address a local S3-compatible server listens on
+/// by default. It is a default, not a promise that anything is
+/// listening there.
+pub const DEFAULT_S3_ENDPOINT: &str = "http://127.0.0.1:9000";
+
+/// Default bucket name for the `s3` credential-vault backend.
+pub const DEFAULT_S3_BUCKET: &str = "gitgit-vault";
+
+/// Default SigV4 region for the `s3` credential-vault backend.
+///
+/// `[FACT]` S3-compatible stores accept any region string; `us-east-1`
+/// is the SigV4 default and keeps the signing parameters boring.
+pub const DEFAULT_S3_REGION: &str = "us-east-1";
+
+/// Default key prefix applied to every object in the bucket.
+///
+/// `[FACT]` The prefix is what keeps two gitgit instances sharing one
+/// bucket from overwriting each other's credentials.
+pub const DEFAULT_S3_KEY_PREFIX: &str = "gitgit-vault/";
+
+/// Environment variable holding the S3-compatible endpoint.
+pub const S3_ENDPOINT_ENV: &str = "GITGIT_S3_ENDPOINT";
+
+/// Environment variable holding the bucket name.
+pub const S3_BUCKET_ENV: &str = "GITGIT_S3_BUCKET";
+
+/// Environment variable holding the SigV4 region.
+pub const S3_REGION_ENV: &str = "GITGIT_S3_REGION";
+
+/// Environment variable holding the S3 access key.
+pub const S3_ACCESS_KEY_ENV: &str = "GITGIT_S3_ACCESS_KEY";
+
+/// Environment variable holding the S3 secret key.
+pub const S3_SECRET_KEY_ENV: &str = "GITGIT_S3_SECRET_KEY";
+
+/// Environment variable holding the object key prefix.
+pub const S3_KEY_PREFIX_ENV: &str = "GITGIT_S3_KEY_PREFIX";
+
+/// Which credential-vault backend the server should use.
+///
+/// `[FACT]` Until the backend became selectable, the product binary
+/// could only ever use the local file vault: `build_vault()` in
+/// `src/main.rs` constructed a `FileVault` unconditionally, which left
+/// the S3 implementation (`MinioVault`) reachable only from the test
+/// suite. This enum is what makes the choice real.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum VaultBackend {
+    /// The local file vault — the default.
+    #[default]
+    File,
+    /// The S3-compatible object store.
+    S3,
+}
+
+impl VaultBackend {
+    /// The canonical name of this backend, as spelled by
+    /// `GITGIT_VAULT_BACKEND` and `--vault-backend`.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            VaultBackend::File => "file",
+            VaultBackend::S3 => "s3",
+        }
+    }
+}
+
+impl std::fmt::Display for VaultBackend {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+impl std::str::FromStr for VaultBackend {
+    type Err = GitGitError;
+
+    /// Parse a backend name, case-insensitively.
+    ///
+    /// `[FACT]` An unknown value is an error, never a silent fallback to
+    /// the file vault. Falling back would leave an operator believing
+    /// they were writing to object storage while their credentials went
+    /// to a local directory.
+    fn from_str(s: &str) -> Result<Self> {
+        match s.trim().to_ascii_lowercase().as_str() {
+            "file" => Ok(VaultBackend::File),
+            "s3" => Ok(VaultBackend::S3),
+            other => Err(GitGitError::InvalidVaultBackend(other.to_string())),
+        }
+    }
+}
 
 /// Default *username* for the admin basic-auth account.
 ///
@@ -104,16 +210,58 @@ pub fn is_loopback_bind(bind: &str) -> bool {
 }
 
 /// Resolved, validated configuration for one server invocation.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct Config {
     /// Address to bind (e.g. `127.0.0.1:8080`).
     pub bind: String,
     /// Directory under which bare repos are stored (`<dir>/<name>.git/`).
     pub repos_dir: PathBuf,
     /// V0 Credential Vault root directory (per ADR-0021 §1.2 default).
-    /// Currently only used by `FileVault`; reserved for a minIO backend
-    /// in V0 close-out.
+    /// Used by the `file` backend; the `s3` backend ignores it.
     pub vault_file_root: PathBuf,
+    /// Which credential-vault backend to use.
+    pub vault_backend: VaultBackend,
+    /// Settings for the `s3` backend.
+    ///
+    /// `[FACT]` This is the existing [`MinioVaultConfig`] struct, not a
+    /// second copy of the same six fields: the S3 implementation already
+    /// defines them, and duplicating them here would be one more place
+    /// for the two to drift apart.
+    pub s3_vault: MinioVaultConfig,
+}
+
+/// Redact a credential for debug output.
+///
+/// `[FACT]` `MinioVaultConfig` derives `Debug`, so it prints the secret
+/// key in the clear. A `Config` that carries one must not print it.
+fn redact(secret: &str) -> &str {
+    if secret.trim().is_empty() {
+        "<unset>"
+    } else {
+        "<redacted>"
+    }
+}
+
+impl std::fmt::Debug for Config {
+    /// Print the configuration without the credentials.
+    ///
+    /// `[FACT]` The derived `Debug` would have printed the S3 secret key
+    /// in the clear. The vault layer already redacts its own credentials
+    /// (`MinioVault`'s `Debug`), so the configuration does the same.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Config")
+            .field("bind", &self.bind)
+            .field("repos_dir", &self.repos_dir)
+            .field("vault_file_root", &self.vault_file_root)
+            .field("vault_backend", &self.vault_backend)
+            .field("s3_endpoint", &self.s3_vault.endpoint)
+            .field("s3_bucket", &self.s3_vault.bucket)
+            .field("s3_region", &self.s3_vault.region)
+            .field("s3_key_prefix", &self.s3_vault.key_prefix)
+            .field("s3_access_key", &redact(&self.s3_vault.access_key))
+            .field("s3_secret_key", &redact(&self.s3_vault.secret_key))
+            .finish()
+    }
 }
 
 impl Config {
@@ -128,7 +276,45 @@ impl Config {
             bind: bind.into(),
             repos_dir: repos_dir.into(),
             vault_file_root: vault_file_root.into(),
+            vault_backend: VaultBackend::default(),
+            s3_vault: MinioVaultConfig {
+                endpoint: DEFAULT_S3_ENDPOINT.to_string(),
+                bucket: DEFAULT_S3_BUCKET.to_string(),
+                region: DEFAULT_S3_REGION.to_string(),
+                key_prefix: DEFAULT_S3_KEY_PREFIX.to_string(),
+                // No default credentials: a made-up key would fail at
+                // the first request with a 403 that reads like a
+                // permissions problem.
+                access_key: String::new(),
+                secret_key: String::new(),
+            },
         }
+    }
+
+    /// The S3 vault configuration, or an error if a credential is
+    /// missing.
+    ///
+    /// `[FACT]` Credentials have no default. Selecting the `s3` backend
+    /// without an access key and a secret key is an error, because the
+    /// alternative — connecting with an invented credential — produces a
+    /// 403 on the first read and leaves the operator with no way to
+    /// tell that the key they configured was never used.
+    pub fn s3_vault_config(&self) -> Result<MinioVaultConfig> {
+        if self.s3_vault.access_key.trim().is_empty() {
+            return Err(GitGitError::MissingVaultCredential(
+                "an access key",
+                S3_ACCESS_KEY_ENV,
+                "s3-access-key",
+            ));
+        }
+        if self.s3_vault.secret_key.trim().is_empty() {
+            return Err(GitGitError::MissingVaultCredential(
+                "a secret key",
+                S3_SECRET_KEY_ENV,
+                "s3-secret-key",
+            ));
+        }
+        Ok(self.s3_vault.clone())
     }
 
     /// Ensure that `repos_dir` exists and is a directory. Creates it if missing.
@@ -321,5 +507,131 @@ mod tests {
             "a compiled-in admin credential is back:\n  {}",
             offenders.join("\n  ")
         );
+    }
+
+    /// `[FACT]` The backend name is operator-facing text: it comes from
+    /// an environment variable or a command line, and people type it in
+    /// whatever case they are used to. The parsing has to accept that
+    /// and still be exact about which backend it selected — a test that
+    /// only checked "it parsed" would pass for a parser that always
+    /// returned the file vault.
+    #[test]
+    fn vault_backend_names_parse_to_the_backend_they_name() {
+        assert_eq!("file".parse::<VaultBackend>().unwrap(), VaultBackend::File);
+        assert_eq!("s3".parse::<VaultBackend>().unwrap(), VaultBackend::S3);
+        assert_eq!("S3".parse::<VaultBackend>().unwrap(), VaultBackend::S3);
+        assert_eq!("File".parse::<VaultBackend>().unwrap(), VaultBackend::File);
+        assert_eq!(" s3 ".parse::<VaultBackend>().unwrap(), VaultBackend::S3);
+    }
+
+    /// `[FACT]` An unknown backend name is an error, not a fallback to
+    /// the local file vault. The fallback would be the dangerous kind:
+    /// an operator who asked for object storage would keep writing
+    /// credentials to a local directory while believing they were in
+    /// S3. The message has to name the values that do work, otherwise
+    /// the operator has to read the source to find out.
+    #[test]
+    fn an_unknown_vault_backend_is_an_error_that_names_the_valid_values() {
+        for bad in ["minio", "bogus", "object-store", ""] {
+            let err = bad
+                .parse::<VaultBackend>()
+                .expect_err("an unknown backend must not resolve to a backend");
+            let msg = err.to_string();
+            assert!(
+                msg.contains("file") && msg.contains("s3"),
+                "the error must name the valid values, got: {msg}"
+            );
+        }
+    }
+
+    /// `[FACT]` Absence of a selection means the local file vault. The
+    /// default has to be the backend that works with no configuration
+    /// at all — the S3 backend needs credentials, and inventing them is
+    /// not an option.
+    #[test]
+    fn the_default_backend_is_the_local_file_vault() {
+        assert_eq!(VaultBackend::default(), VaultBackend::File);
+        let cfg = Config::new("127.0.0.1:8080", "repos", "vault");
+        assert_eq!(cfg.vault_backend, VaultBackend::File);
+        assert_eq!(cfg.vault_backend.as_str(), "file");
+    }
+
+    /// `[FACT]` The S3 settings have documented defaults; the
+    /// credentials do not. A default access key would be a credential
+    /// nobody chose, which is exactly what this repository has been
+    /// removing from the binary (see
+    /// `no_compiled_source_hard_codes_the_admin_password`).
+    #[test]
+    fn the_s3_settings_have_defaults_and_the_credentials_do_not() {
+        let cfg = Config::new("127.0.0.1:8080", "repos", "vault");
+        assert_eq!(cfg.s3_vault.endpoint, DEFAULT_S3_ENDPOINT);
+        assert_eq!(cfg.s3_vault.bucket, DEFAULT_S3_BUCKET);
+        assert_eq!(cfg.s3_vault.region, DEFAULT_S3_REGION);
+        assert_eq!(cfg.s3_vault.key_prefix, DEFAULT_S3_KEY_PREFIX);
+        assert!(
+            cfg.s3_vault.access_key.is_empty(),
+            "an access key must not have a default"
+        );
+        assert!(
+            cfg.s3_vault.secret_key.is_empty(),
+            "a secret key must not have a default"
+        );
+    }
+
+    /// `[FACT]` Selecting the S3 backend without credentials is an
+    /// error that says what is missing and how to supply it. This is
+    /// the guard against an operator who believes they are writing to
+    /// object storage while the process talks to nothing at all.
+    #[test]
+    fn selecting_s3_without_credentials_is_an_error() {
+        let mut cfg = Config::new("127.0.0.1:8080", "repos", "vault");
+        cfg.vault_backend = VaultBackend::S3;
+
+        let err = cfg
+            .s3_vault_config()
+            .expect_err("the s3 backend must not start without credentials");
+        let msg = err.to_string();
+        assert!(
+            msg.contains(S3_ACCESS_KEY_ENV),
+            "the error must name the environment variable, got: {msg}"
+        );
+
+        cfg.s3_vault.access_key = "an-access-key".to_string();
+        let err = cfg
+            .s3_vault_config()
+            .expect_err("the s3 backend must not start without a secret key");
+        let msg = err.to_string();
+        assert!(
+            msg.contains(S3_SECRET_KEY_ENV),
+            "the error must name the environment variable, got: {msg}"
+        );
+
+        cfg.s3_vault.secret_key = "a-secret-key".to_string();
+        let ok = cfg
+            .s3_vault_config()
+            .expect("both credentials present means the configuration is usable");
+        assert_eq!(ok.bucket, DEFAULT_S3_BUCKET);
+        assert_eq!(ok.key_prefix, DEFAULT_S3_KEY_PREFIX);
+    }
+
+    /// `[FACT]` The debug output of a configuration must not carry the
+    /// secret key. `MinioVaultConfig` derives `Debug` and prints it in
+    /// the clear, so the configuration redacts it instead of forwarding
+    /// it.
+    #[test]
+    fn the_debug_output_does_not_carry_the_s3_secret_key() {
+        let mut cfg = Config::new("127.0.0.1:8080", "repos", "vault");
+        cfg.s3_vault.access_key = "an-access-key".to_string();
+        cfg.s3_vault.secret_key = "super-secret-value".to_string();
+        let printed = format!("{cfg:?}");
+        assert!(
+            !printed.contains("super-secret-value"),
+            "the secret key leaked into the debug output: {printed}"
+        );
+        assert!(
+            !printed.contains("an-access-key"),
+            "the access key leaked into the debug output: {printed}"
+        );
+        assert!(printed.contains(VaultBackend::File.as_str()));
     }
 }

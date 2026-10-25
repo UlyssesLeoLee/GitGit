@@ -4,7 +4,7 @@ use std::path::PathBuf;
 
 use clap::{Parser, Subcommand};
 
-use crate::config::{DEFAULT_BIND, DEFAULT_REPOS_DIR, DEFAULT_VAULT_FILE_ROOT};
+use crate::config::{VaultBackend, DEFAULT_BIND, DEFAULT_REPOS_DIR, DEFAULT_VAULT_FILE_ROOT};
 
 /// `gitgit` — a tiny local Git HTTP server (MVP).
 #[derive(Debug, Parser)]
@@ -33,6 +33,54 @@ pub struct Cli {
     /// override that was never read.
     #[arg(long, global = true, default_value = DEFAULT_VAULT_FILE_ROOT)]
     pub vault_file_root: PathBuf,
+
+    /// Which credential-vault backend to use: `file` (default) or `s3`.
+    ///
+    /// Env override: `GITGIT_VAULT_BACKEND`, applied in `build_config`
+    /// for the same reason as the vault root: the `env` feature is not
+    /// enabled on the clap dependency, and the flag has to win over the
+    /// variable when both are given.
+    ///
+    /// An unrecognised value is an error, never a silent fallback to
+    /// the file vault.
+    #[arg(long, global = true, value_name = "file|s3")]
+    pub vault_backend: Option<VaultBackend>,
+
+    /// S3-compatible endpoint for the `s3` vault backend.
+    /// Env override: `GITGIT_S3_ENDPOINT`.
+    #[arg(long, global = true, value_name = "URL")]
+    pub s3_endpoint: Option<String>,
+
+    /// Bucket name for the `s3` vault backend.
+    /// Env override: `GITGIT_S3_BUCKET`.
+    #[arg(long, global = true, value_name = "NAME")]
+    pub s3_bucket: Option<String>,
+
+    /// SigV4 region for the `s3` vault backend.
+    /// Env override: `GITGIT_S3_REGION`.
+    #[arg(long, global = true, value_name = "REGION")]
+    pub s3_region: Option<String>,
+
+    /// Access key for the `s3` vault backend.
+    /// Env override: `GITGIT_S3_ACCESS_KEY`.
+    ///
+    /// There is no default: a credential nobody chose is not a
+    /// credential.
+    #[arg(long, global = true, value_name = "KEY")]
+    pub s3_access_key: Option<String>,
+
+    /// Secret key for the `s3` vault backend.
+    /// Env override: `GITGIT_S3_SECRET_KEY`.
+    ///
+    /// There is no default: a credential nobody chose is not a
+    /// credential.
+    #[arg(long, global = true, value_name = "SECRET")]
+    pub s3_secret_key: Option<String>,
+
+    /// Key prefix applied to every object in the bucket.
+    /// Env override: `GITGIT_S3_KEY_PREFIX`.
+    #[arg(long, global = true, value_name = "PREFIX")]
+    pub s3_key_prefix: Option<String>,
 
     #[command(subcommand)]
     pub command: Command,

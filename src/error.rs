@@ -73,6 +73,29 @@ pub enum GitGitError {
     #[error("ai error: {0}")]
     Ai(String),
 
+    /// The requested credential-vault backend is not one of the supported
+    /// backends.
+    ///
+    /// `[FACT]` This is an error rather than a silent fallback to the
+    /// local file vault: an operator who asked for object storage and
+    /// got the file vault would keep writing credentials to disk while
+    /// believing they were in S3. The message names the accepted values
+    /// so the mistake is fixable without reading the source.
+    #[error("unknown vault backend `{0}`: expected one of `file`, `s3`")]
+    InvalidVaultBackend(String),
+
+    /// The `s3` credential-vault backend was selected but one of its
+    /// credentials was not supplied.
+    ///
+    /// `[FACT]` Credentials have no default on purpose. A made-up key
+    /// would fail later with a 403 that reads like a permissions
+    /// problem, and the operator would have no way to tell that the key
+    /// they configured was never used. The message names both the
+    /// environment variable and the CLI flag, so it is fixable either
+    /// way.
+    #[error("the `s3` vault backend requires {0}: set {1} or pass `--{2}`")]
+    MissingVaultCredential(&'static str, &'static str, &'static str),
+
     /// A remote name or URL failed validation (V0 T8 `gitremote`).
     #[error("invalid remote URL: {0:?}")]
     InvalidRemoteUrl(String),
