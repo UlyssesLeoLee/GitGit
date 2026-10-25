@@ -51,6 +51,8 @@ import { parse } from 'yaml';
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', '..');
 const WORKFLOW = join(REPO_ROOT, '.github', 'workflows', 'gm-desktop.yml');
 const SCRIPT = join(REPO_ROOT, 'apps', 'gm-desktop', 'scripts', 'verify-msi-install.ps1');
+/** The MSI gate that has run in CI since 2026-10-05. */
+const LEGACY_SCRIPT = join(REPO_ROOT, 'apps', 'gm-desktop', 'scripts', 'verify-msi.ps1');
 
 type Step = {
   name?: string;
@@ -265,25 +267,40 @@ describe('msi-install — the script is committed and does what the job says', (
   });
 
   it('does not unroll the row array on the way out of the query helper', () => {
-    // [FACT] PowerShell unrolls an array when a function returns it. A helper
-    // that collects ROWS and returns them with a bare `return $rows` hands the
-    // caller a flat list of strings, so `$rows[0][0]` becomes the first
-    // CHARACTER of the first row rather than the first field of the first
-    // row.
+    // [FACT] PowerShell unrolls an array when a function returns it, and the
+    // unrolling bites in exactly one case: when the query matched a SINGLE
+    // row, the caller receives that row's fields as a flat list, and
+    // `$rows[0][0]` becomes the first CHARACTER of the first field rather
+    // than the field.
     //
     // [FACT] The trap is live, and the second CI run of this job proved it:
     // it reported "the package's ProductVersion is '0' but the manifest
     // records '0.1.0'" — the first character of "0.1.0".
     //
+    // [FACT] `verify-msi.ps1` — the gate that has run in CI since
+    // 2026-10-05 — has the same line. It is LATENT there rather than live,
+    // because the only property it reads is ALLUSERS, whose value is the
+    // single character "1": the first character of "1" is "1". Its
+    // multi-row queries are unaffected (the unrolling only collapses a
+    // single row), so none of its assertions were wrong. The trap is still
+    // one query away from being live, so both scripts are asserted here.
+    //
     // The check is on the comma-wrapped return rather than on every `return`
-    // in the file, because several helpers here DO return a flat array on
-    // purpose (`Get-MsiFileNames`, `Get-UninstallEntries`). The invariant
-    // is specific to the helper that returns ROWS.
-    expect(
-      scriptCode,
-      'the query helper must return its rows comma-wrapped — a bare `return $rows` is ' +
-        'unrolled by PowerShell and the caller then reads the first CHARACTER of the first ' +
-        'row instead of its first field'
-    ).toMatch(/return\s+,\s*\$rows/);
+    // in the files, because several helpers in these scripts DO return a
+    // flat array on purpose (`Get-MsiFileNames`, `Get-UninstallEntries`),
+    // so a blanket "no bare `return $array`" rule would be wrong.
+    const EXPECTED_SCRIPTS = [
+      { label: 'verify-msi-install.ps1', code: scriptCode },
+      { label: 'verify-msi.ps1', code: existsSync(SCRIPT) ? readFileSync(LEGACY_SCRIPT, 'utf8') : '' },
+    ];
+
+    for (const { label, code } of EXPECTED_SCRIPTS) {
+      expect(
+        code,
+        `${label} must return its rows comma-wrapped — a bare \`return $rows\` is unrolled by ` +
+          'PowerShell and the caller then reads the first CHARACTER of the first row instead of ' +
+          'its first field'
+      ).toMatch(/return\s+,\s*\$rows/);
+    }
   });
 });
