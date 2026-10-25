@@ -45,7 +45,7 @@
  */
 import { afterAll, describe, expect, it } from 'vitest';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -407,5 +407,73 @@ describe('changed-areas — the script writes what it says it writes', { timeout
       after,
       'the script changed the repository state. It must only read: a gate that switches a branch or writes a file can leave the checkout in a state the next step does not expect.'
     ).toBe(before);
+  });
+});
+
+describe('changed-areas — the script reads the change set from git', { timeout: SPAWN_TIMEOUT_MS }, () => {
+  /**
+   * [FACT] This block exercises the GIT path, which is where the change set
+   * is actually collected. Every other case hands the script a list of paths,
+   * so it cannot see anything about how that list was produced.
+   *
+   * [FACT] Git's default rename detection makes `git diff --name-only` report
+   * only the DESTINATION of a rename. Moving `src/foo.rs` to `docs/foo.md`
+   * reports `docs/foo.md` and nothing else — the removal from `src/**`
+   * disappears. The Rust area would then not match, and the Rust gate would
+   * be SKIPPED on a change that removed a file from the tree it gates.
+   *
+   * [FACT] That is the exact failure this script exists to prevent, and it
+   * was found by a review comment on 2026-10-25 rather than by reasoning.
+   * The script now passes `--no-renames`, so the change set lists both sides
+   * of a move and an area matches if EITHER the old path or the new path is
+   * in it.
+   *
+   * [FACT] Measured on a throwaway repository:
+   *   git diff --cached --name-only             -> docs/foo.md
+   *   git diff --cached --no-renames --name-only -> docs/foo.md
+   *                                                 src/foo.rs
+   */
+  it('sees a file that was moved OUT of a gated tree', () => {
+    const repo = join(TEMP_DIR, 'rename-repo');
+    mkdirSync(join(repo, 'src'), { recursive: true });
+    mkdirSync(join(repo, 'docs'), { recursive: true });
+    writeFileSync(join(repo, 'src', 'foo.rs'), 'fn main() {}\n', 'utf8');
+
+    const git = (args: string[]) =>
+      execFileSync('git', args, { cwd: repo, encoding: 'utf8', stdio: 'pipe' });
+
+    git(['init', '-q']);
+    git(['config', 'user.email', 'gate@test.local']);
+    git(['config', 'user.name', 'gate']);
+    git(['add', '-A']);
+    git(['commit', '-qm', 'base']);
+    const base = git(['rev-parse', 'HEAD']).trim();
+
+    git(['mv', 'src/foo.rs', 'docs/foo.md']);
+    git(['commit', '-qm', 'move it out of the Rust tree']);
+
+    // [FACT] Sanity check on the fixture itself: the rename really is a
+    // rename, and git really does hide the old path unless rename detection
+    // is switched off. Without this, the test below could pass because the
+    // fixture was not a rename at all.
+    const withRenames = git(['diff', '--name-only', `${base}...HEAD`]).trim();
+    const withoutRenames = git(['diff', '--no-renames', '--name-only', `${base}...HEAD`]).trim();
+    expect(
+      withRenames,
+      'the fixture must be a rename that git hides by default, or this test proves nothing'
+    ).not.toContain('src/foo.rs');
+    expect(withoutRenames, 'git must list both sides of the move with --no-renames').toContain(
+      'src/foo.rs'
+    );
+
+    const run = runScript(['-RepositoryRoot', repo, '-BaseRef', base]);
+
+    expect(run.status, `the script failed:\n${run.stdout}\n${run.stderr}`).toBe(0);
+
+    const flags = parseAreaFlags(run.stdout);
+    expect(
+      flags.rust_backend,
+      'a file removed from src/** must still hit the Rust gate. If the change set hides the old path, the gate is skipped on a change that removed a file from the tree it gates — which is the failure this whole mechanism exists to prevent.'
+    ).toBe('true');
   });
 });

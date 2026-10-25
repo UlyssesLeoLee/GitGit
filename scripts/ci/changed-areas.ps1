@@ -45,6 +45,12 @@
 .PARAMETER HeadRef
     The head of the change set. Defaults to HEAD.
 
+.PARAMETER RepositoryRoot
+    The repository the change set is computed in. Defaults to the repository
+    this script lives in. The tests point it at a throwaway repository so that
+    the git path — which is where rename detection lives — can be exercised
+    without touching the real working tree.
+
 .PARAMETER OutputPath
     Write the `key=value` outputs to this file as well as to
     $env:GITHUB_OUTPUT. The format is identical.
@@ -85,6 +91,7 @@ param(
     [string]$HeadRef = 'HEAD',
     [string]$OutputPath,
     [string]$PatternsPath,
+    [string]$RepositoryRoot,
     [switch]$SelfCheck
 )
 
@@ -424,7 +431,11 @@ function Resolve-BaseRef {
 
 # ── Main ─────────────────────────────────────────────────────────────────────
 
-$repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..' | Join-Path -ChildPath '..')).Path
+$repoRoot = if ($RepositoryRoot) {
+    (Resolve-Path -LiteralPath $RepositoryRoot).Path
+} else {
+    (Resolve-Path (Join-Path $PSScriptRoot '..' | Join-Path -ChildPath '..')).Path
+}
 
 $patterns = Get-EffectivePatterns
 Assert-PatternsAreUsable -Patterns $patterns
@@ -472,8 +483,26 @@ else {
 
     if ($hasBase) {
         $diffWatch = [System.Diagnostics.Stopwatch]::StartNew()
+        # [FACT] `--no-renames` is not a style choice. With git's default
+        # rename detection, `git diff --name-only` reports only the
+        # DESTINATION of a rename: moving `src/foo.rs` to `docs/foo.md`
+        # reports `docs/foo.md` and nothing else. The removal from `src/**`
+        # would then be invisible to the matcher, the Rust area would not
+        # match, and the Rust gate would be SKIPPED on a change that removed
+        # a file from the tree it gates. That is the exact failure this
+        # script exists to prevent — a gate that does not run when it must.
+        #
+        # Measured, 2026-10-25, on a throwaway repository:
+        #   git diff --cached --name-only            -> docs/foo.md
+        #   git diff --cached --no-renames --name-only -> docs/foo.md
+        #                                                 src/foo.rs
+        #
+        # With `--no-renames` the change set lists both sides of a move, so
+        # an area matches if EITHER the old path or the new path is in it.
+        # That is the conservative reading: running a gate once more is
+        # cheap, skipping one is not.
         $diff = Invoke-Git -RepositoryRoot $repoRoot -Arguments @(
-            'diff', '--name-only', "$resolvedBaseRef...$HeadRef"
+            'diff', '--no-renames', '--name-only', "$resolvedBaseRef...$HeadRef"
         )
         $diffWatch.Stop()
         Write-Line ("[info] changed-areas: the change set took {0}ms to compute" -f $diffWatch.ElapsedMilliseconds)
@@ -482,7 +511,7 @@ else {
             # base ref that exists but cannot be diffed (a shallow clone that
             # does not have it, a typo) must NOT be reported as "nothing
             # changed". It is a failure, loudly.
-            $reason = ("the change set could not be computed: `git diff --name-only " +
+            $reason = ("the change set could not be computed: `git diff --no-renames --name-only " +
                 "$resolvedBaseRef...$HeadRef` exited $($diff.ExitCode). " +
                 "Base ref: '$resolvedBaseRef' (from $($resolved.Source)). " +
                 "This is NOT the same as 'nothing changed' and the gate must not pass on it. " +
