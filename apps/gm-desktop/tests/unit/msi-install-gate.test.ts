@@ -226,6 +226,26 @@ describe('msi-install — the script is committed and does what the job says', (
     ).not.toMatch(/gm-desktop\.exe/);
   });
 
+  it('reads the long file name out of the File table, not the generated short one', () => {
+    // [FACT] The File table's FileName column is a SHORT|LONG pair when the
+    // file has a generated short name — WiX gives files with long names an
+    // 8.3-style short name. Measured on the real perMachine package:
+    //
+    //   FileName='ao5lsmno.exe|gm-desktop.exe'  Size=19160064
+    //
+    // The LONG name is the file the installer actually writes, so it is the
+    // one to compare against. Taking the first half yields the short name,
+    // and the executable is then not found at all — which is what the third
+    // CI run of this job reported: "the package's File table has no
+    // 'gm-desktop.exe' row".
+    expect(
+      scriptCode,
+      'the script must take the LAST element when it splits a File-table name on the pipe — ' +
+        'the long name is second, and the short name is a generated 8.3-style name the ' +
+        'installer never writes'
+    ).toMatch(/-\s*split\s+'\\\|'\)\s*\[-1\]/);
+  });
+
   it('reads its expectations out of the package rather than hardcoding them', () => {
     // The proof is only worth something if it checks the artefact in front of
     // it. A hardcoded install path would pass on a package whose layout

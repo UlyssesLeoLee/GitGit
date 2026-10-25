@@ -326,9 +326,17 @@ function Get-MsiFileRow {
     )
     $rows = Invoke-MsiQuery -Path $Path -Sql 'SELECT `FileName`,`FileSize`,`Version`,`Component_` FROM `File`'
     foreach ($r in $rows) {
-        $name = $r[0]
-        if ($name -match ':') { $name = ($name -split ':')[0] }
-        if ($name -match '\|') { $name = ($name -split '\|')[0] }
+        # The File table's FileName column is a SHORT|LONG pair when the file
+        # has a generated short name: WiX gives files with long names an
+        # 8.3-style short name, and the pair reads `<short>|<long>`. The LONG
+        # name is the file the installer actually writes, so it is the one to
+        # compare against.
+        #
+        # [FACT] Measured on the real perMachine package:
+        #   FileName='ao5lsmno.exe|gm-desktop.exe'  Size=19160064
+        # Taking the FIRST half yields the short name, and the executable
+        # would then not be found at all.
+        $name = ($r[0] -split '\|')[-1]
         if ($name -ieq $FileName) {
             return [pscustomobject]@{
                 Name    = $name
@@ -346,9 +354,8 @@ function Get-MsiFileNames {
     $rows = Invoke-MsiQuery -Path $Path -Sql 'SELECT `FileName` FROM `File`'
     $names = @()
     foreach ($r in $rows) {
-        $name = $r[0]
-        if ($name -match ':') { $name = ($name -split ':')[0] }
-        if ($name -match '\|') { $name = ($name -split '\|')[0] }
+        # SHORT|LONG, same as above: the long name is the installed name.
+        $name = ($r[0] -split '\|')[-1]
         $names += $name
     }
     return $names
