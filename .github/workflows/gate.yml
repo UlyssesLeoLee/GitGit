@@ -137,3 +137,17 @@ jobs:
       - name: Type-check the desktop app
         working-directory: apps/gm-desktop
         run: pnpm check
+
+      # [FACT] The structure test of the deep-gate refactor lives HERE, in the
+      # one workflow that always runs. Anywhere else it would be filtered away
+      # by the very mechanism it tests — the structure test that pins "no
+      # workflow-level `paths:` filter on the pull_request trigger" must not be
+      # itself path-filtered, or nothing would ever notice the filter coming
+      # back.
+      #
+      # [FACT] Only this ONE vitest file is run, not the whole suite: the
+      # dependencies are already installed above, and the desktop suite is
+      # run by gm-desktop.yml on the pull requests that touch it.
+      - name: Workflow structure gate
+        working-directory: apps/gm-desktop
+        run: pnpm exec vitest run tests/unit/workflow-gate.test.ts

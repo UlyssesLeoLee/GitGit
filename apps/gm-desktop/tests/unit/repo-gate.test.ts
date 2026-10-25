@@ -3,12 +3,24 @@
  *
  * ## Why this file exists
  *
- * Every other workflow here is path-filtered, and that is precisely why those
- * workflows cannot be required status checks. GitHub's own documentation says
- * it: a workflow skipped by path filtering leaves its checks in a "Pending"
- * state, and a required check that is Pending blocks the pull request for
- * ever. A documentation-only pull request would wait for a Rust check that is
- * never going to run.
+ * Until 2026-10-25, every other workflow here was path-filtered, and that was
+ * precisely why those workflows could not be required status checks. GitHub's
+ * own documentation says it: a workflow skipped by path filtering leaves its
+ * checks in a "Pending" state, and a required check that is Pending blocks the
+ * pull request for ever. A documentation-only pull request would wait for a
+ * Rust check that is never going to run.
+ *
+ * [FACT] That has changed for three of the five other workflows. The filter
+ * was moved OUT of the workflow and INTO its jobs, because a job skipped by
+ * its own `if:` condition is reported as "Success" — which satisfies a
+ * required check — whereas a workflow that never starts reports nothing.
+ * `apps/gm-desktop/tests/unit/workflow-gate.test.ts` pins that arrangement,
+ * and `docs/plan/deep-gate-enforcement.md` records it.
+ *
+ * [FACT] `gate.yml` keeps its place as the always-running workflow, and for
+ * the same reason it had it: it is the one whose checks are true of every
+ * pull request regardless of which files it touches, and whose checks can go
+ * red ONLY because of the pull request's own content.
  *
  * So the branch protection requires the check of a workflow that always runs.
  * That makes this workflow load-bearing, and load-bearing is exactly the

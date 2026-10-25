@@ -16,10 +16,23 @@ on:
       - '.github/workflows/gm-console.yml'
   pull_request:
     branches: [dev, main]
-    paths:
-      - 'apps/gm-console/**'
-      - 'src/server/api.rs'
-      - '.github/workflows/gm-console.yml'
+    # [FACT] No workflow-level `paths:` filter on the pull_request trigger.
+    #
+    # A workflow-level filter decides whether the WORKFLOW starts at all, and a
+    # workflow that never starts reports nothing: GitHub's own documentation
+    # says a workflow skipped by path filtering leaves its checks in a
+    # "Pending" state, and a required check that is Pending blocks the pull
+    # request for ever. That is why this job could never be a required status
+    # check, and why "the console gate is red" had no power to stop a merge.
+    #
+    # The filter now lives INSIDE the job (see the "Detect changed areas"
+    # step below). A job whose `if:` condition is false is reported as
+    # "Success", which satisfies a required check. So this job reports on
+    # every pull request and runs only when it applies.
+    #
+    # The `push` trigger keeps its `paths:` filter: a direct push to a branch
+    # is not a pull request, and paying for the full frontend suite on every
+    # push to dev buys nothing that the pull request does not already buy.
 
 concurrency:
   group: gm-console-${{ github.ref }}
@@ -32,6 +45,20 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
+        with:
+          # [FACT] The full history is needed: the detection step diffs the
+          # change set against origin/<base>, and a shallow clone does not
+          # have that merge base.
+          fetch-depth: 0
+
+      # [FACT] The detection step lives INSIDE the job, not in front of the
+      # workflow. If it fails, this job goes red and blocks the merge. If it
+      # were a separate job that the gate depended on, a failed detection
+      # would SKIP the gate, and a skipped job reports "Success" — the exact
+      # deadlock this lane exists to close.
+      - name: Detect changed areas
+        id: detect
+        run: pwsh -NoProfile -File scripts/ci/changed-areas.ps1
 
       # pnpm MUST be installed before setup-node: with `cache: 'pnpm'`,
       # setup-node shells out to `pnpm store path` to resolve the cache
@@ -40,6 +67,7 @@ jobs:
       # was skipped. pnpm/action-setup installs pnpm itself, so this does
       # not depend on the runner image shipping pnpm.
       - name: Install pnpm
+        if: steps.detect.outputs.gm_console == 'true'
         uses: pnpm/action-setup@v4
         with:
           version: 9
@@ -50,6 +78,7 @@ jobs:
       # verified against locally. Every other direct dependency accepts
       # both 20 and 22.
       - name: Set up Node.js
+        if: steps.detect.outputs.gm_console == 'true'
         uses: actions/setup-node@v4
         with:
           node-version: '22'
@@ -57,36 +86,49 @@ jobs:
           cache-dependency-path: apps/gm-console/pnpm-lock.yaml
 
       - name: Install dependencies
+        if: steps.detect.outputs.gm_console == 'true'
         working-directory: apps/gm-console
         run: pnpm install --frozen-lockfile
 
       - name: Typecheck
+        if: steps.detect.outputs.gm_console == 'true'
         working-directory: apps/gm-console
         run: pnpm typecheck
 
       - name: Lint
+        if: steps.detect.outputs.gm_console == 'true'
         working-directory: apps/gm-console
         run: pnpm lint
 
       - name: Unit tests
+        if: steps.detect.outputs.gm_console == 'true'
         working-directory: apps/gm-console
         run: pnpm test --reporter=verbose
 
       - name: Coverage gate (lines ≥ 70%)
+        if: steps.detect.outputs.gm_console == 'true'
         working-directory: apps/gm-console
         run: pnpm test:coverage
 
       - name: Format check
+        if: steps.detect.outputs.gm_console == 'true'
         working-directory: apps/gm-console
         run: pnpm format:check
 
       - name: Build
+        if: steps.detect.outputs.gm_console == 'true'
         working-directory: apps/gm-console
         run: pnpm build
         env:
           VITE_ENABLE_MOCKS: 'false'
 
       - name: Upload coverage report
+        # [FACT] `if: always()` is left exactly as it was, deliberately.
+        # This upload is diagnostic: it exists so that the coverage report
+        # can be read even when the gate above failed. It carries the
+        # default `if-no-files-found: warn`, so it cannot turn the job red,
+        # and adding the area condition to it would take away the report of
+        # a gate that failed — the one case the upload is for.
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -95,7 +137,13 @@ jobs:
           retention-days: 14
 
       - name: Upload dist
-        if: success()
+        # [FACT] `if: success()` is KEPT and the area condition is added on
+        # top of it. Unlike the coverage upload, this one publishes a build
+        # artefact: a skipped gate that still uploaded a `dist` would put an
+        # artefact in the repository that no gate had checked. The job's own
+        # conclusion is "success" when the gate is skipped, so `success()`
+        # alone would let it through — hence the extra condition.
+        if: success() && steps.detect.outputs.gm_console == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: gm-console-dist

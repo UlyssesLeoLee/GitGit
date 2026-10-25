@@ -37,12 +37,24 @@ on:
       - '.github/workflows/frontend-audit.yml'
   pull_request:
     branches: [dev, main]
-    paths:
-      - 'apps/gm-desktop/**'
-      - 'apps/gm-console/**'
-      - 'scripts/frontend-advisory-baseline.json'
-      - 'scripts/frontend-advisory-check.ps1'
-      - '.github/workflows/frontend-audit.yml'
+    # [FACT] No workflow-level `paths:` filter on the pull_request trigger.
+    #
+    # A workflow-level filter decides whether the WORKFLOW starts at all, and a
+    # workflow that never starts reports nothing: GitHub's own documentation
+    # says a workflow skipped by path filtering leaves its checks in a
+    # "Pending" state, and a required check that is Pending blocks the pull
+    # request for ever. That is why this job could never be a required status
+    # check, and why "the advisory ratchet is red" had no power to stop a
+    # merge.
+    #
+    # The filter now lives INSIDE the job (see the "Detect changed areas"
+    # step below). A job whose `if:` condition is false is reported as
+    # "Success", which satisfies a required check. So this job reports on
+    # every pull request and runs only when it applies.
+    #
+    # The `push` trigger keeps its `paths:` filter: a direct push to a branch
+    # is not a pull request, and paying for the advisory scan on every push
+    # to dev buys nothing that the pull request does not already buy.
   schedule:
     # [FACT] The npm advisory database grows on its own schedule. A gate that
     # only runs when the source changes evaluates "no known vulnerabilities"
@@ -64,6 +76,25 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
+        with:
+          # [FACT] The full history is needed: the detection step diffs the
+          # change set against origin/<base>, and a shallow clone does not
+          # have that merge base.
+          fetch-depth: 0
+
+      # [FACT] The detection step lives INSIDE the job, not in front of the
+      # workflow. If it fails, this job goes red and blocks the merge. If it
+      # were a separate job that the gate depended on, a failed detection
+      # would SKIP the gate, and a skipped job reports "Success" — the exact
+      # deadlock this lane exists to close.
+      #
+      # [FACT] A `schedule` event has no base ref, so the detection reports
+      # every area as changed and this job runs exactly as it did before.
+      # That matters here: the weekly schedule exists to re-evaluate the npm
+      # advisory database.
+      - name: Detect changed areas
+        id: detect
+        run: pwsh -NoProfile -File scripts/ci/changed-areas.ps1
 
       # pnpm MUST be installed before setup-node. With `cache: 'pnpm'` the
       # setup-node action shells out to `pnpm store path` to resolve the cache
@@ -79,6 +110,7 @@ jobs:
       # on PATH that reports exactly this version and falls back to
       # `corepack pnpm@<version>` otherwise.
       - name: Install pnpm
+        if: steps.detect.outputs.frontend_audit == 'true'
         uses: pnpm/action-setup@v4
         with:
           version: 9.15.9
@@ -86,6 +118,7 @@ jobs:
       # Node 22, matching every other workflow in this repository. Node 20
       # ("Iron") reached EOL on 2026-04-30.
       - name: Set up Node.js
+        if: steps.detect.outputs.frontend_audit == 'true'
         uses: actions/setup-node@v4
         with:
           node-version: '22'
@@ -103,4 +136,5 @@ jobs:
       # `pnpm audit` queries it, and the checker queries it a second time to
       # corroborate the baseline.
       - name: Frontend advisory ratchet
+        if: steps.detect.outputs.frontend_audit == 'true'
         run: pwsh -NoProfile -File scripts/frontend-advisory-check.ps1
