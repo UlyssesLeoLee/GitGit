@@ -440,6 +440,42 @@ pwsh -NoProfile -File scripts/check-advisories.ps1 -Scope all
 cargo-audit、lock 或基线，或 advisory 数据库读不到——那种情况下这道门禁等于
 什么都没检查，必须硬失败）。
 
+## 分支保护与「永远跑的 gate」（2026-10-25）
+
+`dev` / `main` 已开启 branch protection：要求 PR、要求解决对话、要求线性历史、
+要求分支是最新的、stale review 自动失效、**管理员同样受约束**。
+
+**required status check 只有一个：`repo gate (always runs)`**，来自
+`.github/workflows/gate.yml`。
+
+`[FACT]` **为什么不是其它 workflow 的作业。** GitHub 文档（"Required status
+checks"）写明：「If a workflow is skipped due to path filtering, branch
+filtering, or a commit message, then checks associated with that workflow will
+remain in a 'Pending' state. If you have required checks, this will block the
+pull request from being merged.」本仓**每一个** PR workflow 都是 path 过滤的
+（见「触发器定义」一节），所以要求其中任何一个，都会把**不碰那些路径**的 PR
+永久堵死。本仓合并过纯文档 PR（#47 就是），这不是假想场景。
+
+`[FACT]` `gate.yml` **没有** `paths:` 过滤，因此**每个 PR 都会跑、都会报状态**；
+它跑的是「只能因为 PR 自身内容变红」的那部分检查：两个 crate 的
+`cargo fmt --check`、生成的 per-user WiX 模板与其源文件的 SHA-256 是否一致、
+桌面端的 lint 与 svelte-check。
+
+深门禁（跨平台打包、Rust 测试与审计、两个 advisory ratchet）仍在各自 path
+过滤的 workflow 里，改到相关路径时才跑——它们在 PR 界面里可见，「全绿才合」
+仍然是规则，而 `gate` 是其中**能被自动强制**的那部分。
+
+`[FACT]` `gate` **刻意不含** advisory ratchet：那些门禁会因为**告警库增长**而
+变红，那是关于世界的事实而不是关于这个 PR 的事实；这种 required check 会被
+绕过，然后就成了摆设。ratchet 有自己的每周 `schedule` 就是为此。
+
+`[FACT]` **branch protection 不管 tag。** 打 `v*` tag 触发发布构建这条路不受
+`dev`/`main` 的保护约束，要挡住它需要单独的 tag ruleset 或人工纪律。
+
+`[FACT]` `gate` 的作业名是 required check 的 context，所以**改名字等于换掉
+required check**，会重新制造上面那个死锁。`apps/gm-desktop/tests/unit/repo-gate.test.ts`
+把这个名字、以及「没有 path 过滤」这两件事钉住。
+
 ## Ulysses 接入步骤
 
 ### 1. 第一次 push dev 到 origin (Mavis 推)
@@ -573,6 +609,8 @@ GitHub repo → Settings → Branches → Add rule for `dev`:
   `audit` job 里那道 ratchet 门禁的两个输入；门禁依赖的文件不在 `paths` 内，
   改它们就不会重新评估这道门禁
 - `.github/workflows/gm-desktop.yml` — CI 文件本身
+- `.github/workflows/gate.yml` — 永远跑的 gate 本身；桌面端单测钉住了它的性质
+  （存在、没有 path 过滤、作业名就是 required check 的 context），改它就得跑那些测试
 - `[PROPOSAL]` **缺 `src/**`**，与 `gm-desktop-bundle.yml` 有意不同的地方相同：
   桌面端二进制链接根 crate 的 library target，`src/**` 的改动同样能让编译失败。
   本 lane 未改 workflow 触发器，故只记录

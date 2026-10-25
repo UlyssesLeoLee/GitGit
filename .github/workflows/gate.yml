@@ -1,0 +1,139 @@
+# The always-running gate.
+#
+# WHY THIS FILE EXISTS
+# ====================
+# Every other workflow in this repository is path-filtered: `rust-backend`
+# watches `src/**`, `gm-desktop` watches `apps/gm-desktop/**`, and so on. That
+# is the right way to save CI minutes, and it is also why those workflows
+# CANNOT be required status checks.
+#
+# [FACT] GitHub's own documentation, "Required status checks": "If a workflow
+# is skipped due to path filtering, branch filtering, or a commit message, then
+# checks associated with that workflow will remain in a 'Pending' state. If
+# you have required checks, this will block the pull request from being
+# merged."
+#
+# So requiring, say, `rust-backend`'s `fmt + clippy + test` would block every
+# pull request that does not touch `src/**` — a documentation-only pull
+# request would sit there forever, waiting for a check that is never going to
+# run. This repository has merged such pull requests (a docs-only one among
+# them), so the case is real and not hypothetical.
+#
+# [INFERENCE] The fix is a job that ALWAYS reports. A skipped JOB satisfies a
+# required check; a workflow that never RUNS does not. So this workflow has NO
+# `paths:` filter, and the job inside it is the one named in the branch
+# protection's required status checks.
+#
+# WHAT IT CHECKS, AND WHY THESE
+# =============================
+# The checks here are the ones that are (a) cheap, (b) true of every pull
+# request regardless of which files it touches, and (c) able to go red ONLY
+# because of the pull request's own content — never because the world moved
+# underneath it. That last property matters: a required check that turns red
+# for an unrelated reason gets bypassed, and then it is theatre.
+#
+#   * `cargo fmt --check` for the root crate and for `src-tauri`. Rust
+#     formatting is checked by the path-filtered workflows too, but a pull
+#     request that touches neither is not checked at all today.
+#   * the generated per-user WiX template still matches its source. The
+#     generator records the source's SHA-256 in the generated file precisely
+#     so a stale one cannot go unnoticed — but only the desktop suite reads
+#     that line, and the desktop suite is path-filtered.
+#
+# It deliberately does NOT include the advisory ratchets. Those go red when
+# the advisory database grows, which is a fact about the world and not about
+# the pull request; a required check that does that would block unrelated
+# work. The ratchets have their own weekly `schedule` for exactly that
+# reason.
+#
+# The deep gates stay where they are: path-filtered, visible on the pull
+# request, and run when the change makes them relevant. "Everything green
+# before merging" remains the rule; this file is the part of it that can be
+# enforced automatically on EVERY pull request.
+name: gate
+
+on:
+  push:
+    branches: [dev, main]
+  pull_request:
+    branches: [dev, main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: gate-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  gate:
+    name: repo gate (always runs)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      # Rust formatting, both crates. `cargo fmt` resolves no dependency
+      # graph, so it needs neither `--locked` nor a build.
+      - name: Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust formatting (root crate)
+        run: cargo fmt --all -- --check
+
+      - name: Rust formatting (src-tauri)
+        working-directory: apps/gm-desktop/src-tauri
+        run: cargo fmt --all -- --check
+
+      # The generated per-user WiX template carries the SHA-256 of the
+      # template it was generated from, so a stale one cannot go unnoticed.
+      # [FACT] `render-wix-template.py` writes that digest into the generated
+      # file's header for exactly this reason, and
+      # `apps/gm-desktop/tests/unit/agpl-license-gate.test.ts` reads it —
+      # but that test lives in the desktop suite, which is path-filtered.
+      - name: The generated per-user WiX template matches its source
+        shell: bash
+        run: |
+          set -euo pipefail
+          want=$(sha256sum apps/gm-desktop/src-tauri/wix/main.wxs | cut -d' ' -f1)
+          got=$(grep -oE 'SOURCE-SHA256: [0-9a-f]{64}' \
+            apps/gm-desktop/src-tauri/wix/main-peruser.wxs | head -1 | cut -d' ' -f2)
+          if [ -z "$got" ]; then
+            echo "::error::the generated per-user WiX template records no SOURCE-SHA256"
+            exit 1
+          fi
+          if [ "$want" != "$got" ]; then
+            echo "::error::the generated per-user WiX template is stale"
+            echo "  main.wxs          : $want"
+            echo "  main-peruser.wxs  : $got"
+            echo "  re-run: python apps/gm-desktop/scripts/render-wix-template.py"
+            exit 1
+          fi
+          echo "    ok  the generated per-user WiX template matches its source"
+
+      # Both frontends' static checks. These are the checks a pull request
+      # that touches only a frontend would otherwise get from the
+      # path-filtered workflow — here they run for every pull request.
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'pnpm'
+          cache-dependency-path: apps/gm-desktop/pnpm-lock.yaml
+
+      - name: Install desktop dependencies
+        working-directory: apps/gm-desktop
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint the desktop app
+        working-directory: apps/gm-desktop
+        run: pnpm lint
+
+      - name: Type-check the desktop app
+        working-directory: apps/gm-desktop
+        run: pnpm check
