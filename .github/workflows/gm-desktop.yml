@@ -491,6 +491,35 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 45
 
+    # [FACT] The area decision, published to the two consumer jobs below.
+    #
+    # [INFERENCE] A `needs:` chain is NOT enough to skip a consumer, and the
+    # reason is worth writing down because it is the second time in this work
+    # that a documented GitHub behaviour was not what the design assumed:
+    # this job is never SKIPPED. When the area does not match, the job runs,
+    # its steps are individually skipped, and the job concludes SUCCESS.
+    # GitHub's documentation, "Using jobs in a workflow", says a dependent
+    # job is skipped when the job it needs "fails or is skipped" — a
+    # dependency that merely SUCCEEDS does not skip its dependents, so
+    # `msi-install` and `msi-launch` would run and then fail on an artefact
+    # that was never uploaded.
+    #
+    # So the decision is published instead of inferred: the consumers read it
+    # and are skipped as a whole when it is false, and a skipped job reports
+    # "Success" — which is exactly what a required check needs when the gate
+    # does not apply.
+    #
+    # [FACT] The value already exists: the detection step prints the area
+    # flags. This publishes one of them, it does not compute anything.
+    #
+    # [FACT] When this job FAILS the output is empty, so the consumers are
+    # skipped and report Success — and this job, being a required context
+    # itself, blocks the merge on its own account. That is the invariant the
+    # structure test enforces: every job a required context needs must
+    # itself be a required context.
+    outputs:
+      applies: ${{ steps.detect.outputs.gm_desktop }}
+
     # No job-level `defaults.run.working-directory` here, unlike `build`: the
     # steps below address repo-root paths (apps/gm-desktop/scripts/...) and
     # upload paths, so an implicit working directory would only be one more
@@ -658,6 +687,7 @@ jobs:
     # not a rebuild. A second build would be a different set of bytes, and the
     # whole point is to install what is going to be shipped.
     needs: msi
+    if: needs.msi.outputs.applies == 'true'
     runs-on: windows-latest
     timeout-minutes: 30
 
@@ -712,6 +742,7 @@ jobs:
     # The PACKAGED artefact, not a dev build: `msi` produced this package,
     # and the point is what a user would actually receive.
     needs: msi
+    if: needs.msi.outputs.applies == 'true'
     runs-on: windows-latest
     timeout-minutes: 30
 

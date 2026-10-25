@@ -82,8 +82,10 @@ context 列表（**作业名**，因为 GitHub 按作业的 `name:` 报 check）
 
 `[FACT]` 另有 3 个**消费者**作业——`msi installs and removes itself on a stock Windows
 machine`、`the packaged application starts and presents a window`、`deb installs and
-links on a stock Ubuntu`——它们**一个字节都没有改**（实测：三个作业块与改动前逐字节
-相同）。它们 `needs:` 自己的生产者，不做检测、不带区域条件。
+links on a stock Ubuntu`——它们不做检测、不带区域条件；每个只多了**一行** job 级
+`if: needs.<生产者>.outputs.applies == 'true'`，其余部分与改动前逐字相同。它们
+`needs:` 自己的生产者，生产者把区域判定作为 job output 发布给它们（见
+「`needs:` 链为什么是安全的」一节）。
 
 `[FACT]` `push` 触发器**保留** workflow 级 `paths:`：直接推分支不是 PR，为每次推 dev
 付全部门禁的钱买不到 PR 已经买到的东西。
@@ -126,13 +128,21 @@ check 放到同一个 SHA 上。
 `draft-release` 消费的 outputs 也全部走 key 与 outputs。
 
 `[INFERENCE]` **为什么改发布通路而不是 PR 通路**：PR 通路的这些名字是**已经出现在证据
-里**的名字——`README.md:152`、`README.md:328`、`.github/CI.md:150`、
-`docs/plan/v0-tasks.md:69`、`docs/plan/v0-tasks.md:236`、
+里**的名字。**按显示名引用**它们的记录有——`README.md:152`、`README.md:328`、
+`.github/CI.md:150`、`docs/plan/v0-tasks.md:69`（job `appimage (unsigned)`）、
 `apps/gm-desktop/tests/unit/msi-install-gate.test.ts:13`、
 `apps/gm-desktop/tests/unit/deb-install-gate.test.ts:383`、
-`.github/workflows/gm-desktop.yml:652` 引用的都是 **PR 通路**的作业名（它们描述的是 PR
-的 run 里发生的事）。改 PR 通路会让这些记录全部变成过时记述；发布通路的作业名只出现在
-tag 触发的 run 里，仓里没有任何文档 / 测试引用它们。
+`.github/workflows/gm-desktop.yml:681`（`# The Windows counterpart of the …`）——
+它们描述的是 PR 的 run 里发生的事，改 PR 通路会让这些记录全部变成过时记述。
+
+`[FACT]` `docs/plan/v0-tasks.md:236` 引用的是 PR 通路作业的 **key**
+（`msi` / `dmg` / `deb` / `appimage`），不是显示名；改名不影响它，所以它是同一类
+证据、但不是「会因为改名而过时」的那一类。
+
+`[FACT]` 发布通路的作业名只出现在 tag 触发的 run 里，仓里没有任何文档 / 测试引用它们。
+
+`[FACT]` 上面这些行号在本文落笔时**逐条核对过**：每一行都确实写着它被引来证明的
+那句名字。一个指错行的引用，正是让记录不再可信的那种东西。
 
 `[FACT]` 改完之后，`required-checks.json` 里那 14 条 context 就各自只有一个拥有者
 （实测 `problems=0`）。
@@ -232,7 +242,46 @@ frontend_audit:      apps/gm-desktop/**  apps/gm-console/**
 
 `[FACT]` 消费者作业因此**不需要**检测步骤，也**不带**区域条件：区域判定属于它
 `needs:` 的生产者；消费者若自己再判一次，就是同一个判定有两个出处，两者可能不一致。
-结构测试对此有单独一条断言：消费者作业**不得**带检测步骤。
+结构测试对此有单独一条断言：消费者作业**不得**带检测步骤，**也不得**在步骤上带区域
+条件——一个没有检测步骤的消费者若带上区域条件，那个条件永远为假，每一步都会被跳过，
+作业会报绿而**什么都没测**。
+
+### 消费者需要的是「发布的判定」，不只是一个 `needs:`
+
+`[FACT]` **第二次：被跳过的不是生产者，而是生产者的步骤。** 生产者作业本身**从不**
+被跳过：区域不匹配时它照常运行（checkout 与检测步骤真的执行），其余步骤被逐个
+跳过，作业结论是 **success**。
+
+`[FACT]` GitHub 官方文档 "Using jobs in a workflow"：「If a job fails or is skipped, all
+jobs that need it are skipped」——依赖**成功**并不会跳过它的下游。
+
+`[INFERENCE]` 所以 `needs:` 链**不足以**跳过消费者：消费者会照常运行，然后因为找不到
+从未上传的产物而失败——在**与桌面无关的 PR 上**让三个 required context 变红。
+
+`[FACT]` 因此消费者需要的是生产者**发布的**区域判定，不只是一个 `needs:`：
+
+- `msi` 发布 `applies: ${{ steps.detect.outputs.gm_desktop }}`；
+- `deb` 发布 `applies: ${{ steps.detect.outputs.gm_desktop_bundle }}`（**加在**它已有的
+  `version` 输出旁边，不是替换它）；
+- `msi-install` / `msi-launch` / `deb-install` 各带一条 job 级
+  `if: needs.<生产者>.outputs.applies == 'true'`。
+
+`[INFERENCE]` job 级 `if:` 为假 → 作业**被跳过** → 被跳过的作业报 "Success"——这正是
+required check 在门禁不适用时需要的东西。
+
+`[FACT]` 生产者**失败**时 `applies` 为空，消费者同样被跳过并报 Success——而生产者
+本身是 required context，它红就**自己**挡住合并。这正是上一节那条不变量所允许的形状：
+依赖方是 required context，所以「上游红 → 下游被跳过 → 报 Success」不构成放行。
+
+`[FACT]` 结构测试把这条链钉住：消费者必须有 job 级条件、必须要求
+`needs.<生产者>.outputs.applies == 'true'`、生产者必须真的发布 `applies`、而且
+`applies` 必须就是区域判定本身。实测（2026-10-25）四种变异**全部**让它变红：消费者
+去掉 job 级条件、生产者不再发布 `applies`、生产者的 `applies` 发了别的值、消费者某一步
+带上了一个它根本算不出来的区域条件。
+
+`[FACT]` 三个消费者作业**只加了那一行**，没有加注释——它们的解释放在两处：生产者
+发布这个值的 `outputs:` 块上方（那里说明了它为什么被发布），以及本节。而真正防止
+有人把这一行当成冗余删掉的，是那条结构测试：删掉它，测试立刻变红。
 
 ## 路径匹配语义：与 GitHub 对齐到什么程度
 
@@ -287,7 +336,8 @@ PR 自己也必须满足新的 required check。所以顺序必须是「先合�
 | required check 名字对不上 → PR 卡死 | `workflow-gate.test.ts` 断言每个 context 恰好一个作业拥有；发布通路的 5 个重名作业已改名（见上）。 |
 | 两个作业报同一个 check 名 → required check 无法消歧义 | 发布通路那 5 个作业名带 `release ` 前缀；`release.yml` 的保真门禁现在**断言**两个名字不同；结构测试断言每个 context 恰好一个拥有者。 |
 | `needs:` 链把红色变成绿色 | 结构测试断言：**required context 若有 `needs:`，它需要的每一个作业也必须是 required context**。上游生产者本身就是 required context，它红就自己挡住合并。 |
-| 消费者作业在区域不适用时仍然运行 | **未闭合**，见下一节。 |
+| 消费者作业在区域不适用时仍然运行 | **已修**：生产者把区域判定作为 job output 发布，消费者用 job 级 `if:` 要求它；区域不适用时消费者被跳过并报 Success。结构测试钉住这条链的每一环。 |
+| 消费者步骤上带了算不出来的区域条件 | 结构测试断言消费者**不得**在步骤上带区域条件——那会让每一步都被跳过，作业报绿而什么都没测。 |
 | 回滚 | 恢复 workflow 级 `paths:` 即可，**但必须同时**把 branch protection 的 required checks 改回去，否则 PR 会永久 pending。 |
 
 ## 本 lane 明确没做的事
@@ -298,8 +348,9 @@ PR 自己也必须满足新的 required check。所以顺序必须是「先合�
 其中 9 条**还没有**进保护。`notes.enforcedOnGitHub` 记的是 `true`，`notes` 里写明了
 哪 5 条在保护里、哪 9 条不在。
 
-`[FACT]` **没有动三个消费者作业**（`msi-install` / `msi-launch` / `deb-install`），
-它们与改动前逐字节相同。
+`[FACT]` **三个消费者作业（`msi-install` / `msi-launch` / `deb-install`）各只加了
+一行 job 级 `if:`**，其余部分与改动前逐字相同——它们不做检测、不带区域条件。
+那一行是必需的，理由见「`needs:` 链为什么是安全的」一节。
 
 `[FACT]` **没有动 `apps/gm-console/**`、`scripts/frontend-advisory-baseline.json`** ——
 那是另一条 lane（PR #58，gm-console 工具链升级）正在改的文件。
@@ -310,12 +361,17 @@ PR 自己也必须满足新的 required check。所以顺序必须是「先合�
 `[FACT]` **没有改任何 `needs:` 链、作业 key、artifact 名**，也没有削弱、跳过或删除
 任何既有检查——保真门禁的改动是**加**了一条断言（两个名字必须不同），不是减一条。
 
-## 本 lane 实测发现、且没有顺手修的一处未闭合
+## 本 lane 实测发现的两处「文档行为 ≠ 设计假设」，以及它们怎么修的
 
-`[FACT]` 下面这一处是**实测**得到的，不是推测；本 lane **没有**在顺手修的范围内动它
-（brief 明确要求三个消费者作业「一个字节都不用改」），交回父代理决定。
+`[FACT]` 这两处都是**实测**得到的，不是推测。两处都**不是**本 lane 的设计错误，
+而是本 lane 依赖的 GitHub 文档行为与设计的前提不一致——两处都已修掉。
 
-### 消费者作业在区域不适用时不会被跳过
+`[INFERENCE]` 两处的共同形状值得写下来：**一个被记录的 GitHub 行为，在设计里被当成了
+另一个行为。** 第一处把「作业被跳过」当成了「作业的步骤被跳过」，第二处把「两个作业块
+逐字相同」当成了「两个作业块的行为相同」。文档里被引用的行为与被设计的行为不是一回事，
+所以设计依赖的每一条文档行为都值得逐字核对。
+
+### 一、消费者作业：被跳过的不是生产者，而是生产者的步骤
 
 `[FACT]` brief 的 §4.2 假设：「上游因为区域不匹配而被**跳过**时，消费者作业也会被
 跳过，而被跳过的作业报 Success」。这条假设**不成立**。
@@ -326,17 +382,22 @@ PR 自己也必须满足新的 required check。所以顺序必须是「先合�
 `[FACT]` GitHub 官方文档 "Using jobs in a workflow"：「If a job fails or is skipped, all
 jobs that need it are skipped」——依赖**成功**时，下游**照常运行**。
 
-`[INFERENCE]` 后果：区域不适用时，`msi-install` / `msi-launch` 会去下载
+`[INFERENCE]` 后果（修好之前）：区域不适用时，`msi-install` / `msi-launch` 会去下载
 `gm-desktop-msi-*` 这个 pattern，`deb-install` 会去下载
 `gm-desktop-deb-${{ needs.deb.outputs.version }}`；而那些产物这一轮**根本没有上传**
 （无条件的产物上传已经带上了区域条件）。`actions/download-artifact@v4` 找不到产物时
 **失败**，所以这三个 context 会在**与桌面无关的 PR 上变红**。
 
-`[PROPOSAL]` 最小修法（**本 lane 未采用**）：给生产者作业多发布一个 `applies` 输出
-（`${{ steps.detect.outputs.<区域> }}`），消费者作业加一条 job 级
-`if: needs.<生产者>.outputs.applies == 'true'`。上游失败时 `applies` 为空，消费者被
-跳过并报 Success——**这正是「`needs:` 链为什么是安全的」一节那条不变量所允许的**：
-上游本身是 required context，它红就自己挡住合并。
+`[FACT]` **已修**：生产者把区域判定作为 job output 发布，消费者用 job 级 `if:` 要求它
+（详见「消费者需要的是「发布的判定」，不只是一个 `needs:`」一节）。结构测试钉住这条链
+的每一环，四种变异实测全部变红。
+
+### 二、保真门禁：它自己就是「无法被强制」的原因之一
+
+`[FACT]` 见上文「保真门禁：它自己就是「无法被强制」的原因之一」一节。那道门禁原本
+要求两个作业块**逐字相同**，于是它强制两个作业带上**同一个名字**——而两个作业报同一个
+check 名，正是 GitHub 无法消歧义的情形。那道门禁现在**改**成：去掉 `name:` 行之后
+仍然逐行相同，**并且**两个名字必须不同。
 
 ## 一次被测出来的假阳性，以及本 lane 自己的重复实验
 

@@ -87,6 +87,7 @@ type Job = {
   name?: string;
   needs?: string | string[];
   'if'?: string;
+  outputs?: Record<string, string>;
   steps?: Step[];
 };
 
@@ -119,6 +120,18 @@ const requiredChecks = JSON.parse(readFileSync(REQUIRED_CHECKS, 'utf8')) as {
 };
 
 const CONTEXTS = requiredChecks.contexts;
+
+/**
+ * The job keys a job needs, as a list.
+ *
+ * [FACT] `needs:` is either one key or a list of them, and the assertions
+ * below read both shapes the same way.
+ */
+function needsList(job: Job): string[] {
+  const needs = job.needs;
+  if (needs === undefined) return [];
+  return Array.isArray(needs) ? needs : [needs];
+}
 
 /**
  * Which area each gated workflow's jobs belong to.
@@ -273,10 +286,7 @@ describe('the workflows that own a required context', () => {
       const owner = allJobs.find((entry) => entry.job.name === context);
       expect(owner, `no job is named "${context}"`).toBeDefined();
 
-      const needs = owner!.job.needs;
-      const dependencies = needs === undefined ? [] : Array.isArray(needs) ? needs : [needs];
-
-      for (const dependency of dependencies) {
+      for (const dependency of needsList(owner!.job)) {
         const upstream = allJobs.find((entry) => entry.file === owner!.file && entry.key === dependency);
         expect(
           upstream,
@@ -308,10 +318,10 @@ describe('the deep gates inside the required jobs', () => {
    * re-decided the area for itself would be a second place where the
    * decision is made — and the two could disagree.
    *
-   * [INFERENCE] So the area-condition assertion below does not apply to a
-   * consumer. What does apply to it is asserted separately, further down: it
-   * has no detection step, and the job it needs is itself a required
-   * context (the `needs:` invariant above).
+   * [FACT] The consumer is skipped as a WHOLE, by a job-level `if:` that
+   * requires the producer's published area decision. It is NOT skipped by
+   * its `needs:` — see the assertion below for why that distinction is the
+   * whole point.
    */
   function isConsumer(job: Job): boolean {
     return job.needs !== undefined;
@@ -393,6 +403,82 @@ describe('the deep gates inside the required jobs', () => {
         hasDetection,
         `${owner!.file}:${owner!.key} is the consumer of another job's artefact and carries a detection step. The area decision belongs to the producer it needs; a second decision here could disagree with it.`
       ).toBe(false);
+
+      // [INFERENCE] And the corollary, which is a silent failure if it ever
+      // happens: a consumer that carried an area condition on its steps
+      // would be evaluating a `steps.detect.outputs.<area>` that no step in
+      // that job ever sets — so the condition would always be false, every
+      // step would be skipped, and the job would report green while testing
+      // NOTHING. That is exactly the class of green-but-blind gate this
+      // repository has been bitten by before.
+      const area = AREA_BY_WORKFLOW[owner!.file];
+      expect(area, `${owner!.file} is not one of the five gated workflows`).toBeDefined();
+
+      for (const step of owner!.job.steps ?? []) {
+        expect(
+          step.if ?? '',
+          `${owner!.file}:${owner!.key} — the step "${step.name ?? step.uses ?? ''}" carries an area condition, but this job has no detection step to evaluate it. The condition would always be false, every step would be skipped, and the job would report green while testing nothing. The area decision belongs to the producer.`
+        ).not.toContain(`steps.detect.outputs.${area}`);
+      }
+    }
+  });
+
+  it('a consumer job is skipped whole by the producer\'s published area decision', () => {
+    // [FACT] This is the second time in this work that a DOCUMENTED GitHub
+    // behaviour was not what the design assumed, so it is written down here
+    // rather than left in a comment.
+    //
+    // [FACT] The producer is never SKIPPED. When the area does not match, the
+    // producer's steps are individually skipped and the JOB concludes
+    // SUCCESS. GitHub's documentation, "Using jobs in a workflow", says a
+    // dependent job is skipped when the job it needs "fails or is skipped" —
+    // a dependency that merely SUCCEEDS does not skip its dependents.
+    //
+    // [INFERENCE] So a `needs:` chain alone does NOT skip a consumer: the
+    // consumer would run, and then fail on an artefact that was never
+    // uploaded — three red contexts on every pull request that does not
+    // touch the area. The producer therefore publishes the area decision as
+    // a job output, and the consumer's job-level condition requires it. A
+    // job-level `if:` that is false means the job is SKIPPED, and a skipped
+    // job reports "Success" — which is what a required status check needs
+    // when the gate does not apply.
+    for (const context of CONTEXTS) {
+      const owner = allJobs.find((entry) => entry.job.name === context);
+      expect(owner, `no job is named "${context}"`).toBeDefined();
+
+      if (!isConsumer(owner!.job)) continue;
+
+      const condition = owner!.job['if'];
+      expect(
+        condition,
+        `${owner!.file}:${owner!.key} is a consumer job and carries no job-level condition. Its producer is never skipped — it runs, its steps are skipped, and it concludes SUCCESS — so a \`needs:\` chain alone leaves this job to run and then to fail on an artefact that was never uploaded. The consumer must be skipped by a job-level condition that requires the producer's area decision.`
+      ).toBeDefined();
+
+      for (const dependency of needsList(owner!.job)) {
+        const producer = allJobs.find((entry) => entry.file === owner!.file && entry.key === dependency);
+        expect(
+          producer,
+          `${owner!.file}:${owner!.key} needs "${dependency}", which is not a job in that workflow`
+        ).toBeDefined();
+
+        expect(
+          condition!,
+          `${owner!.file}:${owner!.key} must require the producer's published area decision: \`needs.${dependency}.outputs.applies == 'true'\`. Without it the consumer runs on every pull request and fails on an artefact that was never uploaded.`
+        ).toContain(`needs.${dependency}.outputs.applies == 'true'`);
+
+        expect(
+          producer!.job.outputs?.applies,
+          `${owner!.file}:${dependency} publishes no \`applies\` output, so the consumer that requires it cannot be skipped.`
+        ).toBeDefined();
+
+        const area = AREA_BY_WORKFLOW[producer!.file];
+        expect(area, `${producer!.file} is not one of the five gated workflows`).toBeDefined();
+
+        expect(
+          producer!.job.outputs!.applies,
+          `${owner!.file}:${dependency} publishes an \`applies\` output that is not the area flag \`steps.detect.outputs.${area}\`, so it does not say whether the area applies.`
+        ).toContain(`steps.detect.outputs.${area}`);
+      }
     }
   });
 });
