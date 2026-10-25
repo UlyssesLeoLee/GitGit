@@ -36,9 +36,12 @@
  *
  * ## What is deliberately NOT claimed
  *
- * That the GUI opens. The desktop application has never been observed
- * running, and this repository records that as a deliberate, explained
- * boundary (`.github/CI.md`, `docs/plan/v0-tasks.md`). What is proven is what
+ * That the GUI opens. [FACT] It does — the `msi-launch` job starts the
+ * packaged application and asserts a top-level window appears (measured
+ * 2026-10-25: the window is titled 'gitgit Desktop'). But that is a
+ * separate job, and this one stays out of it: a container's start-up
+ * failures are not packaging failures, and a gate that reddens for them
+ * gets switched off. What is proven is what
  * packaging controls. The job does not launch the app, and the gates below
  * make that structural rather than a promise in a comment.
  */

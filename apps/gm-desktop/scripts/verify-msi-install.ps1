@@ -53,14 +53,21 @@
 
     WHAT IS DELIBERATELY NOT CHECKED
     ===============================
-    That the application RUNS. The desktop GUI has never been observed
-    running, and this repository records that as a deliberate, explained
-    boundary (`.github/CI.md`, `docs/plan/v0-tasks.md`): a webkit/GTK
-    application fails to start in a container for reasons that have nothing
-    to do with packaging, and a gate that goes red for those reasons gets
-    switched off. What is proven here is the part packaging controls - the
-    package installs on a machine that has nothing but Windows, registers
-    itself, and removes itself cleanly.
+    That the application RUNS. [FACT] It does. The `msi-launch` job in
+    `gm-desktop.yml` installs the PACKAGED application, starts it and
+    asserts that a top-level window appears - measured 2026-10-25, the
+    window is titled 'gitgit Desktop'. (The application was also observed
+    to start on a real machine on 2026-10-04; see T10 in
+    `docs/plan/v0-tasks.md`.)
+
+    But that is a SEPARATE job, and this script deliberately stays out of
+    it. This one's contract is "installs and removes, across all four
+    variants", and a webkit application fails to start in a LINUX
+    container for reasons that have nothing to do with packaging, and a
+    gate that goes red for those reasons gets switched off. What is proven
+    HERE is the part packaging controls - the package installs on a
+    machine that has nothing but Windows, registers itself, and removes
+    itself cleanly.
 
     The boundary is enforced, not just stated: this script never starts
     `gm-desktop.exe`, and it ASSERTS that no `gm-desktop.exe` process is
@@ -681,8 +688,8 @@ function Assert-Installed {
     $running = @(Get-Process -Name ([System.IO.Path]::GetFileNameWithoutExtension($ExeName)) -ErrorAction SilentlyContinue)
     if ($running.Count -gt 0) {
         throw ("${Label}: '$ExeName' is running after the install. This job installs and uninstalls; it does not start " +
-               "the application. The desktop GUI has never been observed running, and a gate that asserts it starts " +
-               "would go red for reasons packaging does not control.")
+               "the application. The `msi-launch` job is where the packaged application is started, and a gate that " +
+               "asserts it starts would go red for reasons packaging does not control.")
     }
 
     return [pscustomobject]@{
