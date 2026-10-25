@@ -11,12 +11,18 @@
 全是咨询性的——红了也挡不住合并。**
 
 本 lane 把路径过滤**下沉到 job 内**，让这些作业在**每个 PR 上都报状态**，从而具备
-被加进 branch protection 的资格。**本 lane 不改分支保护**（那是合并后的独立一步）。
+被加进 branch protection 的资格。
 
-`[FACT]` 截至本文（L1-b 完成时），5 个 workflow 的 `pull_request` 触发器全部去掉了
-workflow 级 `paths:`，14 个深门禁作业名全部登记在 `scripts/ci/required-checks.json`，
-且每个名字在全部 7 个 workflow 文件里**恰好只有一个拥有者**（实测
-`contexts=14  problems=0`）。
+`[FACT]` 截至本文（L1-b 完成时）：
+
+- **L1-a**（`rust-backend.yml` / `gm-console.yml` / `frontend-audit.yml`）已落地，
+  它的 5 个 context **已经在** `dev` / `main` 的 branch protection 里——父代理在
+  PR #60 与 PR #61 上实测过；
+- **L1-b**（本 lane，`gm-desktop.yml` / `gm-desktop-bundle.yml`）把另外 9 个 context
+  全部**声明**在 `scripts/ci/required-checks.json` 里，但**还没有**进保护；
+- 5 个 workflow 的 `pull_request` 触发器全部去掉了 workflow 级 `paths:`，14 个深门禁
+  作业名全部登记在册，且每个名字在全部 7 个 workflow 文件里**恰好只有一个拥有者**
+  （实测 `contexts=14  problems=0`）。
 
 ## 问题：workflow 级过滤为什么让门禁无法被强制
 
@@ -32,7 +38,7 @@ workflow 级 `paths:`，14 个深门禁作业名全部登记在 `scripts/ci/requ
 2. 不设成 required check → 它红不红**完全不影响合并**。
 
 `[FACT]` 本仓正是第 2 种。`docs/plan/v0-tasks.md` 的决策日志在 2026-10-25 记着：
-「深门禁（打包 / Rust 测试 / 审计 / 两个 ratchet）**仍是 path 过滤的，未被自动强制**」。
+「深门禁（打包 / Rust 测试 / 审计 /两个 ratchet）**仍是 path 过滤的，未被自动强制**」。
 
 ## 机制：job 级跳过报 Success
 
@@ -124,12 +130,55 @@ check 放到同一个 SHA 上。
 `docs/plan/v0-tasks.md:69`、`docs/plan/v0-tasks.md:236`、
 `apps/gm-desktop/tests/unit/msi-install-gate.test.ts:13`、
 `apps/gm-desktop/tests/unit/deb-install-gate.test.ts:383`、
-`.github/workflows/gm-desktop.yml:571` 引用的都是 **PR 通路**的作业名（它们描述的是 PR
+`.github/workflows/gm-desktop.yml:652` 引用的都是 **PR 通路**的作业名（它们描述的是 PR
 的 run 里发生的事）。改 PR 通路会让这些记录全部变成过时记述；发布通路的作业名只出现在
 tag 触发的 run 里，仓里没有任何文档 / 测试引用它们。
 
 `[FACT]` 改完之后，`required-checks.json` 里那 14 条 context 就各自只有一个拥有者
 （实测 `problems=0`）。
+
+### 保真门禁：它自己就是「无法被强制」的原因之一
+
+`[FACT]` `release.yml` 的 `deb` 作业里有一道保真门禁 "The ported install proof still
+matches the CI job it was ported from"：它把 `release.yml` 的 `deb-install` 作业块与
+`gm-desktop-bundle.yml` 的同名作业块**逐行比对**（忽略注释与空行），不同就让发布失败。
+这是 `release.yml` 里**唯一**一处保真比对。
+
+`[FACT]` 实测（2026-10-25）：改动之前两份作业块**完全相同**（`ok … 76 lines compared`）；
+给发布通路的 `name:` 加上 `release ` 前缀之后，那道门禁**变红**，差异恰好是一行：
+
+```
+-    name: deb installs and links on a stock Ubuntu
++    name: release deb installs and links on a stock Ubuntu
+```
+
+`[INFERENCE]` **这道门禁自己就是「.deb 安装证明无法被强制」的原因之一。** 它要求两个
+作业块**逐字相同**，于是它**强制**两个作业带上**同一个名字**；而两个作业报同一个
+check 名，正是 GitHub 无法消歧义的情形——required context 会有两个可能的拥有者，
+哪个算数没有文档。一道为了守住副本诚实性的门禁，反而把这份证明钉死在「无法被要求」
+的状态上。
+
+`[FACT]` 所以这道门禁现在断言**两件事**：
+
+1. 两个作业块（**去掉 `name:` 行之后**）**逐行相同**——容器镜像、job 级 shell、每一个
+   `run:` 体，判定一点都没有放松；
+2. 两个作业的**显示名必须不同**——发布通路那份带 `release ` 前缀，于是 PR 通路那个
+   作业是该 check 名的**唯一**拥有者。
+
+`[INFERENCE]` 这不是把门禁放松，是把「标签」从「被门禁顺带约束的东西」变成「被门禁
+主动盯住的东西」：以前名字相同是门禁的**副作用**，现在名字相同是门禁的**红灯**。
+
+`[FACT]` 实测三种情形（2026-10-25，本机，直接从 `release.yml` 里抽出那一步的脚本来跑）：
+
+| 情形 | 退出码 | 输出 |
+| --- | --- | --- |
+| 两份作业块一致、名字不同 | 0 | `ok release.yml deb-install matches gm-desktop-bundle.yml (75 lines compared)`，并打印两个名字 |
+| 两份名字相同 | 1 | `both named "..."`，并说明 GitHub 无法消歧义 |
+| 行为漂移（把 job 级 `shell: bash` 改成 `sh`） | 1 | `has drifted from the one in gm-desktop-bundle.yml` + unified diff，漂移的行被指名 |
+
+`[FACT]` `apps/gm-desktop/tests/unit/deb-install-gate.test.ts` 读的是作业的 **key**
+（`DOC.jobs['deb-install']`），不是它的 `name:`，所以这道门禁的语义变了，那条测试
+不需要改。
 
 ## 覆盖范围一个字节都没有变
 
@@ -207,10 +256,12 @@ frontend_audit:      apps/gm-desktop/**  apps/gm-console/**
 
 ## 验证计划（合并之后做，不在本 lane）
 
-`[PROPOSAL]` 合并后由父代理做两件事：
+`[FACT]` L1-a 的 5 个 context **已经**在 `dev` / `main` 的 branch protection 里，父代理
+在 PR #60 与 PR #61 上实测过。
 
-1. 把 `scripts/ci/required-checks.json` 里声明的 14 个 context 加进 `dev` / `main` 的
-   branch protection required checks。
+`[PROPOSAL]` 合并 L1-b 之后，父代理做两件事：
+
+1. 把本文件新增的 9 个 context 加进 `dev` / `main` 的 branch protection required checks；
 2. 用**两个真实 PR** 实证：
    - 一个**只改 `docs/**`** 的 PR → 14 个 context 全部**出现**且为绿（不是 pending）；
    - 一个**改了 `src/**`** 的 PR → rust 门禁**真的跑起来**（看日志里有 cargo 的输出，
@@ -234,15 +285,21 @@ PR 自己也必须满足新的 required check。所以顺序必须是「先合�
 | 检测失败 → 门禁红 | 刻意如此。检测失败说明变更集算不出来，此时「什么都没变」是最危险的读法。脚本对这种情况**非零退出**，不静默放行。 |
 | 区域模式与 GitHub 语义有偏差 | 模式列表被测试钉住；语义偏差只能在 GitHub 上实测发现，所以验证计划里有 docs-only 与 src-touching 两个 PR。 |
 | required check 名字对不上 → PR 卡死 | `workflow-gate.test.ts` 断言每个 context 恰好一个作业拥有；发布通路的 5 个重名作业已改名（见上）。 |
+| 两个作业报同一个 check 名 → required check 无法消歧义 | 发布通路那 5 个作业名带 `release ` 前缀；`release.yml` 的保真门禁现在**断言**两个名字不同；结构测试断言每个 context 恰好一个拥有者。 |
 | `needs:` 链把红色变成绿色 | 结构测试断言：**required context 若有 `needs:`，它需要的每一个作业也必须是 required context**。上游生产者本身就是 required context，它红就自己挡住合并。 |
 | 消费者作业在区域不适用时仍然运行 | **未闭合**，见下一节。 |
 | 回滚 | 恢复 workflow 级 `paths:` 即可，**但必须同时**把 branch protection 的 required checks 改回去，否则 PR 会永久 pending。 |
 
 ## 本 lane 明确没做的事
 
-`[FACT]` **没有改分支保护。** `scripts/ci/required-checks.json` 里
-`notes.enforcedOnGitHub` 记的是 `false`。这个提交之后，GitHub 上仍然只要求
-`repo gate (always runs)`。文件里写的是**声明**，不是**强制**。
+`[FACT]` **本 lane 没有改分支保护。** 分支保护里现在有的那 5 个 required check
+（`repo gate (always runs)` 加 L1-a 的 5 条）是父代理另外加的，在 PR #60 / PR #61 上
+实测过。本 lane 只把 14 条 context **声明**在 `scripts/ci/required-checks.json` 里，
+其中 9 条**还没有**进保护。`notes.enforcedOnGitHub` 记的是 `true`，`notes` 里写明了
+哪 5 条在保护里、哪 9 条不在。
+
+`[FACT]` **没有动三个消费者作业**（`msi-install` / `msi-launch` / `deb-install`），
+它们与改动前逐字节相同。
 
 `[FACT]` **没有动 `apps/gm-console/**`、`scripts/frontend-advisory-baseline.json`** ——
 那是另一条 lane（PR #58，gm-console 工具链升级）正在改的文件。
@@ -251,21 +308,20 @@ PR 自己也必须满足新的 required check。所以顺序必须是「先合�
 锚点，改了就等于改了「门禁覆盖什么」。
 
 `[FACT]` **没有改任何 `needs:` 链、作业 key、artifact 名**，也没有削弱、跳过或删除
-任何既有检查。
+任何既有检查——保真门禁的改动是**加**了一条断言（两个名字必须不同），不是减一条。
 
-## 本 lane 实测发现的两处未闭合
+## 本 lane 实测发现、且没有顺手修的一处未闭合
 
-`[FACT]` 这两处都是**实测**得到的，不是推测；两处都**没有**在本 lane 里顺手修——
-本 lane 的边界是「执行既有设计」，遇到设计前提不成立就如实记录并交回父代理决定。
+`[FACT]` 下面这一处是**实测**得到的，不是推测；本 lane **没有**在顺手修的范围内动它
+（brief 明确要求三个消费者作业「一个字节都不用改」），交回父代理决定。
 
-### 一、消费者作业在区域不适用时不会被跳过
+### 消费者作业在区域不适用时不会被跳过
 
 `[FACT]` brief 的 §4.2 假设：「上游因为区域不匹配而被**跳过**时，消费者作业也会被
 跳过，而被跳过的作业报 Success」。这条假设**不成立**。
 
-`[FACT]` 实测/文档事实：区域不匹配时，**生产者作业本身并没有被跳过**——它跑了
-checkout 和检测步骤，其余步骤被 `if:` 跳过，所以作业的结论是 **success**，而不是
-skipped。
+`[FACT]` 区域不匹配时，**生产者作业本身并没有被跳过**——它跑了 checkout 和检测步骤，
+其余步骤被 `if:` 跳过，所以作业的结论是 **success**，而不是 skipped。
 
 `[FACT]` GitHub 官方文档 "Using jobs in a workflow"：「If a job fails or is skipped, all
 jobs that need it are skipped」——依赖**成功**时，下游**照常运行**。
@@ -276,46 +332,36 @@ jobs that need it are skipped」——依赖**成功**时，下游**照常运行
 （无条件的产物上传已经带上了区域条件）。`actions/download-artifact@v4` 找不到产物时
 **失败**，所以这三个 context 会在**与桌面无关的 PR 上变红**。
 
-`[PROPOSAL]` 最小修法（**本 lane 未采用**，因为 brief 明确要求三个消费者作业
-「一个字节都不用改」）：给生产者作业多发布一个 `applies` 输出
+`[PROPOSAL]` 最小修法（**本 lane 未采用**）：给生产者作业多发布一个 `applies` 输出
 （`${{ steps.detect.outputs.<区域> }}`），消费者作业加一条 job 级
 `if: needs.<生产者>.outputs.applies == 'true'`。上游失败时 `applies` 为空，消费者被
-跳过并报 Success——**这正是上一节那条不变量所允许的**：上游本身是 required context，
-它红就自己挡住合并。
+跳过并报 Success——**这正是「`needs:` 链为什么是安全的」一节那条不变量所允许的**：
+上游本身是 required context，它红就自己挡住合并。
 
-### 二、发布通路的 `deb-install` 与 CI 的那份不再逐字相同
-
-`[FACT]` `release.yml` 的 `deb` 作业里有一步 "The ported install proof still matches the
-CI job it was ported from"，它把 `release.yml` 的 `deb-install` 作业块与
-`gm-desktop-bundle.yml` 的同名作业块**逐行比对**（忽略注释），不同就让发布失败。
-
-`[FACT]` 实测：改名之前两份作业块**完全相同**（`ok … 76 lines compared`）；把发布通路
-的 `name:` 改成 `release deb installs and links on a stock Ubuntu` 之后，该步骤**变红**，
-差异恰好是一行：
-
-```
--    name: deb installs and links on a stock Ubuntu
-+    name: release deb installs and links on a stock Ubuntu
-```
-
-`[INFERENCE]` 这不是发布流程本身坏了：产物名、artifact 名、`draft-release` 消费的
-outputs 全部走 key 与 outputs，与显示名无关。坏的是那一步**比对 display name**——
-而 display name 正是本 lane 为了消除重名而故意改掉的东西。
-
-`[PROPOSAL]` 最小修法（**本 lane 未采用**，因为 brief 明确要求 release.yml「只改 5 个
-作业的 `name:`」）：让那一步的比对**跳过作业自己的 `name:` 行**（它比对的是镜像、
-shell 与每一个 `run:` 体，display name 不属于其中任何一项），其余行仍然逐行比对。
-
-## 一次被测出来的假阳性
+## 一次被测出来的假阳性，以及本 lane 自己的重复实验
 
 `[FACT]` 本地跑 gm-desktop 完整测试套件时，`tests/unit/workflow-step-isolation.test.ts`
-里 `release.yml verify-tag` 那条用例**偶发** 5s 超时。该用例会**真实 spawn bash
-进程**执行 release.yml 的 verify-tag 步骤（release.yml 本 lane 根本没改）。
+里 `release.yml verify-tag` 那几条用例**偶发** 5s 超时（实测 5448ms / 6264ms /
+7203ms）。该用例会**真实 spawn bash 进程**执行 release.yml 的 verify-tag 步骤。
 
-`[FACT]` 做了 A/B 重复实验：带 L1-a 改动跑 4 次全过（耗时 6.98–10.25s），
-把改动 stash 掉再跑 4 次也全过（7.45–8.50s）。**单次「stashed 通过 / 带改动失败」
-是巧合，不是因果。** 结论：这是该用例 5s 超时在负载下的固有波动，与 L1-a 无关，
-L1-a 因此**没有**改它。
+`[FACT]` 做了**重复** A/B（同一台机器、同样负载，各跑 3 次完整套件）：
 
-`[INFERENCE]` 这条正是「只跑一次不叫测量」的又一个例子：第一次的对照实验给出的
-结论（"是本 lane 引起的"）是错的，重复实验才把它推翻。
+- **A = 本 lane 的工作树**（最终树）：3 次全部 exit 1，失败的都是上面那几条超时用例
+  （三次分别 2 条、1 条、1 条失败）；
+- **B = 把 `release.yml` 换回 HEAD 版本**（即不含本 lane 的改名）：3 次也全部 exit 1，
+  失败的是**同样**那几条超时用例，**外加** `each name exactly one job, and no job twice`
+  ——因为不改名时那 5 个 context 各有两个拥有者。
+
+`[INFERENCE]` 结论：超时**在有本 lane 改动和没有本 lane 改动的两侧都出现**，所以与本
+lane 无关；而「恰好一个拥有者」那条断言**只有**在本 lane 改名之后才成立——那正是
+改名本身要证明的东西。
+
+`[FACT]` 另外单独跑那一个测试文件（负载更低），在**最终**的工作树上各跑 6 次：
+带本 lane 改动 **5 次过、1 次失败**；换回 HEAD 的 `release.yml` **也是 5 次过、1 次失败**。
+两侧失败率相同。
+
+`[FACT]` 本 lane **没有**改那个测试，也没有放宽它的超时——它是预存在的、负载相关的
+波动。
+
+`[INFERENCE]` 这正是「只跑一次不叫测量」的又一个例子：单次「stashed 通过 / 带改动失败」
+是巧合，不是因果；重复实验才说得清。
