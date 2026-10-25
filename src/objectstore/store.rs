@@ -284,9 +284,7 @@ impl FileStore {
                 let file: VersioningFile = serde_json::from_slice(&bytes)?;
                 Ok(file.status)
             }
-            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
-                Ok(VersioningStatus::Enabled)
-            }
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(VersioningStatus::Enabled),
             Err(err) => Err(err.into()),
         }
     }

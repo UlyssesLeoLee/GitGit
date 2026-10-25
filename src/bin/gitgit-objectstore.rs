@@ -9,7 +9,8 @@
 //! # Running it
 //!
 //! ```text
-//! gitgit-objectstore --root <dir> --bind <addr> --access-key <key> --secret-key <secret>
+//! GITGIT_OBJECTSTORE_SECRET_KEY=<secret> \
+//!   gitgit-objectstore --root <dir> --bind <addr> --access-key <key>
 //! ```
 //!
 //! Every setting can also come from the environment. **The command-line
@@ -22,7 +23,20 @@
 //! | data directory | `--root <dir>` | `GITGIT_OBJECTSTORE_ROOT` | `./.gitgit/objectstore` |
 //! | listen address | `--bind <addr>` | `GITGIT_OBJECTSTORE_BIND` | `127.0.0.1:9000` |
 //! | access key | `--access-key <key>` | `GITGIT_OBJECTSTORE_ACCESS_KEY` | *(none — required)* |
-//! | secret key | `--secret-key <secret>` | `GITGIT_OBJECTSTORE_SECRET_KEY` | *(none — required)* |
+//! | secret key | *(none — environment only)* | `GITGIT_OBJECTSTORE_SECRET_KEY` | *(none — required)* |
+//!
+//! # Why the secret key is not a flag
+//!
+//! [FACT] A long-lived secret in the process arguments is visible to other
+//! users through `ps`, and it is kept in shell history. This server guards
+//! the credential store, so its secret gets the same treatment the AI
+//! provider key already gets in `src/ai/mod.rs` (`GITGIT_AI_API_KEY`): the
+//! secret is **environment only**.
+//!
+//! [FACT] The **access key** may still be an argument, because it is an
+//! identifier and not a secret: it names the client, it does not
+//! authenticate it, and an operator who chose it already knows it. The rule
+//! is "a secret never goes in the process arguments; an identifier may".
 //!
 //! [FACT] The access key and the secret key have **no default**: a server
 //! with a hard-coded credential is a server with a published credential.
@@ -35,7 +49,8 @@
 //! same thing itself, so nothing but this binary has to be installed:
 //!
 //! ```text
-//! gitgit-objectstore --root <dir> --bind <addr> --access-key <k> --secret-key <s> \
+//! GITGIT_OBJECTSTORE_SECRET_KEY=<secret> \
+//!   gitgit-objectstore --root <dir> --bind <addr> --access-key <key> \
 //!     --bootstrap-bucket gitgit-vault
 //! ```
 //!
@@ -54,7 +69,7 @@
 //! | `bucket` | `gitgit-vault` (or whatever `--bootstrap-bucket` created) |
 //! | `region` | `us-east-1` — the server accepts **any** region, because the signing key is derived from the region in the client's credential scope |
 //! | `access_key` | the `--access-key` value |
-//! | `secret_key` | the `--secret-key` value |
+//! | `secret_key` | the `GITGIT_OBJECTSTORE_SECRET_KEY` value |
 //! | `key_prefix` | whatever the caller wants, e.g. `gitgit-vault/` |
 //!
 //! # The three bootstrap operations, exactly
@@ -123,12 +138,12 @@ struct Cli {
     bind: Option<String>,
 
     /// The S3 access key the server verifies signatures against.
+    ///
+    /// [FACT] An access key is an identifier, not a secret: it names the
+    /// client and does not authenticate it, so it may be an argument. The
+    /// secret key may not — see the module documentation.
     #[arg(long, value_name = "KEY")]
     access_key: Option<String>,
-
-    /// The S3 secret key the server verifies signatures against.
-    #[arg(long, value_name = "SECRET")]
-    secret_key: Option<String>,
 
     /// Create this bucket if it is missing and enable versioning on it.
     #[arg(long, value_name = "BUCKET")]
@@ -156,24 +171,45 @@ impl Cli {
     }
 
     /// The access key: flag, then environment. There is no default.
+    ///
+    /// [FACT] The access key is an identifier, so it may be an argument.
+    /// It still may not be empty: an empty access key is a credential
+    /// anybody can name.
     fn access_key(&self) -> anyhow::Result<String> {
-        self.access_key
+        let value = self
+            .access_key
             .clone()
             .or_else(|| env_value(ACCESS_KEY_ENV))
             .ok_or_else(|| {
                 anyhow::anyhow!("no access key: pass --access-key or set {ACCESS_KEY_ENV}")
-            })
+            })?;
+        if value.trim().is_empty() {
+            return Err(anyhow::anyhow!(
+                "the access key is empty: pass --access-key or set {ACCESS_KEY_ENV}"
+            ));
+        }
+        Ok(value)
     }
 
-    /// The secret key: flag, then environment. There is no default.
+    /// The secret key: **the environment only**. There is no default.
+    ///
+    /// [FACT] A secret in the process arguments is visible in `ps` output
+    /// and lands in shell history, so there is deliberately no
+    /// `--secret-key`.
     fn secret_key(&self) -> anyhow::Result<String> {
-        self.secret_key
-            .clone()
-            .or_else(|| env_value(SECRET_KEY_ENV))
-            .ok_or_else(|| {
-                anyhow::anyhow!("no secret key: pass --secret-key or set {SECRET_KEY_ENV}")
-            })
+        resolve_secret(env_value(SECRET_KEY_ENV))
     }
+}
+
+/// Resolve the secret key from the environment value.
+///
+/// [FACT] Split out so the rule can be tested without touching the
+/// process environment: the secret comes from the environment, and there
+/// is no fallback when it is not there.
+fn resolve_secret(value: Option<String>) -> anyhow::Result<String> {
+    value.ok_or_else(|| {
+        anyhow::anyhow!("no secret key: set {SECRET_KEY_ENV} (there is no --secret-key flag)")
+    })
 }
 
 /// Read an environment variable, treating an empty value as "not set".
@@ -236,4 +272,70 @@ async fn main() -> anyhow::Result<()> {
         .await
         .context("the object store stopped serving")?;
     Ok(())
+}
+
+/// The credential surface of this binary.
+///
+/// [FACT] The tests live in a named module rather than in a bare
+/// `mod tests`, because a binary target's test paths have no crate
+/// prefix: a bare `mod tests` would land in the repository's unit-test
+/// count contract as one bucket *per test* (`tests::<fn>`), and this way
+/// they land in one bucket (`credentials::tests`).
+#[cfg(test)]
+mod credentials {
+    #[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+    mod tests {
+        use super::super::*;
+
+        #[test]
+        fn the_secret_key_cannot_be_supplied_as_an_argument() {
+            // [FACT] A long-lived secret in the process arguments is visible in
+            // `ps` output and lands in shell history. If this ever moves to a
+            // CLI flag, this test fails — the same rule the AI provider key
+            // holds in `src/ai/mod.rs`.
+            let parsed = Cli::try_parse_from(["gitgit-objectstore", "--secret-key", "hunter2"]);
+            assert!(
+                parsed.is_err(),
+                "--secret-key must not be accepted: the secret is visible in `ps`"
+            );
+        }
+
+        #[test]
+        fn the_access_key_may_be_an_argument() {
+            // [FACT] The access key is an identifier, not a secret: it names
+            // the client and does not authenticate it, so the rule ("a secret
+            // never goes in the process arguments; an identifier may") lets it
+            // be a flag.
+            let cli =
+                Cli::try_parse_from(["gitgit-objectstore", "--access-key", "gitgit"]).unwrap();
+            assert_eq!(cli.access_key.as_deref(), Some("gitgit"));
+            assert_eq!(cli.access_key().unwrap(), "gitgit");
+        }
+
+        #[test]
+        fn the_secret_key_comes_from_the_environment_and_has_no_fallback() {
+            assert_eq!(
+                resolve_secret(Some("s3cret".to_string())).unwrap(),
+                "s3cret"
+            );
+            // There is no default and no fallback: without the environment
+            // variable the server refuses to start.
+            let error = resolve_secret(None).expect_err("there must be no fallback secret");
+            assert!(
+                error.to_string().contains(SECRET_KEY_ENV),
+                "the error must name the environment variable: {error}"
+            );
+        }
+
+        #[test]
+        fn an_empty_access_key_is_refused() {
+            // An empty access key is a credential anybody can name, so the
+            // server must not start with one.
+            let cli = Cli::try_parse_from(["gitgit-objectstore", "--access-key", "   "]).unwrap();
+            assert!(
+                cli.access_key().is_err(),
+                "an empty access key must be refused"
+            );
+        }
+    }
 }
