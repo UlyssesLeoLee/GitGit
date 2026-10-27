@@ -56,7 +56,7 @@ pub enum GitGitError {
     /// not have to thread a new error type through `Result<T>`.
     ///
     /// Added in V0 T6 (per [ADR-0021](../docs/adr/0021-v0-minio-credential-vault.md)).
-    /// Backed by the `minIO` / `FileVault` impl in
+    /// Backed by the `S3Vault` / `FileVault` impl in
     /// [`crate::server::vault`].
     #[error("vault error: {0}")]
     Vault(String),
@@ -147,7 +147,7 @@ pub enum GitGitError {
 pub type Result<T> = std::result::Result<T, GitGitError>;
 
 /// Adapter for the `s3` crate's `S3Error`. The `?` operator inside
-/// `MinioVault` method bodies needs `From<S3Error> for GitGitError`;
+/// `S3Vault` method bodies needs `From<S3Error> for GitGitError`;
 /// rather than scattering `.map_err(...)` calls we route through
 /// `VaultError::Vault` so the message is consistent with the rest of
 /// the vault layer.
@@ -160,6 +160,6 @@ impl From<::s3::error::S3Error> for GitGitError {
     fn from(value: ::s3::error::S3Error) -> Self {
         // The full error text (including status code and request id) is
         // preserved so log output stays debuggable.
-        GitGitError::Vault(format!("minIO/S3: {value}"))
+        GitGitError::Vault(format!("S3: {value}"))
     }
 }

@@ -3,22 +3,22 @@
 //!
 //! [FACT] The vault (`server::vault` / `server::vault_versioned`) is the
 //! consumer that matters: it was written against real S3 semantics, and
-//! it is the thing that has to keep working when the server moves from
-//! minIO to this crate.
+//! it is the thing that has to keep working now that the server is
+//! served by this crate.
 //!
 //! [FACT] These tests are the in-process twin of the vault's own
-//! `#[ignore]`d e2e tests: same backend, same operations, but the server
-//! is started here, so the S3 path is covered by an ordinary `cargo test`
+//! end-to-end tests: same backend, same operations, but the server is
+//! started here, so the S3 path is covered by an ordinary `cargo test`
 //! run instead of only by a hand-run fixture.
 
-use crate::server::vault::{MinioVault, MinioVaultConfig, Vault};
+use crate::server::vault::{S3Vault, S3VaultConfig, Vault};
 use crate::server::vault_versioned::VersionedVault;
 
 use super::common::{start_server_with_bucket, temp_root, ACCESS_KEY, BUCKET, SECRET_KEY};
 
 /// A vault configuration pointed at the running server.
-fn vault_config(endpoint: &str, key_prefix: &str) -> MinioVaultConfig {
-    MinioVaultConfig {
+fn vault_config(endpoint: &str, key_prefix: &str) -> S3VaultConfig {
+    S3VaultConfig {
         endpoint: endpoint.to_string(),
         bucket: BUCKET.to_string(),
         access_key: ACCESS_KEY.to_string(),
@@ -32,7 +32,7 @@ fn vault_config(endpoint: &str, key_prefix: &str) -> MinioVaultConfig {
 async fn the_vault_reads_and_writes_through_the_object_store() {
     let root = temp_root("vault-roundtrip");
     let server = start_server_with_bucket(&root).await;
-    let vault = MinioVault::connect(&vault_config(&server.endpoint, "ut-roundtrip/")).unwrap();
+    let vault = S3Vault::connect(&vault_config(&server.endpoint, "ut-roundtrip/")).unwrap();
 
     vault.set("openai", "sk-ut-secret").await.unwrap();
     assert_eq!(
@@ -64,7 +64,7 @@ async fn the_vault_reads_and_writes_through_the_object_store() {
 async fn the_versioned_vault_records_a_distinct_version_id_per_write() {
     let root = temp_root("vault-versioned");
     let server = start_server_with_bucket(&root).await;
-    let vault = MinioVault::connect(&vault_config(&server.endpoint, "ut-versioned/")).unwrap();
+    let vault = S3Vault::connect(&vault_config(&server.endpoint, "ut-versioned/")).unwrap();
 
     assert_eq!(
         vault.set_with_version("openai", "sk-ut-v1").await.unwrap(),
@@ -100,7 +100,7 @@ async fn the_versioned_vault_records_a_distinct_version_id_per_write() {
 async fn the_versioned_vault_reads_an_older_version_back() {
     let root = temp_root("vault-versioned-read");
     let server = start_server_with_bucket(&root).await;
-    let vault = MinioVault::connect(&vault_config(&server.endpoint, "ut-versioned-read/")).unwrap();
+    let vault = S3Vault::connect(&vault_config(&server.endpoint, "ut-versioned-read/")).unwrap();
 
     vault.set_with_version("openai", "sk-ut-v1").await.unwrap();
     vault.set_with_version("openai", "sk-ut-v2").await.unwrap();
@@ -133,7 +133,7 @@ async fn the_historical_read_goes_through_the_version_id_and_not_the_attachment_
     let root = temp_root("vault-versionid-path");
     let server = start_server_with_bucket(&root).await;
     let prefix = "ut-versionid-path/";
-    let vault = MinioVault::connect(&vault_config(&server.endpoint, prefix)).unwrap();
+    let vault = S3Vault::connect(&vault_config(&server.endpoint, prefix)).unwrap();
 
     vault.set_with_version("openai", "sk-ut-v1").await.unwrap();
     vault.set_with_version("openai", "sk-ut-v2").await.unwrap();

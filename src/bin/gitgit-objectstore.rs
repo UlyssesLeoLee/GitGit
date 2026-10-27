@@ -44,9 +44,10 @@
 //!
 //! # Bucket provisioning
 //!
-//! [FACT] The minIO fixture used `mc mb --ignore-existing` followed by
-//! `mc version enable`, both in a second container. This binary does the
-//! same thing itself, so nothing but this binary has to be installed:
+//! [FACT] The retired deployment fixture used `mc mb --ignore-existing`
+//! followed by `mc version enable`, both in a second container. This
+//! binary does the same thing itself, so nothing but this binary has to
+//! be installed:
 //!
 //! ```text
 //! GITGIT_OBJECTSTORE_SECRET_KEY=<secret> \
@@ -60,7 +61,7 @@
 //!
 //! # Pointing the credential vault at this server
 //!
-//! The vault's configuration (`MinioVaultConfig` in `server::vault`)
+//! The vault's configuration (`S3VaultConfig` in `server::vault`)
 //! needs six values. This server answers to all of them:
 //!
 //! | Vault setting | Value for this server |

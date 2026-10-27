@@ -1,7 +1,7 @@
 //! Versioned Vault layer for `gitgit` V0 Credential Vault (per ADR-0022).
 //!
 // V0 commit: this module exposes the new `VersionedVault` sub-trait plus
-// two backend implementations (`FileVault`, `MinioVault`). Until
+// two backend implementations (`FileVault`, `S3Vault`). Until
 // `AppState` is rewired to consume a `Arc<dyn VersionedVault>` (T6
 // close-out per ADR-0022 §follow-up) every helper here is "dead" from
 // the production build's point of view — same situation as the
@@ -53,8 +53,8 @@
 //!   previous value's snapshot is `N`.
 //! * Sidecar file location:
 //!   - `FileVault`: `<root>/_versions/<key>.versions.json`
-//!   - `MinioVault`: object key `<key_prefix><key>.versions.json` in the
-//!     same bucket (no extra bucket needed; `minIO` versioning — when
+//!   - `S3Vault`: object key `<key_prefix><key>.versions.json` in the
+//!     same bucket (no extra bucket needed; bucket versioning — when
 //!     enabled at the bucket — provides defense-in-depth, mirroring the
 //!     same choice we made in `AssetsLake` ADR-0022 §2.4).
 //!
@@ -77,14 +77,14 @@ use sha2::{Digest, Sha256};
 use thiserror::Error;
 
 use crate::error::{GitGitError, Result};
-use crate::server::vault::{FileVault, MinioVault, Vault, VaultError};
+use crate::server::vault::{FileVault, S3Vault, Vault, VaultError};
 
 // ─── Public types ────────────────────────────────────────────────────────
 
 /// One entry in the version timeline.
 ///
-/// `version_id` is populated by `MinioVault::set_with_version` from the
-/// `x-amz-version-id` response header returned by minIO (or any
+/// `version_id` is populated by `S3Vault::set_with_version` from the
+/// `x-amz-version-id` response header returned by the S3 server (or any
 /// S3-compatible store with bucket versioning enabled). It is `None` for
 /// `FileVault` (which has no native versioning) and for legacy sidecar
 /// JSONs written before this field existed — `#[serde(default)]` keeps
@@ -102,7 +102,7 @@ pub struct VaultVersionSummary {
     pub created_at_unix_ms: i64,
     /// Free-form note for audit / debugging.
     pub change_note: Option<String>,
-    /// minIO / S3 `x-amz-version-id` captured from the PUT response.
+    /// S3 `x-amz-version-id` captured from the PUT response.
     ///
     /// `#[serde(default, skip_serializing_if = "Option::is_none")]` so
     /// that:
@@ -145,7 +145,7 @@ pub enum VersionedVaultError {
     Io(String),
     #[error("versioned-vault serde error: {0}")]
     Serde(String),
-    #[error("minIO/S3 error: {0}")]
+    #[error("S3 error: {0}")]
     Vault(String),
 }
 
@@ -469,7 +469,7 @@ impl VersionedVault for FileVault {
 
     async fn set_with_version(&self, key: &str, value: &str) -> Result<i32> {
         // Write the value via the super-trait `set` first so any
-        // backend-specific guarantees (FileVault's atomic-rename, MinIO
+        // backend-specific guarantees (FileVault's atomic-rename, S3
         // bucket versioning when enabled) apply identically.
         self.set(key, value).await?;
         let mut tl = filevault_load_timeline(self, key).await?;
@@ -591,9 +591,9 @@ impl VersionedVault for FileVault {
     }
 }
 
-// ─── MinioVault implementation ───────────────────────────────────────────
+// ─── S3Vault implementation ───────────────────────────────────────────
 
-fn minio_sidecar_object_key(prefix: &str, key: &str) -> String {
+fn s3_sidecar_object_key(prefix: &str, key: &str) -> String {
     if prefix.is_empty() {
         format!("{key}.versions.json")
     } else {
@@ -601,7 +601,7 @@ fn minio_sidecar_object_key(prefix: &str, key: &str) -> String {
     }
 }
 
-fn minio_attachment_object_key(prefix: &str, key: &str, version: i32) -> String {
+fn s3_attachment_object_key(prefix: &str, key: &str, version: i32) -> String {
     if prefix.is_empty() {
         format!("{key}.v{version}.bin")
     } else {
@@ -609,38 +609,33 @@ fn minio_attachment_object_key(prefix: &str, key: &str, version: i32) -> String 
     }
 }
 
-async fn minio_write_attachment(
-    vault: &MinioVault,
-    key: &str,
-    version: i32,
-    bytes: &[u8],
-) -> Result<()> {
-    let object_key = minio_attachment_object_key(vault.key_prefix(), key, version);
+async fn s3_write_attachment(vault: &S3Vault, key: &str, version: i32, bytes: &[u8]) -> Result<()> {
+    let object_key = s3_attachment_object_key(vault.key_prefix(), key, version);
     vault.put_object_for_sidecar(&object_key, bytes).await?;
     Ok(())
 }
 
-async fn minio_read_attachment(vault: &MinioVault, key: &str, version: i32) -> Result<Vec<u8>> {
-    let object_key = minio_attachment_object_key(vault.key_prefix(), key, version);
+async fn s3_read_attachment(vault: &S3Vault, key: &str, version: i32) -> Result<Vec<u8>> {
+    let object_key = s3_attachment_object_key(vault.key_prefix(), key, version);
     vault
         .get_object_for_sidecar(&object_key)
         .await?
         .map(|b| b.to_vec())
         .ok_or_else(|| {
-            VersionedVaultError::Serde(format!("minio attachment for {key:?} v{version} not found"))
+            VersionedVaultError::Serde(format!("s3 attachment for {key:?} v{version} not found"))
                 .into()
         })
 }
 
-async fn minio_load_timeline(vault: &MinioVault, key: &str) -> Result<VersionedTimeline> {
-    let object_key = minio_sidecar_object_key(vault.key_prefix(), key);
+async fn s3_load_timeline(vault: &S3Vault, key: &str) -> Result<VersionedTimeline> {
+    let object_key = s3_sidecar_object_key(vault.key_prefix(), key);
     match vault.get_object_for_sidecar(&object_key).await {
         Ok(Some(bytes)) => {
             let tl: VersionedTimeline =
                 serde_json::from_slice(&bytes).map_err(VersionedVaultError::from)?;
             if tl.key != key {
                 let msg = format!(
-                    "minio sidecar for {key:?} stored a different logical key: {:?}",
+                    "s3 sidecar for {key:?} stored a different logical key: {:?}",
                     tl.key
                 );
                 return Err(VersionedVaultError::Serde(msg).into());
@@ -655,23 +650,23 @@ async fn minio_load_timeline(vault: &MinioVault, key: &str) -> Result<VersionedT
     }
 }
 
-async fn minio_store_timeline(vault: &MinioVault, tl: &VersionedTimeline) -> Result<()> {
-    let object_key = minio_sidecar_object_key(vault.key_prefix(), &tl.key);
+async fn s3_store_timeline(vault: &S3Vault, tl: &VersionedTimeline) -> Result<()> {
+    let object_key = s3_sidecar_object_key(vault.key_prefix(), &tl.key);
     let bytes = serde_json::to_vec_pretty(tl).map_err(VersionedVaultError::from)?;
     vault.put_object_for_sidecar(&object_key, &bytes).await?;
     Ok(())
 }
 
 #[async_trait]
-impl VersionedVault for MinioVault {
+impl VersionedVault for S3Vault {
     async fn list_versions(&self, key: &str) -> Result<Vec<VaultVersionSummary>> {
-        Ok(minio_load_timeline(self, key).await?.versions)
+        Ok(s3_load_timeline(self, key).await?.versions)
     }
 
     async fn set_with_version(&self, key: &str, value: &str) -> Result<i32> {
         // PUT the value directly (not via `Vault::set`) so we can
         // capture the `x-amz-version-id` response header returned
-        // by minIO when bucket versioning is enabled. We retain
+        // by the S3 server when bucket versioning is enabled. We retain
         // the `Vault::set` semantics by composing the same
         // `object_key` and error mapping.
         let object_key = self.object_key(key);
@@ -680,37 +675,37 @@ impl VersionedVault for MinioVault {
             .await?;
         // The sidecar timeline now carries `version_id` (when the
         // server returned one), so `get_at_version` can do a
-        // real minIO versionId lookup against the bucket.
-        let mut tl = minio_load_timeline(self, key).await?;
+        // real server-side versionId lookup against the bucket.
+        let mut tl = s3_load_timeline(self, key).await?;
         append_version_with_id(&mut tl, value.as_bytes(), None, version_id.clone());
-        minio_store_timeline(self, &tl).await?;
+        s3_store_timeline(self, &tl).await?;
         // Continue writing the attachment slot as a belt-and-braces
-        // fallback for setups where minIO bucket versioning is
-        // disabled (so `version_id` is None) — the attachment
-        // remains the source of truth in that case.
+        // fallback for setups where bucket versioning is disabled (so
+        // `version_id` is None) — the attachment remains the source of
+        // truth in that case.
         if let Some(last) = tl.versions.last() {
             if last.version == tl.versions.len() as i32 {
-                minio_write_attachment(self, key, last.version, value.as_bytes()).await?;
+                s3_write_attachment(self, key, last.version, value.as_bytes()).await?;
             }
         }
         if let Some(vid) = version_id.as_deref() {
             tracing::debug!(
-                backend = "MinioVault",
+                backend = "S3Vault",
                 key = %key,
                 version = tl.versions.last().map(|v| v.version).unwrap_or(0),
                 version_id = %vid,
-                "MinioVault::set_with_version captured minIO x-amz-version-id"
+                "S3Vault::set_with_version captured the S3 x-amz-version-id"
             );
         }
         Ok(tl.versions.last().map(|v| v.version).unwrap_or(1))
     }
 
     async fn get_at_version(&self, key: &str, version: i32) -> Result<Option<String>> {
-        let tl = minio_load_timeline(self, key).await?;
+        let tl = s3_load_timeline(self, key).await?;
         // "Absent" is not "broken". A key that was never written has an
         // empty timeline, and a version the timeline never saw is
         // documented (on this trait, and asserted by
-        // `minio_vault_versioned_e2e_roundtrip`) to be `Ok(None)` with no
+        // `s3_vault_versioned_e2e_roundtrip`) to be `Ok(None)` with no
         // versionId lookup attempted. `find_version` keeps returning
         // `VersionNotFound` because `restore_to_version` and
         // `diff_versions` must still reject an unknown version, so the
@@ -723,9 +718,9 @@ impl VersionedVault for MinioVault {
             None => return Ok(None),
         };
         // 1. If the sidecar carries a `version_id` (i.e. the
-        //    corresponding `set_with_version` ran against a
-        //    minIO server with bucket versioning enabled), try
-        //    to GET the bytes directly from minIO by `versionId`.
+        //    corresponding `set_with_version` ran against an S3 server
+        //    with bucket versioning enabled), try to GET the bytes
+        //    directly from the server by `versionId`.
         //    This is the real byte-level restore path described in
         //    ADR-0022 §6 follow-up.
         if let Some(vid) = entry.version_id.as_deref() {
@@ -737,21 +732,21 @@ impl VersionedVault for MinioVault {
                 Ok(Some(bytes)) => return bytes_to_string_or_marker(bytes, version),
                 Ok(None) => {
                     tracing::warn!(
-                        backend = "MinioVault",
+                        backend = "S3Vault",
                         key = %key,
                         version,
                         version_id = %vid,
-                        "minIO GetObject versionId returned 404; falling back to attachment slot"
+                        "S3 GetObject versionId returned 404; falling back to attachment slot"
                     );
                 }
                 Err(e) => {
                     tracing::warn!(
-                        backend = "MinioVault",
+                        backend = "S3Vault",
                         key = %key,
                         version,
                         version_id = %vid,
                         error = %e,
-                        "minIO GetObject versionId failed; falling back to attachment slot"
+                        "S3 GetObject versionId failed; falling back to attachment slot"
                     );
                 }
             }
@@ -759,20 +754,20 @@ impl VersionedVault for MinioVault {
         // 2. Fall back to the per-version attachment slot. This
         //    covers (a) legacy sidecars that pre-date the
         //    `version_id` field (V0 / 2026-09-16 commit) and (b)
-        //    setups where minIO bucket versioning is disabled and
+        //    setups where bucket versioning is disabled and
         //    the server did not return an `x-amz-version-id`.
-        match minio_read_attachment(self, key, version).await {
+        match s3_read_attachment(self, key, version).await {
             Ok(bytes) => bytes_to_string_or_marker(bytes.into(), version),
             Err(_) => Ok(None),
         }
     }
 
     async fn restore_to_version(&self, key: &str, target_version: i32) -> Result<i32> {
-        let mut tl = minio_load_timeline(self, key).await?;
+        let mut tl = s3_load_timeline(self, key).await?;
         if tl.versions.is_empty() {
             return Err(VersionedVaultError::NoHistory(key.to_string()).into());
         }
-        let target_bytes = minio_read_attachment(self, key, target_version).await?;
+        let target_bytes = s3_read_attachment(self, key, target_version).await?;
         let target_text = String::from_utf8_lossy(&target_bytes).into_owned();
 
         let current = self.get(key).await?;
@@ -790,20 +785,20 @@ impl VersionedVault for MinioVault {
             &mut tl,
             target_bytes.as_slice(),
             Some(&format!(
-                "Restored from version {target_version} (MinioVault, byte-level)"
+                "Restored from version {target_version} (S3Vault, byte-level)"
             )),
         );
-        minio_store_timeline(self, &tl).await?;
+        s3_store_timeline(self, &tl).await?;
         if let Some(last) = tl.versions.last() {
-            minio_write_attachment(self, key, last.version, target_bytes.as_slice()).await?;
+            s3_write_attachment(self, key, last.version, target_bytes.as_slice()).await?;
         }
         tracing::info!(
-            backend = "MinioVault",
+            backend = "S3Vault",
             key = %key,
             target_version,
             pre_restore_sha = %pre_restore_sha,
             new_version = tl.versions.last().map(|v| v.version).unwrap_or(0),
-            "Vault restore (MinioVault): byte-level restore succeeded"
+            "Vault restore (S3Vault): byte-level restore succeeded"
         );
         Ok(tl.versions.last().map(|v| v.version).unwrap_or(0))
     }
@@ -814,7 +809,7 @@ impl VersionedVault for MinioVault {
         base_version: i32,
         head_version: i32,
     ) -> Result<VaultVersionDiff> {
-        let tl = minio_load_timeline(self, key).await?;
+        let tl = s3_load_timeline(self, key).await?;
         Ok(build_diff(&tl, base_version, head_version)?)
     }
 
@@ -824,7 +819,7 @@ impl VersionedVault for MinioVault {
         base_version: i32,
         head_version: i32,
     ) -> Result<bool> {
-        let tl = minio_load_timeline(self, key).await?;
+        let tl = s3_load_timeline(self, key).await?;
         let diff = build_diff(&tl, base_version, head_version)?;
         Ok(!diff.object_changed)
     }
@@ -834,9 +829,13 @@ impl VersionedVault for MinioVault {
 
 /// In-process lookup used by the T7 CLI close-out: pick the right backend
 /// for a given environment without hard-coding in every call site.
+///
+/// `[FACT]` The backend names match the ones the product accepts
+/// (`GITGIT_VAULT_BACKEND=file|s3`), so the two cannot drift: the S3
+/// backend is spelled `s3` here and `s3` there.
 pub fn backend_by_name(name: &str) -> Option<&'static str> {
     match name {
-        "minio" | "minio_vault" | "MinioVault" => Some("minio"),
+        "s3" | "s3_vault" | "S3Vault" => Some("s3"),
         "file" | "file_vault" | "FileVault" => Some("file"),
         _ => None,
     }
@@ -1014,44 +1013,41 @@ mod tests {
         assert!(res.is_err(), "expected NoHistory, got {res:?}");
     }
 
-    // ─── MinioVault offline (no network) ─────────────────────────────
+    // ─── S3Vault offline (no network) ─────────────────────────────
 
-    fn offline_minio_config() -> crate::server::vault::MinioVaultConfig {
-        crate::server::vault::MinioVaultConfig {
+    fn offline_s3_config() -> crate::server::vault::S3VaultConfig {
+        crate::server::vault::S3VaultConfig {
             endpoint: "http://127.0.0.1:1".into(),
             bucket: "gitgit-vault".into(),
-            access_key: "minioadmin".into(),
-            secret_key: "minioadmin".into(),
+            access_key: "offline-access-key".into(),
+            secret_key: "offline-secret-key".into(),
             region: "us-east-1".into(),
             key_prefix: "gitgit-vault/".into(),
         }
     }
 
     #[test]
-    fn minio_vault_versioned_key_appends_suffix() {
+    fn s3_vault_versioned_key_appends_suffix() {
         assert_eq!(
-            minio_sidecar_object_key("gitgit-vault/", "openai"),
+            s3_sidecar_object_key("gitgit-vault/", "openai"),
             "gitgit-vault/openai.versions.json"
         );
-        assert_eq!(
-            minio_sidecar_object_key("", "openai"),
-            "openai.versions.json"
-        );
+        assert_eq!(s3_sidecar_object_key("", "openai"), "openai.versions.json");
     }
 
     #[test]
-    fn minio_vault_versioned_backend_name_mapping() {
-        assert_eq!(backend_by_name("minio"), Some("minio"));
-        assert_eq!(backend_by_name("MinioVault"), Some("minio"));
+    fn s3_vault_versioned_backend_name_mapping() {
+        assert_eq!(backend_by_name("s3"), Some("s3"));
+        assert_eq!(backend_by_name("S3Vault"), Some("s3"));
         assert_eq!(backend_by_name("file"), Some("file"));
         assert_eq!(backend_by_name("FileVault"), Some("file"));
         assert_eq!(backend_by_name("unknown"), None);
     }
 
     #[test]
-    fn minio_vault_versioned_connect_does_not_perform_network_io() {
-        let cfg = offline_minio_config();
-        let v = crate::server::vault::MinioVault::connect(&cfg)
+    fn s3_vault_versioned_connect_does_not_perform_network_io() {
+        let cfg = offline_s3_config();
+        let v = crate::server::vault::S3Vault::connect(&cfg)
             .expect("connect should not perform network I/O");
         assert_eq!(v.bucket_name(), "gitgit-vault");
         assert_eq!(v.key_prefix(), "gitgit-vault/");
@@ -1125,26 +1121,26 @@ mod tests {
             &mut tl,
             b"v1",
             Some("first"),
-            Some("minio-vid-001".to_string())
+            Some("s3-vid-001".to_string())
         ));
         assert_eq!(tl.versions.len(), 1);
-        assert_eq!(tl.versions[0].version_id.as_deref(), Some("minio-vid-001"));
+        assert_eq!(tl.versions[0].version_id.as_deref(), Some("s3-vid-001"));
         assert!(!append_version_with_id(
             &mut tl,
             b"v1",
             Some("dup"),
-            Some("minio-vid-002".to_string())
+            Some("s3-vid-002".to_string())
         ));
         assert_eq!(tl.versions.len(), 1);
-        assert_eq!(tl.versions[0].version_id.as_deref(), Some("minio-vid-001"));
+        assert_eq!(tl.versions[0].version_id.as_deref(), Some("s3-vid-001"));
         assert!(append_version_with_id(
             &mut tl,
             b"v2",
             Some("second"),
-            Some("minio-vid-003".to_string())
+            Some("s3-vid-003".to_string())
         ));
         assert_eq!(tl.versions.len(), 2);
-        assert_eq!(tl.versions[1].version_id.as_deref(), Some("minio-vid-003"));
+        assert_eq!(tl.versions[1].version_id.as_deref(), Some("s3-vid-003"));
     }
 
     /// `version_id: None` round-trip must keep the timeline fully
@@ -1179,57 +1175,33 @@ mod tests {
         assert!(marker.contains("v2"));
     }
 
-    // -- V0.2 minIO e2e: real bucket-versioning roundtrip --------------------
+    // -- S3 e2e: real bucket-versioning roundtrip --------------------------
     //
     // The following test exercises the full `versionId` round-trip against
-    // a real minIO server with bucket versioning enabled. It is `#[ignore]`'d
-    // by default because the V0 T11 deployment task has not yet been run on
-    // this machine; enable with:
+    // a live S3 server with bucket versioning enabled.
     //
-    // ```text
-    // docker run -d -p 9000:9000 -p 9001:9001 \
-    //   -e MINIO_ROOT_USER=minioadmin \
-    //   -e MINIO_ROOT_PASSWORD=minioadmin \
-    //   quay.io/minio/minio server /data --console-address ":9001"
-    // docker run --rm --network host minio/mc alias set local http://127.0.0.1:9000 minioadmin minioadmin
-    // docker run --rm --network host minio/mc mb local/gitgit-vault
-    // docker run --rm --network host minio/mc version enable local/gitgit-vault
-    // cargo test --bin gitgit -- --ignored minio_vault_versioned_e2e_roundtrip
-    // ```
+    // `[FACT]` The server is this repository's own, started in-process by
+    // the shared test helper (see `crate::server::vault::test_support`):
+    // it binds port 0 so the OS picks a free port, and it provisions the
+    // bucket with versioning enabled, because the `x-amz-version-id`
+    // header only exists on a versioned bucket. Nothing has to be
+    // installed and nothing has to be skipped — the test runs in an
+    // ordinary `cargo test` and in CI.
     //
     // What it proves that the offline tests cannot:
     //   * PUT v1 / v2 / v3 of different bytes
     //   * `set_with_version` returns 3 distinct version IDs from the server
-    //   * `get_at_version(v1)` returns the v1 bytes from minIO **directly**,
-    //     without consulting the attachment slot
-    //   * Deleting the attachment slot files on disk does NOT affect
-    //     `get_at_version(v1)` — the bytes are still recoverable via
-    //     minIO server-side versioning + the captured `version_id`
-
-    /// Build a `MinioVault` config that talks to a real minIO server
-    /// configured via environment variables (with sensible localhost
-    /// defaults). The bucket is expected to have versioning enabled
-    /// (see the docker instructions in the comment above).
-    fn e2e_minio_config() -> crate::server::vault::MinioVaultConfig {
-        crate::server::vault::MinioVaultConfig {
-            endpoint: std::env::var("GITGIT_MINIO_ENDPOINT")
-                .unwrap_or_else(|_| "http://127.0.0.1:9000".to_string()),
-            bucket: std::env::var("GITGIT_MINIO_BUCKET")
-                .unwrap_or_else(|_| "gitgit-vault".to_string()),
-            access_key: std::env::var("GITGIT_MINIO_ACCESS_KEY")
-                .unwrap_or_else(|_| "minioadmin".to_string()),
-            secret_key: std::env::var("GITGIT_MINIO_SECRET_KEY")
-                .unwrap_or_else(|_| "minioadmin".to_string()),
-            region: "us-east-1".to_string(),
-            key_prefix: format!("ut-{}/", uuid::Uuid::new_v4().simple()),
-        }
-    }
+    //   * `get_at_version(v1)` returns the v1 bytes from the server
+    //     **directly**, without consulting the attachment slot
+    //   * The attachment slots are written too, but the historical read
+    //     does not depend on them: the bytes are recoverable through
+    //     server-side versioning + the captured `version_id`
 
     #[tokio::test]
-    #[ignore = "requires a real minIO server with bucket versioning enabled (see comment)"]
-    async fn minio_vault_versioned_e2e_roundtrip() {
-        let v =
-            crate::server::vault::MinioVault::connect(&e2e_minio_config()).expect("minio connect");
+    async fn s3_vault_versioned_e2e_roundtrip() {
+        let server = crate::server::vault::test_support::start_object_store("versioned").await;
+        let cfg = crate::server::vault::test_support::vault_config(&server);
+        let v = crate::server::vault::S3Vault::connect(&cfg).expect("connect");
 
         // 1. PUT v1 / v2 / v3 and confirm version IDs are captured.
         let v1_id = v
@@ -1287,21 +1259,19 @@ mod tests {
         assert_eq!(r2, "sk-ut-v2");
         assert_eq!(r3, "sk-ut-v3");
 
-        // 3. Critical e2e check: scrape the sidecar attachment-slot
-        //    files from disk (path is computed from the key prefix)
-        //    so the next `get_at_version` call must round-trip via
-        //    minIO server-side versioning + the captured `version_id`,
-        //    NOT via the attachment slot.
+        // 3. Critical e2e check: the historical read must round-trip via
+        //    server-side versioning + the captured `version_id`, NOT via
+        //    the attachment slot.
         //
-        //    The attachment-slot file format is `<key>.v<version>.bin`
+        //    The attachment-slot object format is `<key>.v<version>.bin`
         //    under the same key prefix, so the most robust way to
         //    delete them is via the versioned-vault helper (which
         //    recomputes the prefix itself) rather than by hand.
         // 4. Critical proof that the sidecar version_id is being used:
         //    rotate the *current* value (i.e. write v4) via Vault::set.
         //    The vault's plain `set` does NOT touch the sidecar nor the
-        //    attachment slot for the prior versions (1..=3), but minIO
-        //    bucket versioning creates a new head version. Re-issuing
+        //    attachment slot for the prior versions (1..=3), but bucket
+        //    versioning creates a new head version. Re-issuing
         //    `get_at_version(v1)` must STILL return v1's bytes via the
         //    server-side versionId lookup, NOT via the attachment slot
         //    (which would also work but would not prove the new path).

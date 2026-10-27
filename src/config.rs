@@ -3,7 +3,7 @@
 use std::path::PathBuf;
 
 use crate::error::{GitGitError, Result};
-use crate::server::vault::MinioVaultConfig;
+use crate::server::vault::S3VaultConfig;
 
 /// Bind address the server listens on.
 ///
@@ -46,11 +46,11 @@ pub const DEFAULT_REPOS_DIR: &str = "repos";
 /// `FileVault` rooted here. Operators can override via
 /// `GITGIT_VAULT_FILE_ROOT` (or `--vault-file-root` on the CLI).
 ///
-/// `[FACT]` The comment here used to promise "a `MinioVault` runtime
-/// toggled by `GITGIT_VAULT_BACKEND=minio`" in V0 close-out. That
-/// commit had never landed: `build_vault()` hard-coded the `FileVault`,
-/// so the S3 implementation was unreachable from the product binary and
-/// only the test suite could reach it. The toggle now exists, spelled
+/// `[FACT]` The comment here used to promise "an S3-backed vault runtime
+/// toggled by `GITGIT_VAULT_BACKEND`" in V0 close-out. That commit had
+/// never landed: `build_vault()` hard-coded the `FileVault`, so the S3
+/// implementation was unreachable from the product binary and only the
+/// test suite could reach it. The toggle now exists, spelled
 /// `GITGIT_VAULT_BACKEND` with the values `file` (this default) and
 /// `s3`.
 pub const DEFAULT_VAULT_FILE_ROOT: &str = ".gitgit/vault";
@@ -123,7 +123,7 @@ pub const S3_KEY_PREFIX_ENV: &str = "GITGIT_S3_KEY_PREFIX";
 /// `[FACT]` Until the backend became selectable, the product binary
 /// could only ever use the local file vault: `build_vault()` in
 /// `src/main.rs` constructed a `FileVault` unconditionally, which left
-/// the S3 implementation (`MinioVault`) reachable only from the test
+/// the S3 implementation (`S3Vault`) reachable only from the test
 /// suite. This enum is what makes the choice real.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum VaultBackend {
@@ -238,17 +238,20 @@ pub struct Config {
     pub vault_backend: VaultBackend,
     /// Settings for the `s3` backend.
     ///
-    /// `[FACT]` This is the existing [`MinioVaultConfig`] struct, not a
+    /// `[FACT]` This is the existing [`S3VaultConfig`] struct, not a
     /// second copy of the same six fields: the S3 implementation already
     /// defines them, and duplicating them here would be one more place
     /// for the two to drift apart.
-    pub s3_vault: MinioVaultConfig,
+    pub s3_vault: S3VaultConfig,
 }
 
 /// Redact a credential for debug output.
 ///
-/// `[FACT]` `MinioVaultConfig` derives `Debug`, so it prints the secret
-/// key in the clear. A `Config` that carries one must not print it.
+/// `[FACT]` `S3VaultConfig` writes its own `Debug` by hand and redacts
+/// the secret key there. This helper is the second line of defence: a
+/// `Config` that carries one must not print it either, and the empty
+/// case is worth distinguishing — "not configured" and "configured but
+/// hidden" are different facts for whoever reads the log.
 fn redact(secret: &str) -> &str {
     if secret.trim().is_empty() {
         "<unset>"
@@ -262,7 +265,7 @@ impl std::fmt::Debug for Config {
     ///
     /// `[FACT]` The derived `Debug` would have printed the S3 secret key
     /// in the clear. The vault layer already redacts its own credentials
-    /// (`MinioVault`'s `Debug`), so the configuration does the same.
+    /// (`S3Vault`'s `Debug`), so the configuration does the same.
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Config")
             .field("bind", &self.bind)
@@ -292,7 +295,7 @@ impl Config {
             repos_dir: repos_dir.into(),
             vault_file_root: vault_file_root.into(),
             vault_backend: VaultBackend::default(),
-            s3_vault: MinioVaultConfig {
+            s3_vault: S3VaultConfig {
                 endpoint: DEFAULT_S3_ENDPOINT.to_string(),
                 bucket: DEFAULT_S3_BUCKET.to_string(),
                 region: DEFAULT_S3_REGION.to_string(),
@@ -330,7 +333,7 @@ impl Config {
     /// `ab` with key `c` are the same object key. The bucket must be
     /// named as well: an empty bucket puts the objects at the endpoint
     /// root, which is a shared, unnamed namespace.
-    pub fn s3_vault_config(&self) -> Result<MinioVaultConfig> {
+    pub fn s3_vault_config(&self) -> Result<S3VaultConfig> {
         if self.s3_vault.key_prefix.trim().is_empty() {
             return Err(GitGitError::MissingVaultKeyPrefix(
                 S3_KEY_PREFIX_ENV,
@@ -575,6 +578,13 @@ mod tests {
     /// credentials to a local directory while believing they were in
     /// S3. The message has to name the values that do work, otherwise
     /// the operator has to read the source to find out.
+    ///
+    /// `[FACT]` The first value is the **retired** backend name. It is
+    /// the one an operator upgrading from the old deployment still has
+    /// in their environment, and it has to be rejected with the same
+    /// error as any other unknown value — not accepted as an alias,
+    /// because "the S3 backend" is spelled `s3` now and an alias would
+    /// keep the old name alive in every deployment's configuration.
     #[test]
     fn an_unknown_vault_backend_is_an_error_that_names_the_valid_values() {
         for bad in ["minio", "bogus", "object-store", ""] {
@@ -806,9 +816,9 @@ mod tests {
     }
 
     /// `[FACT]` The debug output of a configuration must not carry the
-    /// secret key. `MinioVaultConfig` derives `Debug` and prints it in
-    /// the clear, so the configuration redacts it instead of forwarding
-    /// it.
+    /// secret key. `S3VaultConfig` writes its own `Debug` by hand and
+    /// redacts the secret, so the configuration redacts it as well
+    /// rather than forwarding it.
     #[test]
     fn the_debug_output_does_not_carry_the_s3_secret_key() {
         let mut cfg = Config::new("127.0.0.1:8080", "repos", "vault");
