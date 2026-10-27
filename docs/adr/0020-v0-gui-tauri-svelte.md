@@ -2,7 +2,7 @@
 
 | 字段 | 值 |
 |---|---|
-| **Status** | Accepted (2026-08-26) / Revised (2026-08-30 — Credential Vault → minIO) / Amended (2026-10-05 — bind 默认值，见 §1 修订注记) / Amended (2026-10-05 — `/api/*` 鉴权，见 §1 修订注记二) |
+| **Status** | Accepted (2026-08-26) / Revised (2026-08-30 — Credential Vault → minIO) / Amended (2026-10-05 — bind 默认值，见 §1 修订注记) / Amended (2026-10-05 — `/api/*` 鉴权，见 §1 修订注记二) / Amended (2026-10-25 — Credential Vault 的服务端换成本仓自建，见 §1 修订注记三) |
 | **Supersedes** | (无) |
 | **Superseded by** | (无) |
 | **Authors** | Ulysses（一人公司 12 角色 per DEC-008）— Mavis 接手 agent |
@@ -56,6 +56,22 @@ HTTP server：
 > TLS、桌面端生成的密码只出现在日志里），写在 `SECURITY.md` 的
 > 「The HTTP API is authenticated, but the credential travels in cleartext」
 > 一节里，不在此重复。
+>
+> **修订注记三（2026-10-25，Credential Vault 的服务端）**：上面
+> 「Credential Vault → minIO」那条修订记录的是 **2026-08-30 15:42 JST 当时**
+> 的决策与当时的事实，本 ADR 不改写它。**变的是服务端**：
+>
+> 1. minIO 服务端是 GNU AGPLv3，而本仓以 HTTP 方式消费它——把一个 AGPL
+>    服务打进发行物会引出网络条款的义务。服务端已换成本仓自建
+>    （`src/objectstore/` 与 `gitgit-objectstore` 二进制）。
+> 2. §2.5 的**形态不变**：「S3 兼容 bucket `gitgit-vault` + S3 客户端 +
+>    `FileVault` 降级 fallback」这条架构仍然成立，要自己写的只有服务端；
+>    客户端（`rust-s3` 0.38）照旧。
+> 3. §2.5.1「minIO 部署要求」那张表与 §3.2 的两条风险写的是当时的部署事实，
+>    **不再描述现状**。现行状态见 `docs/plan/self-hosted-object-store.md` 与
+>    [ADR-0021](0021-v0-minio-credential-vault.md) §1 修订注记。
+> 4. 名字跟着服务端一起退场：`MinioVault` → `S3Vault`、`GITGIT_MINIO_*` →
+>    `GITGIT_S3_*`。
 
 需求（用户 8/26 17:00 拍板）：
 
@@ -321,3 +337,4 @@ V0 完成的验收清单：
 ---
 
 **Status: Accepted** | 2026-08-26 17:00 JST (initial) / 2026-08-30 15:42 JST (Credential Vault → minIO 修订)
+**Amended** | 2026-10-05 (bind 默认值) / 2026-10-05 (`/api/*` 鉴权) / 2026-10-25 (Credential Vault 的服务端换成本仓自建)

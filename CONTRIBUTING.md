@@ -41,7 +41,7 @@ measurement was taken.
 **Report what a test actually did, including "nothing".** A filter or a target
 selection that matches zero tests exits 0 and looks green. This repository has
 been bitten by that more than once — `cargo test --bins` matching zero tests,
-and a doc comment telling you to run the minIO e2e against the thin binary
+and a doc comment telling you to run the vault e2e against the thin binary
 target, where it matches nothing either. When you add a gate, assert that the
 expected work actually happened, not just that the command succeeded.
 
@@ -82,10 +82,11 @@ pwsh -NoProfile -File scripts/verify-gitai-e2e.ps1
 pwsh -NoProfile -File scripts/verify-gitremote-e2e.ps1
 ```
 
-The minIO credential-vault e2e needs a container runtime and is not in CI:
+The credential-vault e2e needs no container runtime and no external S3 server —
+the object store is this repository's own, and the tests start it in-process:
 
 ```text
-pwsh -NoProfile -File scripts/verify-minio-vault.ps1
+pwsh -NoProfile -File scripts/verify-s3-vault.ps1
 ```
 
 `cargo` must be on `PATH` before any of the above. If you use `rustup`, prepend
@@ -119,7 +120,7 @@ feature on an existing dependency is fine; adding a crate is not. `rust-s3` 0.37
 was pinned deliberately (it does not expose `versionId` on `get_object`, which
 is why `vault_versioned.rs` builds a presigned GET URL with a `versionId` query
 for a real versioned restore) — read the comment in `Cargo.toml` before
-bumping it, and re-run the minIO e2e afterwards, because that is the only thing
+bumping it, and re-run the vault e2e afterwards, because that is the only thing
 that exercises the S3 client against a real server rather than only compiling it.
 
 ## What is not done yet
