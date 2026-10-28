@@ -264,6 +264,53 @@ function Get-InstallDirChain {
 }
 
 # ---------------------------------------------------------------------------
+# Check 1b: the Corresponding Source notice (AGPL-3.0 section 6(d))
+# ---------------------------------------------------------------------------
+
+# The place the Corresponding Source is offered at. It is derived from the
+# same config the bundler reads, so a notice that names a different place
+# does not pass.
+$SourcePlace = $null
+$confPath = Join-Path $PSScriptRoot '../src-tauri/tauri.conf.json'
+if (-not (Test-Path -LiteralPath $confPath)) {
+    throw "the tauri config was not found at '$confPath', so the place the Corresponding Source is offered at cannot be established."
+}
+$conf = Get-Content -LiteralPath $confPath -Raw | ConvertFrom-Json
+if (-not $conf.bundle.homepage) {
+    throw "the tauri config has no 'bundle.homepage', so the place the Corresponding Source is offered at cannot be established."
+}
+$SourcePlace = "$($conf.bundle.homepage)/releases"
+
+# Find the notice among the extracted files, BY ITS CONTENT.
+#
+# [FACT] The path and the file name are deliberately not pinned. A check
+# pinned to one filename goes red on a compliant package the moment someone
+# renames it, and such a gate gets switched off. Three markers are required,
+# and they are the ones the notice itself carries: it has to say what it is
+# about, it has to name the licence, and it has to name the place the source
+# is offered at.
+function Find-CorrespondingSourceNotice {
+    param(
+        [Parameter(Mandatory)][string]$Root,
+        [Parameter(Mandatory)][string]$Place
+    )
+    # [FACT] The size bound keeps the payload out of the way without pinning
+    # a file name: the notice is a couple of kilobytes and the executable is
+    # megabytes.
+    $candidates = @(Get-ChildItem -LiteralPath $Root -File -Recurse -ErrorAction SilentlyContinue |
+        Where-Object { $_.Length -gt 0 -and $_.Length -lt 1MB })
+    foreach ($c in $candidates) {
+        $text = Get-Content -LiteralPath $c.FullName -Raw -ErrorAction SilentlyContinue
+        if ($null -eq $text) { continue }
+        if ($text -notlike '*Corresponding Source for this build*') { continue }
+        if ($text -notlike '*AGPL-3.0*') { continue }
+        if ($text -notmatch [regex]::Escape($Place)) { continue }
+        return $c
+    }
+    return $null
+}
+
+# ---------------------------------------------------------------------------
 # Check 1: administrative install (no install, no elevation)
 # ---------------------------------------------------------------------------
 function Test-AdminInstall {
@@ -337,6 +384,16 @@ function Test-AdminInstall {
         }
 
         $rel = $exe.FullName.Substring($target.Length).TrimStart('\', '/')
+
+        # AGPL-3.0 section 6(d): the Corresponding Source notice, found by
+        # its content among the extracted files.
+        $notice = Find-CorrespondingSourceNotice -Root $target -Place $SourcePlace
+        $noticeRel = $null
+        $noticeBytes = 0
+        if ($notice) {
+            $noticeRel = $notice.FullName.Substring($target.Length).TrimStart('\', '/')
+            $noticeBytes = $notice.Length
+        }
         return [pscustomobject]@{
             ExeBytes      = $exe.Length
             ExeRelPath    = $rel
@@ -344,6 +401,9 @@ function Test-AdminInstall {
             LicenceName   = $licence.Name
             LicenceBytes  = $licence.Length
             LicenceRelPath = $licence.FullName.Substring($target.Length).TrimStart('\', '/')
+            Notice        = $notice
+            NoticeRelPath = $noticeRel
+            NoticeBytes   = $noticeBytes
         }
     } finally {
         if ($KeepExtract) {
@@ -390,6 +450,34 @@ foreach ($f in $files) {
     $admin = Test-AdminInstall -Path $f.FullName
     Write-Ok "payload: $($admin.ExeRelPath) = $($admin.ExeBytes) B, $($admin.FileCount) file(s) extracted"
     Write-Ok "licence: $($admin.LicenceRelPath) = $($admin.LicenceBytes) B (contains the AGPL-3.0 text)"
+
+    # --- AGPL-3.0 section 6(d): the Corresponding Source notice
+    #
+    # [FACT] The per-MACHINE package carries the notice, and it is ASSERTED
+    # here, by content.
+    #
+    # [FACT] The per-USER package does NOT carry it, and that is a known
+    # gap rather than an oversight. The bundler renders every
+    # `bundle.resources` entry as a component whose KeyPath is a FILE, and
+    # ICE38 rejects a component that installs into the user profile whose
+    # KeyPath is a file: `light.exe` fails with `LGHT0204 : ICE38` and
+    # exits 204. The per-user WiX template therefore does not render the
+    # resources at all — which keeps that build working, and leaves the
+    # notice out of that one variant. The gap is recorded in
+    # `docs/plan/v0-tasks.md`; it is not a claim that the variant complies.
+    if ($scope -eq 'perMachine') {
+        if ($null -eq $admin.Notice) {
+            $extracted = ($files | ForEach-Object { $_.FullName.Substring($target.Length).TrimStart('\', '/') }) -join ', '
+            throw ("$($f.Name) ships no Corresponding Source notice next to the object code. " +
+                   "AGPL-3.0 section 6(d) requires the object code to carry written directions " +
+                   "saying where to find the Corresponding Source. The mechanism is " +
+                   "bundle.resources, which the MSI bundler renders as a resource component. " +
+                   "Extracted: $extracted")
+        }
+        Write-Ok "corresponding source notice: $($admin.NoticeRelPath) = $($admin.NoticeBytes) B"
+    } else {
+        Write-Host "    NOTE: this variant does not carry the Corresponding Source notice (ICE38 keeps a file keypath out of the user profile); see docs/plan/v0-tasks.md" -ForegroundColor Yellow
+    }
 
     # --- scope, read from the package itself
     $chain = Get-InstallDirChain -Path $f.FullName

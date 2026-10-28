@@ -869,21 +869,29 @@ $(find "${APP_PATH}/Contents" -maxdepth 2 -print 2>/dev/null | head -20)"
     # ── AGPL-3.0 §6(d): what this artifact actually carries ──────────────────
     # [FACT] The licence reaches a .dmg as a UDIF EULA RESOURCE - the text
     # create-dmg embeds in the image's resource fork and presents when the
-    # image is mounted - and not as a file. There is nothing inside the image
-    # for a notice to be attached to, and no configuration key that puts one
-    # there: the dmg bundler reads neither bundle.resources nor a files map.
+    # image is mounted - and not as a file.
     #
-    # So NOTHING is asserted here. An assertion that could never pass is a
-    # gate that gets switched off, and this one would be off before it was
-    # ever red. What is recorded instead is the fact, and the fact is what
-    # `docs/plan/v0-tasks.md` carries.
+    # [FACT] The Corresponding Source NOTICE, on the other hand, IS a file,
+    # and it reaches the image: `bundle.resources` is read by the macOS
+    # bundler, which copies it into `<app>.app/Contents/Resources` (the
+    # bundler's `copy_resources`). The statement that used to sit here -
+    # that the dmg bundler reads neither `bundle.resources` nor a files map
+    # - was FALSE, and it is what kept this branch a report instead of an
+    # assertion.
+    #
+    # So the notice is ASSERTED here, the way the .deb and the .AppImage
+    # assert it. An assertion that could never pass is a gate that gets
+    # switched off; this one can pass, and now it has to.
     DMG_NOTICE=$(find_corresponding_source_notice "$MOUNT_DIR" "$CS_SOURCE_PLACE" || true)
     if [ -n "$DMG_NOTICE" ]; then
         ok "corresponding source notice: ${DMG_NOTICE}"
     else
         echo "    NO CORRESPONDING SOURCE NOTICE inside the mounted image." >&2
-        echo "    [FACT] the licence reaches a .dmg as a UDIF EULA resource (create-dmg --eula)," >&2
-        echo "    not as a file, so there is nothing in the image to carry a notice." >&2
+        echo "    [FACT] AGPL-3.0 section 6(d) requires the object code to carry written" >&2
+        echo "    directions saying where to find the Corresponding Source." >&2
+        echo "    [FACT] The mechanism is bundle.resources, which the macOS bundler reads" >&2
+        echo "    and copies into <app>.app/Contents/Resources." >&2
+        die "${ARTIFACT_NAME} ships no Corresponding Source notice next to the object code."
     fi
     ;;
 esac
