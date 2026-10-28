@@ -111,6 +111,23 @@ jobs:
           fi
           echo "    ok  the generated per-user WiX template matches its source"
 
+      # No PowerShell script may assign to a read-only automatic variable.
+      #
+      # [FACT] Assigning to one of those throws — 「无法覆盖变量 Host，因为它是
+      # 只读变量或常量」 — and a script running under `$ErrorActionPreference =
+      # 'Stop'` aborts at the assignment. `deploy/objectstore/start-objectstore.ps1`
+      # did exactly that: it assigned to `$host`, so the fixture aborted before
+      # its readiness probe and before its foreground wait, leaving the object
+      # store process running with nobody supervising it.
+      #
+      # [FACT] The repository has no PowerShell linter, so nothing else would
+      # have caught it. The check measures the read-only set on every run
+      # rather than carrying a copied list, and it refuses to pass a scan that
+      # found no scripts at all.
+      - name: No PowerShell script assigns to a read-only automatic variable
+        shell: pwsh
+        run: pwsh -NoProfile -File scripts/ci/check-powershell-automatic-variables.ps1
+
       # Both frontends' static checks. These are the checks a pull request
       # that touches only a frontend would otherwise get from the
       # path-filtered workflow — here they run for every pull request.
