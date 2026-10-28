@@ -20,7 +20,7 @@ use gitgit::config::{
     S3_KEY_PREFIX_UNSET, S3_REGION_ENV, S3_SECRET_KEY_ENV, VAULT_BACKEND_ENV,
 };
 use gitgit::error::GitGitError;
-use gitgit::server::vault::{FileVault, MinioVault, VaultError};
+use gitgit::server::vault::{FileVault, S3Vault, VaultError};
 use gitgit::server::vault_versioned::VersionedVault;
 use gitgit::server::AppState;
 use gitgit::{ai, remote, repo, server};
@@ -143,20 +143,20 @@ fn build_config(cli: &Cli) -> anyhow::Result<Config> {
 /// answerable, and `build_vault` is the one-line mapping from it.
 enum SelectedVault {
     File(FileVault),
-    S3(MinioVault),
+    S3(S3Vault),
 }
 
 /// Pick the vault implementation the configuration asks for.
 ///
 /// `[FACT]` This is where the product stops being file-only. Until the
 /// backend became selectable, `build_vault()` constructed a `FileVault`
-/// unconditionally and the S3 implementation (`MinioVault`) was
+/// unconditionally and the S3 implementation (`S3Vault`) was
 /// reachable only from the test suite.
 fn select_vault(config: &Config) -> anyhow::Result<SelectedVault> {
     Ok(match config.vault_backend {
         VaultBackend::File => SelectedVault::File(FileVault::new(&config.vault_file_root)),
         VaultBackend::S3 => SelectedVault::S3(
-            MinioVault::connect(&config.s3_vault_config()?).map_err(GitGitError::from)?,
+            S3Vault::connect(&config.s3_vault_config()?).map_err(GitGitError::from)?,
         ),
     })
 }
@@ -171,7 +171,7 @@ fn select_vault(config: &Config) -> anyhow::Result<SelectedVault> {
 /// 5 KV operations.
 ///
 /// `[FACT]` The return type is a `Result` now: the S3 backend needs
-/// credentials (`Config::s3_vault_config`) and `MinioVault::connect`
+/// credentials (`Config::s3_vault_config`) and `S3Vault::connect`
 /// can fail on the credentials it is handed. `connect` performs **no**
 /// network I/O -- it only parses the endpoint and constructs a
 /// `rust-s3` bucket handle -- so a wrong endpoint surfaces on the first
@@ -663,6 +663,11 @@ mod tests {
     /// dangerous kind: the operator would believe they were writing to
     /// object storage while their credentials went to a local
     /// directory. The message has to name the values that do work.
+    ///
+    /// `[FACT]` The value used here is the **retired** backend name: it
+    /// is what an operator upgrading from the old deployment still has
+    /// in their environment, and it has to be rejected like any other
+    /// unknown value rather than accepted as an alias.
     #[test]
     fn an_unknown_backend_is_an_error_in_the_environment_and_on_the_command_line() {
         let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());

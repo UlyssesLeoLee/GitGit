@@ -2,7 +2,7 @@
 
 | 字段 | 值 |
 |---|---|
-| **Status** | Accepted (2026-09-26 JST) |
+| **Status** | Accepted (2026-09-26 JST) / Amended (2026-10-25 — vault 类型改名，见 §4 修订注记) |
 | **Supersedes** | (无) |
 | **Superseded by** | (无) |
 | **Authors** | Ulysses — MinimaxM3 接手 agent |
@@ -87,6 +87,15 @@ PR-C 新增:`/graph` → Graph(knowledge-graph viewer)。`Sidebar` 第 5 项导�
 | `axum` 在 gm-desktop `Cargo.toml` 缺失(`server.rs` 用 `axum::serve`) | 在 `[dependencies]` 加 `axum = { version = "0.7", default-features = false, features = ["http1", "tokio"] }`,或让 gitgit server crate 重导出 |
 | CI (`.github/workflows/`) 是否覆盖 gm-desktop 子 crate | gm-console CI 在 `apps/gm-console`,gm-desktop 需单独加 workflow |
 | 跨平台签名 / 自动更新 / 真实图标占位(沿用 gm-desktop 已有的 V0.1 占位) | 不在本 PR 范围,沿用 ADR-0020 §2.7 占位策略 |
+
+> **修订注记（2026-10-25）**：上表第二行写的是 **2026-09-26 当时**的状态与
+> 当时的缓解方案，本 ADR 不改写它。**变的是名字与服务端**：
+>
+> 1. 凭据保险库的 S3 实现已从 `MinioVault` 改名为 `S3Vault`（它一直是 S3
+>    客户端，用某个服务端的名字给客户端命名正是 minIO 退场的根因），
+>    `src/server/vault_versioned` 模块名本身未变。
+> 2. 提供 S3 语义的服务端已从 minIO 换成本仓自建（AGPLv3 退场）。
+> 3. 完整对照见 [ADR-0021](0021-v0-minio-credential-vault.md) §1 修订注记。
 
 ## 5. 已知前置问题 / Pre-existing Blockers (非本 ADR 引入)
 
@@ -187,3 +196,4 @@ Rust 端知识图谱引擎 — 仅 `apps/gm-desktop/src-tauri/` 域内改动:
 - 2026-09-26 ~13:49 PR-A 合 #14 `549bd0c` (single squash): 7 个 cargo error 清零
 - 2026-09-26 ~13:50 PR-B 开工: `feature/consolidate-desktop` 基于 `origin/dev 549bd0c`,吸收 graph.rs + 7 commands + ADR-0023 文档
 - 2026-09-26 ~14:00 PR-B 范围收敛: 仅 Rust 端 (避免前端膨胀到 svelte-check 预存在 106 错误一并背锅),前端 `/graph` 路由拆 PR-C,`apps/desktop` 删除拆 PR-D
+- 2026-10-25 修订注记: 凭据保险库的 S3 实现改名 `MinioVault` → `S3Vault`,服务端从 minIO 换成本仓自建 (AGPLv3 退场); 见 §4 修订注记与 ADR-0021 §1 修订注记

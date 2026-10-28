@@ -2,7 +2,7 @@
 
 | 字段 | 值 |
 |---|---|
-| **Status** | Accepted V0.2 (revised 2026-09-20 JST; V0 Accepted 2026-09-16 18:00 JST) |
+| **Status** | Accepted V0.2 (revised 2026-09-20 JST; V0 Accepted 2026-09-16 18:00 JST) / Amended (2026-10-25 — 服务端换成本仓自建，`MinioVault` 改名 `S3Vault`，见 §1 修订注记) |
 | **Supersedes** | (无；ADR-0021 V0 Credential Vault 的能力扩展) |
 | **Superseded by** | (无) |
 | **Authors** | Ulysses（一人公司 12 角色 per DEC-008）— Mavis 接手 agent |
@@ -18,6 +18,7 @@
 |---|---|---|
 | **V0** | 2026-09-16 18:00 | 初始 Accepted: VersionedVault sub-trait, JSON sidecar, FileVault + MinioVault impls, 12 unit tests. `get_at_version` 历史 bytes 还原 deferred (per §3.4 known gap) |
 | **V0.2** | 2026-09-20 | minIO server-side versioning 真接: sidecar `version_id` 字段 + `set_with_version` 捕获 `x-amz-version-id` + `get_at_version` 优先 versionId lookup (presign_get + reqwest) + attachment slot fallback. ADR §3.4 gap resolved. 4 新 unit test + 1 `#[ignore]` minIO e2e. 79 passed / 0 failed / 1 ignored |
+| **Amended** | 2026-10-25 | 决策与契约不变，**服务端从 minIO 换成本仓自建**（AGPLv3 退场）；类型改名 `MinioVault` → `S3Vault`；两条 vault e2e 摘掉 `#[ignore]`，改为自己在进程内起服务端。正文里的历史描述不改写 |
 
 ---
 ## 1. 背景 / Context
@@ -33,6 +34,22 @@ Ulysses 拍板 (2026-09-16 18:00 JST) "4，assetslake的版本管理内容要在
 - 不引入 sqlx / PG 进 gitgit（per ADR-0021 §1.2 约束：单一 crate + 零原生依赖 + 0 platform-specific code + 不改 auth.rs 之外的 server 代码）
 - 新 trait `VersionedVault: Vault`，5 个新方法按 AssetsLake ADR-0022 §2.1 一致命名
 - 元数据走 JSON sidecar：`FileVault` → `<root>/_versions/<key>.versions.json`；`MinioVault` → `gitgit-vault/<key>.versions.json` 同 bucket sidecar object
+
+> **修订注记（2026-10-25）**：本 ADR 的**契约不变**——`VersionedVault` 子 trait、
+> JSON sidecar 元数据层、`version_id` 捕获、`versionId` 优先 lookup 加
+> attachment slot fallback，一条都没有变。**变的是服务端与名字**：
+>
+> 1. 提供 S3 语义的服务端已从 minIO 换成本仓自建（`src/objectstore/` 与
+>    `gitgit-objectstore` 二进制），因为 minIO 服务端是 GNU AGPLv3，而本仓以
+>    HTTP 方式消费它。客户端（`rust-s3` 0.38）**没有动**，所以版本化逻辑不需要
+>    重做——这正是本 ADR 描述的那套 `version_id` 机制能够原样活下来的原因。
+> 2. `MinioVault` 改名为 `S3Vault`：它一直是 S3 客户端，用某个服务端的名字给
+>    客户端命名正是这次退场的根因。正文里的 `MinioVault` 是**历史描述**，不改写。
+> 3. 本 ADR §7 记的「1 个 `#[ignore]` minIO e2e」现在**不再是 `#[ignore]`**：
+>    服务端是本仓的，测试可以在进程内自己把它起起来（端口 0、桶显式开版本化），
+>    于是版本化那条路被常规测试套件与 CI 持续覆盖。
+> 4. 名字与夹具的完整对照见 [ADR-0021](0021-v0-minio-credential-vault.md) §1
+>    修订注记。
 
 ## 2. 决策 / Decision
 
@@ -226,6 +243,7 @@ EventBus 引入 + RAG / event / audit 三 sink (gitgit 端独立 ADR)
 
 | Version | Date | Change |
 |---|---|---|
+| **Amended** | 2026-10-25 JST | 服务端从 minIO 换成本仓自建（AGPLv3 退场）；`MinioVault` → `S3Vault`；两条 vault e2e 摘掉 `#[ignore]` 改为进程内起服务端。契约与正文的历史描述均不改写，详见 §1 修订注记 |
 | **0.2** | 2026-09-20 JST | minIO server-side versioning 真接 (ULYS-123): rust-s3 0.37.2 虽不暴露 `versionId` API, 改用 `presign_get` + 自定义 `versionId` query + reqwest 实现, 无需替换 aws-sdk-s3; 详见文首修订历史 V0.2 行 |
 | 0.2-调研 | 2026-09-20 JST | (已被 0.2 实装取代) 调研结论: rust-s3 0.37.2 上游不暴露 `versionId`, 曾建议推迟到 aws-sdk-s3 评估. 调研记录见 `docs/reports/2026-09-20-minio-versionId-investigation/minio-versionId-investigation-report.md` |
 | 0.1 | 2026-09-16 JST | 初始 V0 实现 (attachment slot fallback, 见 §3.4) |
@@ -233,3 +251,4 @@ EventBus 引入 + RAG / event / audit 三 sink (gitgit 端独立 ADR)
 ---
 
 **Status: Accepted V0.2** | V0: 2026-09-16 18:00 JST · V0.2 (minIO versionId 真接): 2026-09-20 JST
+**Amended** | 2026-10-25 — 服务端换成本仓自建，`MinioVault` → `S3Vault`（§1 修订注记）

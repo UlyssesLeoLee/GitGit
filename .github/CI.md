@@ -639,8 +639,13 @@ GitHub repo → Settings → Branches → Add rule for `dev`:
 
 ## 已知限制 (V0.1 baseline)
 
-1. **minIO e2e 不在 CI gate** — `#[ignore]` 测试需要 minIO server,
-   V0.1 用自托管 runner 二期接入
+1. ~~**minIO e2e 不在 CI gate** — `#[ignore]` 测试需要 minIO server,
+   V0.1 用自托管 runner 二期接入~~ —— **已解除（2026-10-25）**：S3 服务端换成本仓
+   自建（`src/objectstore/` + `gitgit-objectstore`），两条 vault e2e 测试摘掉了
+   `#[ignore]`，**自己在进程内起服务端**（监听端口 0、桶显式建出来并开版本化）。
+   它们因此在**不带 `--ignored`** 的普通 `cargo test` 里真的跑，已经在 CI 的
+   `test` 作业里被持续覆盖。`[FACT]` 服务端是本仓自己的代码，所以这条路径不再
+   需要任何容器运行时或第三方 S3 服务端。
 2. **完整 Tauri 打包（`.msi` / `tauri-action` / 多 OS matrix）仍不在 CI** — 部分解除
    （2026-10-02）：`apps/gm-desktop/**` **已加入 paths**（新增 `gm-desktop.yml`），
    桌面端改动现在会触发 CI；`pnpm lint` / `pnpm check` / `pnpm test` / `pnpm build` /

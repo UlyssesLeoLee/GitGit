@@ -90,8 +90,8 @@ pub const SERVICE: &str = "s3";
 /// pins its own region would reject perfectly valid clients.
 ///
 /// [FACT] `Debug` is written by hand and redacts the secret key, following
-/// the repository's own rule for credentials (`MinioVault` does the same, and
-/// `minio_vault_debug_does_not_leak_credentials` holds it in place). Nothing
+/// the repository's own rule for credentials (`S3Vault` does the same, and
+/// `s3_vault_debug_does_not_leak_credentials` holds it in place). Nothing
 /// logs this today, but a derived `Debug` that prints the secret is one
 /// `tracing::info!` away from leaking it.
 #[derive(Clone, PartialEq, Eq)]
@@ -753,8 +753,8 @@ mod tests {
     /// [FACT] The credentials must not leak through `Debug`.
     ///
     /// The repository's own rule for credentials is written down on
-    /// `MinioVault`, which redacts the secret and has
-    /// `minio_vault_debug_does_not_leak_credentials` to hold it in place.
+    /// `S3Vault`, which redacts the secret and has
+    /// `s3_vault_debug_does_not_leak_credentials` to hold it in place.
     /// This is the same rule on the server side of the same credential.
     #[test]
     fn the_debug_print_of_the_credentials_does_not_leak_the_secret() {

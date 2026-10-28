@@ -51,7 +51,7 @@
 | `src/` | 根 Rust crate —— CLI、Git HTTP server、版本化凭据保险库、AI provider |
 | `apps/gm-desktop/` | Tauri 2 + Svelte 5 桌面端 |
 | `apps/gm-console/` | React + Vite 网页管理端 |
-| `deploy/minio/` | 本地 minIO 夹具，供保险库 e2e 测试使用 |
+| `deploy/objectstore/` | 本仓自建的 S3 兼容对象存储夹具，供保险库 e2e 测试使用 |
 | `scripts/` | 回归测试与验证脚本（PowerShell） |
 | `.github/workflows/` | 三个 CI workflow |
 | `docs/adr/` | 现行架构决策记录（ADR-0001 / 0020–0023） |

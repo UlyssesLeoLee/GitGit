@@ -2,21 +2,19 @@
 //!
 //! V0 ships two [`Vault`] backends behind a single async trait:
 //!
-//! * [`MinioVault`] — the **default** backend; stores each credential as an
-//!   object inside an S3-compatible bucket (typically a local `minIO` server
-//!   during V0 dev). Provides cross-node access, native versioning, and
-//!   erasure coding without extra glue code.
-//! * [`FileVault`] — the **fallback** backend, used when minIO is
-//!   unreachable (T11 deployment not yet run) or when the user opts out of
-//!   S3. Persists each credential as a UTF-8 file under a directory with
-//!   `0600` permissions on Unix (Windows inherits the directory ACL).
+//! * [`S3Vault`] — the S3 backend; stores each credential as an object
+//!   inside an S3-compatible bucket. The server is this repository's own
+//!   (see [`crate::objectstore`]), so the product carries no third-party
+//!   object store and no third-party licence.
+//! * [`FileVault`] — the local backend, used when the S3 endpoint is
+//!   unreachable or when the user opts out of S3. Persists each credential
+//!   as a UTF-8 file under a directory with `0600` permissions on Unix
+//!   (Windows inherits the directory ACL).
 //!
 //! The trait is intentionally minimal: five methods (get / set / delete /
 //! list / rotate). The implementations are the only code that talks to the
-//! underlying storage, so swapping the backend is a single `Arc<dyn Vault>`
-//! replacement in `AppState` (which this commit does **not** touch — wiring
-//! is deferred to T6 close-out per the brief's "不动 `src/server/auth.rs`"
-//! constraint).
+//! underlying storage, so swapping the backend is a single
+//! `Arc<dyn Vault>` replacement in `AppState`.
 //!
 //! ## Security notes
 //!
@@ -24,21 +22,20 @@
 //!   itself. Callers that hold long-lived secrets should overwrite their
 //!   `String` after use. V0 does not do this; the
 //!   [`gitai key`](../cli/index.html) command is short-lived.
-//! * `MinioVault::connect` takes `&str` credentials and stores them inside
+//! * `S3Vault::connect` takes `&str` credentials and stores them inside
 //!   the `Bucket` struct. The struct's `Clone` impl will copy them, so the
-//!   caller should not keep a long-lived `MinioVault` if the secrets were
+//!   caller should not keep a long-lived `S3Vault` if the secrets were
 //!   read from a one-shot buffer.
 //! * `FileVault` does not encrypt at rest. The brief explicitly defers
 //!   encryption to V1+; until then the directory's filesystem ACL is the
 //!   only protection.
 
-// V0 T6 commit: the public items in this module are the foundation for
-// the upcoming `AppState` wiring (T6 close-out) and the `gitai key`
-// subcommands (T7). Until then the only call site is `#[cfg(test)]`, so
-// every public symbol is "dead" from the production build's point of
-// view. The `#[allow(dead_code)]` keeps `-D warnings` honest without
-// scattering attribute noise through the file. The lint restriction
-// `unused_must_use = "deny"` in `[lints.rust]` is still respected.
+// The public items in this module are the foundation for the `AppState`
+// wiring and the `gitai key` subcommands. Some of them are still "dead"
+// from the production build's point of view. The `#[allow(dead_code)]`
+// keeps `-D warnings` honest without scattering attribute noise through
+// the file. The lint restriction `unused_must_use = "deny"` in
+// `[lints.rust]` is still respected.
 #![allow(dead_code)]
 
 use std::path::{Path, PathBuf};
@@ -57,24 +54,24 @@ use crate::error::{GitGitError, Result};
 ///
 /// `Vault(S3Error)` and `VaultFile(io::Error)` are wrapped here rather than
 /// flattening into [`GitGitError`] directly so that callers can distinguish
-/// "minIO is down" from "filesystem is full" without parsing the error
-/// message. The conversion to [`GitGitError::Http`] happens at the HTTP
-/// boundary in `server::http`.
+/// "the S3 server is down" from "filesystem is full" without parsing the
+/// error message. The conversion to [`GitGitError::Http`] happens at the
+/// HTTP boundary in `server::http`.
 #[derive(Debug, Error)]
 pub enum VaultError {
-    /// A `minIO` / S3 operation failed. Wraps the underlying crate error
+    /// An S3 operation failed. Wraps the underlying crate error
     /// verbatim so we don't lose context (`status_code`, `request_id`, ...).
-    #[error("minIO/S3 error: {0}")]
+    #[error("S3 error: {0}")]
     Vault(#[from] S3Error),
 
     /// A `FileVault` filesystem operation failed.
     #[error("file vault io error: {0}")]
     VaultFile(#[from] std::io::Error),
 
-    /// Parsing or applying minIO credentials failed (returned by
+    /// Parsing or applying S3 credentials failed (returned by
     /// `awscreds::Credentials::new`). Distinct from `S3Error` because
     /// the failure happens at `connect` time, not at request time.
-    #[error("minIO credentials error: {0}")]
+    #[error("S3 credentials error: {0}")]
     Credentials(#[from] AwsCredsError),
 
     /// The stored value was not valid UTF-8.
@@ -90,7 +87,7 @@ pub enum VaultError {
     /// caller with the server's own `<Code>` intact: a missing
     /// credential and a missing bucket are very different problems
     /// and must not be reported the same way.
-    #[error("minIO/S3 HTTP {status} ({code}): {detail}")]
+    #[error("S3 HTTP {status} ({code}): {detail}")]
     S3Status {
         status: u16,
         code: String,
@@ -116,8 +113,11 @@ pub(crate) enum S3Read {
 /// status: `RequestImpl::response_data` returns `Ok` and hands back the
 /// S3 error *document* as the object body. A caller that trusts `Ok`
 /// then stores a `<?xml ...><Error><Code>NoSuchKey</Code>...` string as
-/// if it were a credential. Verified against minIO
-/// `RELEASE.2025-09-07T16-13-09Z` via `scripts/verify-minio-vault.ps1`.
+/// if it were a credential. `[FACT]` The body below was captured from a
+/// live S3-compatible server on 2026-10-05 (the server this repository
+/// ran against before it implemented its own; upstream release
+/// `2025-09-07T16-13-09Z`) by the fixture verification script
+/// (`scripts/verify-s3-vault.ps1`).
 ///
 /// Status is checked before the body, and only for non-2xx, so a stored
 /// value that happens to contain the text `NoSuchKey` is still returned
@@ -180,7 +180,7 @@ impl From<VaultError> for GitGitError {
 
 /// Async credential vault abstraction.
 ///
-/// All methods are `async` because the minIO path needs to issue HTTP
+/// All methods are `async` because the S3 path needs to issue HTTP
 /// requests; the file path is also async (tokio `fs`) so callers don't
 /// have to special-case the two backends at the call site.
 #[async_trait]
@@ -189,7 +189,7 @@ pub trait Vault: Send + Sync {
     ///
     /// Returns:
     /// * `Ok(Some(value))` — key exists, value is valid UTF-8.
-    /// * `Ok(None)` — key does not exist (or, for `MinioVault`, the object
+    /// * `Ok(None)` — key does not exist (or, for `S3Vault`, the object
     ///   is absent / was soft-deleted and the lifecycle window has
     ///   expired).
     /// * `Err(_)` — transport / IO / decode failure.
@@ -201,7 +201,7 @@ pub trait Vault: Send + Sync {
     /// Remove the value stored under `key`.
     ///
     /// Missing keys are **not** an error; the method is idempotent.
-    /// `MinioVault` is built on S3 object versioning, so a delete creates
+    /// `S3Vault` is built on S3 object versioning, so a delete creates
     /// a `DeleteMarker`; the previous value remains recoverable for the
     /// 90-day lifecycle window (see ADR-0021 §3).
     async fn delete(&self, key: &str) -> Result<()>;
@@ -215,35 +215,50 @@ pub trait Vault: Send + Sync {
     /// Overwrite the value under `key` with a fresh, opaque value.
     ///
     /// Implementations choose how to generate the new value; the brief
-    /// suggests a timestamp + random suffix, which `MinioVault` does.
+    /// suggests a timestamp + random suffix, which `S3Vault` does.
     /// `FileVault` writes an equivalent fresh value so that callers can
     /// use `rotate` uniformly across backends.
     async fn rotate(&self, key: &str) -> Result<()>;
 }
 
-/// Configuration for constructing a [`MinioVault`].
+/// Configuration for constructing a [`S3Vault`].
 ///
 /// Plain-data struct so it can be deserialized from a future TOML file
 /// (T11 follow-up). For now the binary builds one by hand from CLI flags
 /// or environment variables.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct MinioVaultConfig {
+///
+/// `[FACT]` `Debug` is written by hand, not derived. The struct holds the
+/// secret key, and a derived `Debug` would print it in the clear — so
+/// `format!("{cfg:?}")`, a `tracing::info!`, or a `#[derive(Debug)]` on
+/// some wrapper type one layer up would leak the credential into a log
+/// file. The same rule the vault itself follows
+/// ([`S3Vault`]'s `Debug`) applies here; the secret is printed as
+/// `<redacted>`, and the endpoint / bucket / region / key prefix — which
+/// are not secrets — are printed as they are.
+///
+/// The access key is an identifier rather than a secret (it names the
+/// client, it does not authenticate it), but it is redacted anyway: it
+/// is half of a credential pair, and `crate::config::Config`'s `Debug`
+/// already redacts both halves. Printing a setting that identifies a
+/// deployment buys nothing when diagnosing a misconfiguration.
+#[derive(Clone, Serialize, Deserialize)]
+pub struct S3VaultConfig {
     /// S3-compatible endpoint, e.g. `"http://127.0.0.1:9000"` for a local
-    /// minIO. **No trailing slash.**
+    /// server. **No trailing slash.**
     pub endpoint: String,
 
     /// Bucket name (e.g. `"gitgit-vault"`).
     pub bucket: String,
 
-    /// S3 access key (minIO root user in dev).
+    /// S3 access key — an identifier, not a secret, but still redacted.
     pub access_key: String,
 
-    /// S3 secret key (minIO root password in dev).
+    /// S3 secret key. Never printed.
     pub secret_key: String,
 
-    /// Region string used in SigV4 signing. `minIO` accepts any value, but
-    /// using `"us-east-1"` keeps things consistent with the SigV4 default
-    /// when other S3-compatible stores are swapped in later.
+    /// Region string used in SigV4 signing. S3-compatible stores accept
+    /// any value, but using `"us-east-1"` keeps things consistent with the
+    /// SigV4 default.
     pub region: String,
 
     /// Key prefix applied to every object, e.g. `"gitgit-vault/"`. An
@@ -251,37 +266,51 @@ pub struct MinioVaultConfig {
     pub key_prefix: String,
 }
 
-/// `minIO`-backed [`Vault`] implementation.
+impl std::fmt::Debug for S3VaultConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("S3VaultConfig")
+            .field("endpoint", &self.endpoint)
+            .field("bucket", &self.bucket)
+            .field("region", &self.region)
+            .field("key_prefix", &self.key_prefix)
+            // The two credential fields: never printed.
+            .field("access_key", &"<redacted>")
+            .field("secret_key", &"<redacted>")
+            .finish()
+    }
+}
+
+/// S3-backed [`Vault`] implementation.
 ///
 /// Each credential is stored as one S3 object: `<key_prefix><key>`. The
 /// prefix is the natural way to isolate multiple gitgit instances or to
 /// share a single bucket across unrelated tooling without collision
 /// (e.g. `gitgit-vault/openai/api_key`).
-pub struct MinioVault {
+pub struct S3Vault {
     bucket: Box<Bucket>,
     key_prefix: String,
 }
 
-impl std::fmt::Debug for MinioVault {
+impl std::fmt::Debug for S3Vault {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         // Deliberately redact credentials and the `Bucket` (which holds
         // them) from the debug print. The endpoint / bucket name are
         // safe to log because they're not secret.
-        f.debug_struct("MinioVault")
+        f.debug_struct("S3Vault")
             .field("bucket_name", &self.bucket.name())
             .field("key_prefix", &self.key_prefix)
             .finish_non_exhaustive()
     }
 }
 
-impl MinioVault {
-    /// Build a `MinioVault` from explicit config. Performs no network I/O;
+impl S3Vault {
+    /// Build a `S3Vault` from explicit config. Performs no network I/O;
     /// it only parses the endpoint URL and constructs a `Bucket` handle.
     /// This means a stale or wrong endpoint will not surface until the
     /// first `get` / `set` / `delete` / `list` / `rotate` call.
     ///
     /// Returns [`VaultError::Vault`] if the endpoint URL cannot be parsed.
-    pub fn connect(cfg: &MinioVaultConfig) -> std::result::Result<Self, VaultError> {
+    pub fn connect(cfg: &S3VaultConfig) -> std::result::Result<Self, VaultError> {
         let region = Region::Custom {
             region: cfg.region.clone(),
             endpoint: cfg.endpoint.clone(),
@@ -295,9 +324,9 @@ impl MinioVault {
         )?;
         // `Bucket::new` takes the bucket name, region, and credentials and
         // returns a `Box<Bucket>` whose `path_style` defaults to
-        // `SubdomainStyle`. minIO **requires** path-style addressing for
-        // bucket names containing dots or when running on a non-default
-        // port, so we explicitly switch to `PathStyle`. This is also
+        // `SubdomainStyle`. Path-style addressing is what an S3 server
+        // on a non-default port (or with a dotted bucket name) needs, so
+        // we explicitly switch to `PathStyle`. This is also
         // forward-compatible with HTTP-only local dev (no TLS).
         let mut bucket = Bucket::new(&cfg.bucket, region, credentials)?;
         bucket = bucket.with_path_style();
@@ -347,7 +376,7 @@ impl MinioVault {
     /// Read a raw sidecar object. Returns:
     /// * `Ok(Some(bytes))` — object present, S3 call succeeded.
     /// * `Ok(None)` — object absent (mapped from `NoSuchKey` / 404 the
-    ///   same way `MinioVault::get` does for plain vaults).
+    ///   same way `S3Vault::get` does for plain vaults).
     /// * `Err(_)` — transport / decode failure.
     pub(crate) async fn get_object_for_sidecar(
         &self,
@@ -356,7 +385,7 @@ impl MinioVault {
         match self.bucket.get_object(object_key).await {
             // Same status-first rule as `Vault::get`: a missing sidecar
             // arrives as `Ok` carrying the S3 error document, and
-            // `minio_load_timeline` feeds this straight into
+            // `s3_load_timeline` feeds this straight into
             // `serde_json::from_slice`, so an unchecked read turned a
             // never-written sidecar into "versioned-vault serde error:
             // expected value at line 1 column 1".
@@ -419,7 +448,7 @@ impl MinioVault {
 }
 
 #[async_trait]
-impl Vault for MinioVault {
+impl Vault for S3Vault {
     async fn get(&self, key: &str) -> Result<Option<String>> {
         let object_key = self.object_key(key);
         match self.bucket.get_object(&object_key).await {
@@ -518,7 +547,7 @@ pub(crate) struct HttpResponse {
 
 /// Issue an HTTP GET against `url` and return (status, body). No auth
 /// header is added; the caller is responsible for embedding the
-/// signature in the query string (see `MinioVault::presign_get`).
+/// signature in the query string (see `S3Vault::presign_get`).
 pub(crate) async fn reqwest_get_bytes(
     url: &str,
 ) -> std::result::Result<HttpResponse, s3::error::S3Error> {
@@ -688,7 +717,7 @@ impl Vault for FileVault {
 
     async fn list(&self) -> Result<Vec<String>> {
         // We only enumerate immediate children (no recursion). That
-        // matches the `MinioVault` contract, which uses a flat
+        // matches the `S3Vault` contract, which uses a flat
         // (prefix, no delimiter) listing on its own key namespace.
         if !self.root.exists() {
             return Ok(Vec::new());
@@ -713,7 +742,7 @@ impl Vault for FileVault {
     }
 
     async fn rotate(&self, key: &str) -> Result<()> {
-        // Same shape as `MinioVault::rotate` so callers can write
+        // Same shape as `S3Vault::rotate` so callers can write
         // `vault.rotate(key).await?` against either backend.
         let ts = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -722,6 +751,98 @@ impl Vault for FileVault {
         let suffix = uuid::Uuid::new_v4();
         let value = format!("rotated-{ts}-{suffix}");
         self.set(key, &value).await
+    }
+}
+
+/// Test-only support for the vault's end-to-end tests.
+///
+/// `[FACT]` The vault needs a live S3 server with a **versioned** bucket:
+/// the `x-amz-version-id` response header only exists on a versioned
+/// bucket, and `VaultVersionSummary` depends on it. This repository
+/// implements that server (`crate::objectstore`), so the tests start it
+/// themselves instead of asking the machine for one. Nothing has to be
+/// installed, nothing has to be running, and nothing has to be skipped.
+///
+/// `[FACT]` The listener binds port 0, so the operating system picks a
+/// free port. A fixed port would make two parallel test runs collide
+/// with each other — and a collision looks like a product defect.
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+pub(crate) mod test_support {
+    use crate::objectstore::VersioningStatus;
+    use crate::objectstore::{ObjectStore, ObjectStoreCredentials};
+
+    /// The bucket the end-to-end tests use.
+    pub const BUCKET: &str = "gitgit-vault";
+
+    /// The access key the tests sign with.
+    pub const ACCESS_KEY: &str = "gitgit-vault-access-key";
+
+    /// The secret key the tests sign with.
+    pub const SECRET_KEY: &str = "gitgit-vault-secret-key";
+
+    /// A running object store.
+    pub struct TestServer {
+        /// The endpoint URL a client should use.
+        pub endpoint: String,
+    }
+
+    /// Start the object store in-process, on a port the OS picked, with a
+    /// bucket that exists and has versioning enabled.
+    pub async fn start_object_store(label: &str) -> TestServer {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        let root = std::env::temp_dir().join(format!(
+            "gitgit-vault-e2e-{label}-{}-{nanos}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&root).expect("the object store root must be creatable");
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("a loopback port must be available");
+        let addr = listener
+            .local_addr()
+            .expect("the bound address must be readable");
+
+        let credentials = ObjectStoreCredentials::new(ACCESS_KEY, SECRET_KEY);
+        let state = ObjectStore::new(&root, credentials).expect("the object store must start");
+        state
+            .create_bucket(BUCKET)
+            .await
+            .expect("the bucket must be creatable");
+        state
+            .set_versioning(BUCKET, VersioningStatus::Enabled)
+            .await
+            .expect("versioning must be switchable on");
+
+        let app = crate::objectstore::router(state);
+        // The task lives as long as the test's runtime; dropping it stops
+        // the server with it.
+        let _handle = tokio::spawn(async move {
+            let _ = axum::serve(listener, app).await;
+        });
+
+        TestServer {
+            endpoint: format!("http://{addr}"),
+        }
+    }
+
+    /// A vault configuration pointed at a freshly started object store.
+    ///
+    /// The key prefix is unique per call, so two tests — or two runs of
+    /// the same test — never share an object key.
+    pub fn vault_config(server: &TestServer) -> crate::server::vault::S3VaultConfig {
+        crate::server::vault::S3VaultConfig {
+            endpoint: server.endpoint.clone(),
+            bucket: BUCKET.to_string(),
+            access_key: ACCESS_KEY.to_string(),
+            secret_key: SECRET_KEY.to_string(),
+            region: "us-east-1".to_string(),
+            key_prefix: format!("ut-{}/", uuid::Uuid::new_v4().simple()),
+        }
     }
 }
 
@@ -852,56 +973,58 @@ mod tests {
         );
     }
 
-    // ---- MinioVault tests (no network) ----------------------------------
+    // ---- S3Vault tests (no network) ----------------------------------
 
-    /// Build a `MinioVault` pointed at a deliberately-unreachable
+    /// Build a `S3Vault` pointed at a deliberately-unreachable
     /// endpoint. `connect` itself does no network I/O, so this should
     /// always succeed; the failure modes live in `get` / `set` etc.,
-    /// which need a real minIO and are tested via the `#[ignore]`d
-    /// integration test below.
-    fn offline_minio_config() -> MinioVaultConfig {
-        MinioVaultConfig {
+    /// which need a live server and are exercised by the in-process
+    /// end-to-end test below.
+    fn offline_s3_config() -> S3VaultConfig {
+        S3VaultConfig {
             // `127.0.0.1:1` is reserved (tcpmux) and never accepts
             // HTTP on developer machines, so any actual call would
             // fail fast. We only need the `connect` call to succeed.
             endpoint: "http://127.0.0.1:1".to_string(),
             bucket: "gitgit-vault".to_string(),
-            access_key: "minioadmin".to_string(),
-            secret_key: "minioadmin".to_string(),
+            access_key: "offline-access-key".to_string(),
+            secret_key: "offline-secret-key".to_string(),
             region: "us-east-1".to_string(),
             key_prefix: "gitgit-vault/".to_string(),
         }
     }
 
     #[test]
-    fn minio_vault_connect_succeeds_without_network() {
-        let cfg = offline_minio_config();
-        let v = MinioVault::connect(&cfg).expect("connect should not perform network I/O");
+    fn s3_vault_connect_succeeds_without_network() {
+        let cfg = offline_s3_config();
+        let v = S3Vault::connect(&cfg).expect("connect should not perform network I/O");
         assert_eq!(v.bucket_name(), "gitgit-vault");
         assert_eq!(v.key_prefix(), "gitgit-vault/");
     }
 
     #[test]
-    fn minio_vault_object_key_applies_prefix() {
-        let cfg = offline_minio_config();
-        let v = MinioVault::connect(&cfg).unwrap();
+    fn s3_vault_object_key_applies_prefix() {
+        let cfg = offline_s3_config();
+        let v = S3Vault::connect(&cfg).unwrap();
         assert_eq!(v.object_key("openai"), "gitgit-vault/openai");
     }
 
     #[test]
-    fn minio_vault_object_key_with_empty_prefix_is_passthrough() {
-        let mut cfg = offline_minio_config();
+    fn s3_vault_object_key_with_empty_prefix_is_passthrough() {
+        let mut cfg = offline_s3_config();
         cfg.key_prefix.clear();
-        let v = MinioVault::connect(&cfg).unwrap();
+        let v = S3Vault::connect(&cfg).unwrap();
         assert_eq!(v.object_key("openai"), "openai");
     }
 
-    /// Verbatim 404 body captured from minIO `RELEASE.2025-09-07T16-13-09Z`
-    /// on 2026-10-05 by `scripts/verify-minio-vault.ps1`.
+    /// Verbatim 404 body captured from a live S3-compatible server on
+    /// 2026-10-05 (the server this repository ran against before it
+    /// implemented its own; upstream release `2025-09-07T16-13-09Z`) by
+    /// the fixture verification script (`scripts/verify-s3-vault.ps1`).
     ///
     /// `rust-s3` 0.37.2 `get_object` returns `Ok` for this and puts the
     /// document in the body, so before `classify_s3_read` existed
-    /// `MinioVault::get` handed callers this XML as the credential.
+    /// `S3Vault::get` handed callers this XML as the credential.
     const REAL_NO_SUCH_KEY_BODY: &[u8] = b"<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<Error><Code>NoSuchKey</Code><Message>The specified key does not exist.</Message><Key>ut-890292cf2a2e4919b7369d92585789bf/definitely-not-there</Key><BucketName>gitgit-vault</BucketName><Resource>/gitgit-vault/ut-890292cf2a2e4919b7369d92585789bf/definitely-not-there</Resource><RequestId>18DB743F6C9EA474</RequestId><HostId>dd9025bab4ad464b049177c95eb6ebf374d3b3fd1af9251148b658df7ac2e3e8</HostId></Error>";
 
     #[test]
@@ -955,16 +1078,16 @@ mod tests {
     }
 
     #[test]
-    fn minio_vault_debug_does_not_leak_credentials() {
+    fn s3_vault_debug_does_not_leak_credentials() {
         // Use a *unique* sentinel string for the secret so we can be
         // sure the debug print doesn't contain it. Re-using a generic
-        // value like "minioadmin" would let a coincidental substring
-        // match (e.g. in the bucket name) silently pass.
-        let mut cfg = offline_minio_config();
+        // value would let a coincidental substring match (e.g. in the
+        // bucket name) silently pass.
+        let mut cfg = offline_s3_config();
         cfg.access_key = "AKIA-SENTINEL-ACCESS-KEY".to_string();
         cfg.secret_key = "SECRET-SENTINEL-DO-NOT-LEAK-VALUE".to_string();
         cfg.bucket = "gitgit-vault".to_string();
-        let v = MinioVault::connect(&cfg).unwrap();
+        let v = S3Vault::connect(&cfg).unwrap();
         let dbg = format!("{v:?}");
         assert!(
             !dbg.contains("SECRET-SENTINEL-DO-NOT-LEAK-VALUE"),
@@ -978,34 +1101,53 @@ mod tests {
         assert!(dbg.contains("gitgit-vault"));
     }
 
-    /// End-to-end test against a real `minIO` server. Skipped by default
-    /// because the T11 deployment task has not yet been run on this
-    /// machine. To exercise it:
+    /// `[FACT]` The configuration holds the secret key, so its `Debug` is
+    /// written by hand rather than derived. This test is the gate: a
+    /// future `#[derive(Debug)]` on the struct would print the secret in
+    /// the clear, and nothing else in the build would notice.
+    #[test]
+    fn s3_vault_config_debug_does_not_leak_the_credentials() {
+        // Use a *unique* sentinel string for the secret so we can be
+        // sure the debug print doesn't contain it. Re-using a generic
+        // value would let a coincidental substring match (e.g. in the
+        // bucket name) silently pass.
+        let mut cfg = offline_s3_config();
+        cfg.endpoint = "http://127.0.0.1:9000".to_string();
+        cfg.access_key = "AKIA-SENTINEL-ACCESS-KEY".to_string();
+        cfg.secret_key = "SECRET-SENTINEL-DO-NOT-LEAK-VALUE".to_string();
+        let dbg = format!("{cfg:?}");
+        assert!(
+            !dbg.contains("SECRET-SENTINEL-DO-NOT-LEAK-VALUE"),
+            "Debug output leaked the secret_key: {dbg}"
+        );
+        assert!(
+            !dbg.contains("AKIA-SENTINEL-ACCESS-KEY"),
+            "Debug output leaked the access_key: {dbg}"
+        );
+        // The redaction has to be visible: a secret that is merely
+        // omitted reads like a field that does not exist.
+        assert!(
+            dbg.contains("<redacted>"),
+            "the credentials must be shown as redacted: {dbg}"
+        );
+        // The settings that are not credentials are still printed: a
+        // debug print that hides everything is useless for diagnosing a
+        // misconfigured endpoint.
+        assert!(dbg.contains("gitgit-vault"), "{dbg}");
+        assert!(dbg.contains("127.0.0.1:9000"), "{dbg}");
+    }
+
+    /// End-to-end test against this repository's own object store.
     ///
-    /// ```text
-    /// docker run -d -p 9000:9000 -p 9001:9001 \
-    ///   -e MINIO_ROOT_USER=minioadmin \
-    ///   -e MINIO_ROOT_PASSWORD=minioadmin \
-    ///   quay.io/minio/minio server /data --console-address ":9001"
-    /// docker run --rm --network host minio/mc mb local/gitgit-vault
-    /// cargo test --bin gitgit -- --ignored minio_vault_e2e_roundtrip
-    /// ```
+    /// `[FACT]` The server is started in-process, on a port the operating
+    /// system picked, with a bucket that has versioning enabled. There is
+    /// nothing to install, nothing to start by hand and nothing to skip:
+    /// the test runs in an ordinary `cargo test` and in CI.
     #[tokio::test]
-    #[ignore = "requires a running minIO server (see comment in test)"]
-    async fn minio_vault_e2e_roundtrip() {
-        let cfg = MinioVaultConfig {
-            endpoint: std::env::var("GITGIT_MINIO_ENDPOINT")
-                .unwrap_or_else(|_| "http://127.0.0.1:9000".to_string()),
-            bucket: std::env::var("GITGIT_MINIO_BUCKET")
-                .unwrap_or_else(|_| "gitgit-vault".to_string()),
-            access_key: std::env::var("GITGIT_MINIO_ACCESS_KEY")
-                .unwrap_or_else(|_| "minioadmin".to_string()),
-            secret_key: std::env::var("GITGIT_MINIO_SECRET_KEY")
-                .unwrap_or_else(|_| "minioadmin".to_string()),
-            region: "us-east-1".to_string(),
-            key_prefix: format!("ut-{}/", uuid::Uuid::new_v4().simple()),
-        };
-        let v = MinioVault::connect(&cfg).expect("connect");
+    async fn s3_vault_e2e_roundtrip() {
+        let server = crate::server::vault::test_support::start_object_store("roundtrip").await;
+        let cfg = crate::server::vault::test_support::vault_config(&server);
+        let v = S3Vault::connect(&cfg).expect("connect");
 
         // 1. set + get roundtrip
         v.set("openai", "sk-ut-secret").await.expect("set");
