@@ -55,7 +55,9 @@
     "publisher": "Ulysses",
     "homepage": "https://github.com/UlyssesLeoLee/GitGit",
     "licenseFile": "../../../LICENSE",
-    "resources": [],
+    "resources": {
+      "../../../CORRESPONDING-SOURCE.md": "CORRESPONDING-SOURCE.md"
+    },
     "windows": {
       "wix": {
         "language": ["en-US", "zh-CN"],
