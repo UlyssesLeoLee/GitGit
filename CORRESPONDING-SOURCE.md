@@ -1,9 +1,9 @@
 # Corresponding Source
 
-This notice accompanies the object code of **gitgit Desktop** in the `.deb` and
-the `.AppImage`. It is committed to the repository and shipped inside those
-two installers, so it travels with the object code instead of being generated
-at build time and drifting away from it.
+This notice accompanies the object code of **gitgit Desktop** in the `.deb`,
+the `.AppImage`, the `.msi` and the `.dmg`. It is committed to the repository
+and shipped inside those installers, so it travels with the object code
+instead of being generated at build time and drifting away from it.
 
 ## The licence
 
@@ -14,6 +14,8 @@ notice:
 
 - the `.deb`: `usr/share/doc/gitgit-desktop/copyright`
 - the `.AppImage`: `usr/share/doc/gitgit-desktop/LICENSE`
+- the `.msi`: `LICENSE.rtf`, next to the installed executable
+- the `.dmg`: a UDIF EULA resource, presented when the image is mounted
 
 The same text is the `LICENSE` file at the root of the source repository.
 
@@ -37,10 +39,10 @@ Corresponding Source from any of the addresses above.
 
 ## What this notice does not cover
 
-- The `.msi` installer ships the licence as `LICENSE.rtf` next to the
-  installed executable, but it does not ship this file. The WiX template this
-  repository builds has one slot for a text file and that slot carries the
-  licence; see `docs/plan/v0-tasks.md` for the recorded reason.
-- The `.dmg` carries the licence as a UDIF EULA resource that is presented
-  when the disk image is mounted. There is no file inside the image to attach
-  this notice to, and no configuration key that puts one there.
+- The **per-user** `.msi` does not ship this file. The Tauri bundler renders
+  every `bundle.resources` entry as a component whose KeyPath is a *file*, and
+  ICE38 rejects a component that installs into the user profile whose
+  KeyPath is a file — so the per-user WiX template leaves the resources out
+  entirely, and the notice with them. The per-machine `.msi` does carry it.
+  `docs/plan/v0-tasks.md` records the measured failure this rests on, and
+  `docs/plan/agpl-corresponding-source-msi-dmg.md` has the detail.
