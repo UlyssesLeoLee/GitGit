@@ -138,8 +138,12 @@ $psi = [System.Diagnostics.ProcessStartInfo]::new()
 $psi.FileName               = $binary
 $psi.WorkingDirectory       = $repoRoot
 $psi.UseShellExecute        = $false
-$psi.RedirectStandardOutput = $true
-$psi.RedirectStandardError  = $true
+# [FACT] The child's output is NOT redirected: it inherits this console.
+# A redirected stream that nobody reads is a pipe with a finite buffer in
+# it, and a server that writes more than the buffer holds blocks on the
+# write — the fixture would hang with the server stuck. Letting the server
+# write to the same console also means an operator sees WHY it died
+# instead of a silent exit.
 [void]$psi.ArgumentList.Add('--root')
 [void]$psi.ArgumentList.Add($Root)
 [void]$psi.ArgumentList.Add('--bind')
@@ -157,24 +161,29 @@ if (-not $proc) {
 }
 
 # ── Wait until it answers ───────────────────────────────────────────────────
-$host = $null
+# [FACT] The variable is not called `$host`: PowerShell's `$Host` is a
+# read-only automatic variable, and assigning to it throws — which, under
+# `$ErrorActionPreference = 'Stop'`, would abort this script before the
+# readiness probe and before the foreground wait, leaving the child
+# process running. The name is deliberately not a near-miss.
+$bindAddress = $null
 $port = $null
 try {
     $parsed = [System.Net.IPEndPoint]::Parse($Bind)
-    $host = $parsed.Address
+    $bindAddress = $parsed.Address
     $port = $parsed.Port
 } catch {
     Write-Warn "could not parse the bind address '$Bind'; skipping the readiness probe"
 }
 
-if ($host) {
+if ($bindAddress) {
     $ready = $false
     for ($i = 0; $i -lt 60; $i++) {
         Start-Sleep -Milliseconds 250
         if ($proc.HasExited) { break }
         try {
             $client = [System.Net.Sockets.TcpClient]::new()
-            $client.Connect($host, $port)
+            $client.Connect($bindAddress, $port)
             $client.Dispose()
             $ready = $true
             break
