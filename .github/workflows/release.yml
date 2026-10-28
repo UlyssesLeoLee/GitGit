@@ -1128,11 +1128,15 @@ jobs:
             - **Next to the object code:** the `.deb` and the `.AppImage`
               carry this notice in the same directory as the installed
               licence
-              (`usr/share/doc/gitgit-desktop/CORRESPONDING-SOURCE.md`).
+              (`usr/share/doc/gitgit-desktop/CORRESPONDING-SOURCE.md`); the
+              per-machine `.msi` carries it next to the installed program,
+              and the `.dmg` carries it inside the application bundle.
             - **The `.msi` and the `.dmg`:** both carry the AGPL-3.0 licence -
               the `.msi` as `LICENSE.rtf` next to the installed program, the
               `.dmg` as a licence agreement presented when the disk image is
-              mounted. Neither carries the notice file.
+              mounted. The notice file travels with the per-machine `.msi`
+              and with the `.dmg`; the per-user `.msi` does not carry it,
+              and `docs/plan/v0-tasks.md` records why.
 
             This release was created by `release.yml` and left as a draft on
             purpose. Publishing it is a human decision.

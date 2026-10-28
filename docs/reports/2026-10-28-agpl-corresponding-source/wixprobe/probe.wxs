@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Minimal reproduction of the per-user MSI structure this repository builds.
+
+  Component "Path"   : the executable's component, with an HKCU registry value
+                       as its KeyPath (the ICE38 adaptation the repository's
+                       render-wix-template.py already applies).
+  Component "Res"    : the shape the Tauri bundler renders for every entry of
+                       `bundle.resources` -
+                       <Component Id=".." Guid=".." Win64="$(var.Win64)" KeyPath="yes">
+                         <File Id="PathFile_.." Source=".." {name_attribute}/>
+                       </Component>
+                       i.e. a FILE as the keypath.
+-->
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+    <Product Id="*" Name="probe" Language="1033" Manufacturer="m" Version="1.0.0">
+        <Package Id="*" Keywords="Installer" InstallerVersion="450" Languages="0" Compressed="yes" InstallScope="perUser" SummaryCodepage="1252"/>
+        <Property Id="MSIINSTALLPERUSER" Value="1" />
+        <Media Id="1" Cabinet="probe.cab" EmbedCab="yes" />
+        <Directory Id="TARGETDIR" Name="SourceDir">
+            <Directory Id="LocalAppDataFolder" Name="LocalAppDataFolder">
+                <Directory Id="ProgramsFolder" Name="Programs">
+                    <Directory Id="INSTALLDIR" Name="probe"/>
+                </Directory>
+            </Directory>
+        </Directory>
+        <DirectoryRef Id="INSTALLDIR">
+            <Component Id="Path" Guid="11111111-1111-1111-1111-111111111111" Win64="yes">
+                <RegistryValue Root="HKCU" Key="Software\m\probe" Name="Path" Type="string" Value="[INSTALLDIR]" KeyPath="yes" />
+                <File Id="Path" Source="probe.exe" Checksum="yes"/>
+            </Component>
+            <Component Id="Res" Guid="22222222-2222-2222-2222-222222222222" Win64="yes" KeyPath="yes">
+                <File Id="PathFile_Res" Source="notice.md" Name="CORRESPONDING-SOURCE.md"/>
+            </Component>
+        </DirectoryRef>
+        <Feature Id="MainProgram" Title="Application" Level="1" ConfigurableDirectory="INSTALLDIR" AllowAdvertise="no" Display="expand" Absent="disallow">
+            <ComponentRef Id="Path"/>
+            <ComponentRef Id="Res"/>
+        </Feature>
+    </Product>
+</Wix>

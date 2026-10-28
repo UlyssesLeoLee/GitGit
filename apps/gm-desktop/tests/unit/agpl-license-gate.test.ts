@@ -214,22 +214,106 @@ describe('the bundle is configured to carry the licence', () => {
     ).toBe(true);
   });
 
-  it('keeps bundle.resources empty, because a custom WiX template cannot carry it', () => {
-    // Run 37644440611: a non-empty `bundle.resources` failed the MSI build inside
-    // `WixTools314/light.exe`. The upstream bundler renders each resource as
-    // `<Component ... KeyPath="yes"><File .../></Component>`, and the combination
-    // that produced is what WiX rejected - `{{resources}}` is present in this
-    // repository's template, so the failure was in the generated XML, not in a
-    // missing template slot.
+  it('carries the Corresponding Source notice in bundle.resources, and keeps it out of the per-user MSI', () => {
+    // [FACT] `bundle.resources` is the one mechanism that reaches the
+    // per-MACHINE MSI (the template renders it as `{{resources}}`) AND the
+    // .dmg (the macOS bundler copies it into `<app>.app/Contents/Resources`).
     //
-    // `expect(resources).toBeTruthy()` would NOT catch that: `[]` is truthy in
-    // JavaScript. Emptiness is the requirement here, so emptiness is what gets
-    // asserted.
+    // [FACT] It must NOT reach the per-user MSI, and the reason is measured
+    // rather than inferred. The upstream bundler renders every entry as
+    // `<Component ... KeyPath="yes"><File .../></Component>` - a FILE as the
+    // keypath - and ICE38 requires a component that installs into the user
+    // profile to use an HKCU registry value as its KeyPath. With the
+    // resources placeholder present, `light.exe` fails with
+    // `LGHT0204 : ICE38: Component Res installs to user profile. It must use
+    // a registry key under HKCU as its KeyPath, not a file.` and exits 204.
+    //
+    // [FACT] The per-MACHINE build is unaffected: in run 37644440611 the
+    // per-machine build with a non-empty `bundle.resources` SUCCEEDED - it
+    // produced a 7.54 MiB MSI - and only the per-user build failed. The old
+    // claim that "a non-empty bundle.resources breaks the MSI build" was
+    // true of ONE of the two variants and false of the other.
+    //
+    // [FACT] The map is SOURCE -> TARGET, the other way round from
+    // `bundle.linux.deb.files` (which is DESTINATION -> SOURCE). The
+    // direction was read out of `tauri-utils`' `ResourcePaths::from_map`,
+    // where the key is the pattern and the value is the destination.
+    const resources = conf.bundle?.resources;
     expect(
-      conf.bundle?.resources,
-      'bundle.resources is where the licence used to be routed. It must stay empty: a ' +
-        'non-empty list breaks the MSI build (run 37644440611). Use deb.files instead.'
-    ).toEqual([]);
+      resources,
+      'bundle.resources is the mechanism that reaches the per-machine MSI and the .dmg. ' +
+        'It must carry the Corresponding Source notice.'
+    ).toBeTruthy();
+    expect(
+      typeof resources,
+      'bundle.resources must be the MAP form (source -> target), not the list form'
+    ).toBe('object');
+    expect(
+      Array.isArray(resources),
+      'bundle.resources must be the MAP form (source -> target), not the list form'
+    ).toBe(false);
+
+    const entries = Object.entries(resources as Record<string, string>);
+    expect(entries.length, 'bundle.resources is empty, so no artifact carries the notice').toBeGreaterThan(0);
+
+    // [FACT] The source has to BE the repository's notice, byte for byte, so
+    // a decoy cannot be passed off as it.
+    const noticeBytes = readFileSync(join(REPO_ROOT, 'CORRESPONDING-SOURCE.md'));
+    let found = false;
+    for (const [source, target] of entries) {
+      // [FACT] Every target is a plain file name, so the notice lands in the
+      // bundle's resource root - next to the object code in the MSI, and in
+      // `Contents/Resources` in the .app. A target with a directory in it
+      // would put the notice somewhere nobody looks.
+      expect(
+        /[\\/]/.test(target),
+        `the bundle.resources target '${target}' has a directory in it; the notice has to ` +
+          'land in the resource root, next to the object code'
+      ).toBe(false);
+
+      // [FACT] The source path is resolved against the Tauri project
+      // directory, which is where the CLI puts the process before it
+      // bundles (`tauri-cli`'s `build.rs` does `set_current_dir(dirs.tauri)`).
+      const abs = resolve(dirname(CONF), source);
+      if (!existsSync(abs)) continue;
+      expect(
+        readFileSync(abs),
+        `the file bundle.resources maps to the notice destination is not the repository's ` +
+          'CORRESPONDING-SOURCE.md'
+      ).toEqual(noticeBytes);
+      found = true;
+    }
+    expect(
+      found,
+      'no entry of bundle.resources resolves to the repository\'s CORRESPONDING-SOURCE.md'
+    ).toBe(true);
+
+    // [FACT] The per-MACHINE template consumes the resources; the per-USER
+    // one must not, because of ICE38. This is the invariant that protects
+    // the per-user build, so it is asserted on BOTH templates rather than on
+    // the config alone.
+    const wixDir = join(dirname(CONF), 'wix');
+    const perMachine = readFileSync(join(wixDir, 'main.wxs'), 'utf8');
+    const perUser = readFileSync(join(wixDir, 'main-peruser.wxs'), 'utf8');
+    expect(
+      perMachine.includes('{{resources}}'),
+      'the per-machine WiX template must render the resources, or the per-machine MSI ' +
+        'carries no notice'
+    ).toBe(true);
+    expect(
+      perMachine.includes('resource_file_ids'),
+      'the per-machine WiX template must reference the resource components, or light.exe ' +
+        'rejects a ComponentRef to a component that does not exist'
+    ).toBe(true);
+    expect(
+      perUser.includes('{{resources}}'),
+      'the per-user WiX template must NOT render the resources: ICE38 rejects a component ' +
+        'in the user profile whose KeyPath is a file (LGHT0204, light exits 204)'
+    ).toBe(false);
+    expect(
+      perUser.includes('resource_file_ids'),
+      'the per-user WiX template must NOT reference resource components: there are none'
+    ).toBe(false);
   });
 
   it('keeps bundle.licenseFile resolvable without counting on it', () => {
@@ -623,8 +707,17 @@ describe('the dmg reports what the mounted image carries', () => {
     const dmg = caseBranch(bundleCode, 'dmg');
     const start = dmg.indexOf('DMG_LICENCE=$(find_product_licence');
     expect(start, 'the dmg branch does not use the content-based licence helper').toBeGreaterThan(-1);
-    // The licence block runs to the end of the branch.
-    const licenceBlock = dmg.slice(start);
+    // The licence diagnostic ends where the Corresponding Source notice
+    // block begins. The two are different questions: the LICENCE reaches a
+    // .dmg as a UDIF EULA resource, so whether it leaves a copy inside the
+    // image is not observable as a file and stays a diagnostic; the NOTICE
+    // is an ordinary file in the image and IS asserted.
+    //
+    // [FACT] Slicing to the end of the branch instead would swallow the
+    // notice assertion and turn this case into a ban on the whole branch.
+    const end = dmg.indexOf('DMG_NOTICE=$(find_corresponding_source_notice', start);
+    expect(end, 'the dmg branch does not look for the Corresponding Source notice').toBeGreaterThan(start);
+    const licenceBlock = dmg.slice(start, end);
     // Unlike the AppImage, the dmg keeps a diagnostic: the licence IS
     // delivered (create-dmg embeds it as a UDIF EULA resource), but where it
     // leaves it is not something this script can observe as a file, and an

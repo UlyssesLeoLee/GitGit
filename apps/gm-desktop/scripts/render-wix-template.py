@@ -211,6 +211,32 @@ EDITS = [
         '            <ComponentRef Id="RegistryEntries"/>\n'
         '            <ComponentRef Id="CMP_ProgramsFolderCleanup" />\n',
     ),
+    (
+        "ICE38: the per-user MSI carries no bundle.resources component",
+        '            {{resources}}\n',
+        "            <!-- [FACT] The per-user package carries NO bundle.resources\n"
+        "                 component, and that is deliberate. [FACT] The Tauri bundler\n"
+        "                 renders every entry of bundle.resources as a component whose\n"
+        "                 KeyPath is a FILE (Component KeyPath=\"yes\" around a File\n"
+        "                 child), and ICE38 requires a component that installs into the\n"
+        "                 user profile to use an HKCU registry value as its KeyPath.\n"
+        "                 [FACT] Measured, not inferred: with the resources\n"
+        "                 placeholder present, light.exe fails with LGHT0204 (ICE38)\n"
+        "                 and exits 204. [FACT] The per-MACHINE template keeps the\n"
+        "                 placeholder and the notice reaches the per-machine MSI; this\n"
+        "                 variant therefore does not carry it, and that residual gap\n"
+        "                 is recorded in docs/plan/v0-tasks.md. -->\n",
+    ),
+    (
+        "ICE38: and no ComponentRef for a resource that is not there",
+        '            {{#each resource_file_ids as |resource_file_id| ~}}\n'
+        '                <ComponentRef Id="{{ resource_file_id }}"/>\n'
+        '            {{/each~}}\n',
+        "            <!-- [FACT] No resource ComponentRefs either: the components they\n"
+        "                 would point at are not in this template, and a ComponentRef\n"
+        "                 to a component that does not exist is what light.exe\n"
+        "                 rejects. -->\n",
+    ),
 ]
 
 

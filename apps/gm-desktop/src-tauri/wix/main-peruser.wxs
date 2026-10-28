@@ -250,7 +250,18 @@
                 <File Id="UpdateTaskUninstaller" Source="uninstall-task.ps1" KeyPath="yes" Checksum="yes"/>
             </Component>
             {{/if}}
-            {{resources}}
+            <!-- [FACT] The per-user package carries NO bundle.resources
+                 component, and that is deliberate. [FACT] The Tauri bundler
+                 renders every entry of bundle.resources as a component whose
+                 KeyPath is a FILE (Component KeyPath="yes" around a File
+                 child), and ICE38 requires a component that installs into the
+                 user profile to use an HKCU registry value as its KeyPath.
+                 [FACT] Measured, not inferred: with the resources
+                 placeholder present, light.exe fails with LGHT0204 (ICE38)
+                 and exits 204. [FACT] The per-MACHINE template keeps the
+                 placeholder and the notice reaches the per-machine MSI; this
+                 variant therefore does not carry it, and that residual gap
+                 is recorded in docs/plan/v0-tasks.md. -->
             <Component Id="CMP_UninstallShortcut" Guid="*">
 
                 <Shortcut Id="UninstallShortcut"
@@ -325,9 +336,10 @@
             <ComponentRef Id="RegistryEntries"/>
             <ComponentRef Id="CMP_ProgramsFolderCleanup" />
 
-            {{#each resource_file_ids as |resource_file_id| ~}}
-                <ComponentRef Id="{{ resource_file_id }}"/>
-            {{/each~}}
+            <!-- [FACT] No resource ComponentRefs either: the components they
+                 would point at are not in this template, and a ComponentRef
+                 to a component that does not exist is what light.exe
+                 rejects. -->
 
             {{#if enable_elevated_update_task}}
                 <ComponentRef Id="UpdateTask" />

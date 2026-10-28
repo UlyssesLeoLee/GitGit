@@ -422,21 +422,29 @@ describe('the bundle verifier decides on the notice by content, not by name', ()
     ).toMatch(/die "\$\{ARTIFACT_NAME\} ships no Corresponding Source notice/);
   });
 
-  it('the dmg branch only reports the notice, because it has no file slot', () => {
+  it('the dmg branch asserts the notice is there, because the image has a file slot', () => {
     const dmg = caseBranch(bundleCode, 'dmg');
     expect(dmg, 'the dmg branch does not report the notice at all').toContain(
       'DMG_NOTICE=$(find_corresponding_source_notice "$MOUNT_DIR" "$CS_SOURCE_PLACE" || true)'
     );
-    // [FACT] The licence reaches a .dmg as a UDIF EULA resource, not as a
-    // file, so there is nothing in the image to carry a notice and nothing in
-    // the configuration that could put one there. An assertion that could
-    // never pass is a gate that gets switched off, so this one reports.
+    // [FACT] This branch used to REPORT the notice instead of asserting it,
+    // on the grounds that "the licence reaches a .dmg as a UDIF EULA
+    // resource, not as a file, so there is nothing in the image to carry a
+    // notice and nothing in the configuration that could put one there".
+    // That was FALSE: `bundle.resources` IS read by the macOS bundler, which
+    // copies it into `<app>.app/Contents/Resources` (the bundler's
+    // `copy_resources`). The licence being a UDIF resource says nothing
+    // about the notice, which is an ordinary file.
+    //
+    // [FACT] So the branch asserts now, the way the .deb and the .AppImage
+    // assert. An assertion that could never pass is a gate that gets
+    // switched off; this one can pass, and now it has to.
     const start = dmg.indexOf('DMG_NOTICE=$(find_corresponding_source_notice');
     expect(start, 'the dmg branch does not look for the notice').toBeGreaterThan(-1);
     expect(
       dmg.slice(start),
-      'the dmg notice block calls die; it must stay a diagnostic'
-    ).not.toMatch(/\bdie\b/);
+      'the dmg branch finds the notice but does not fail when it is missing'
+    ).toMatch(/die "\$\{ARTIFACT_NAME\} ships no Corresponding Source notice/);
   });
 
   it('the notice check runs on the bytes that were really packaged', () => {
