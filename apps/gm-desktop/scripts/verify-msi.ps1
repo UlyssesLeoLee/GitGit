@@ -467,12 +467,11 @@ foreach ($f in $files) {
     # `docs/plan/v0-tasks.md`; it is not a claim that the variant complies.
     if ($scope -eq 'perMachine') {
         if ($null -eq $admin.Notice) {
-            $extracted = ($files | ForEach-Object { $_.FullName.Substring($target.Length).TrimStart('\', '/') }) -join ', '
             throw ("$($f.Name) ships no Corresponding Source notice next to the object code. " +
                    "AGPL-3.0 section 6(d) requires the object code to carry written directions " +
                    "saying where to find the Corresponding Source. The mechanism is " +
                    "bundle.resources, which the MSI bundler renders as a resource component. " +
-                   "Extracted: $extracted")
+                   "Extracted: $($admin.FileCount) file(s), none of them a notice.")
         }
         Write-Ok "corresponding source notice: $($admin.NoticeRelPath) = $($admin.NoticeBytes) B"
     } else {
