@@ -18,6 +18,7 @@
   import { repos, refreshRepos } from '$lib/stores/repos';
   import { refreshVault } from '$lib/stores/vault';
   import { friendlyError } from '$lib/utils/errors';
+  import { reportUiBoot } from '$lib/api/tauri';
   import { t } from '$lib/i18n';
   import Home from './routes/Home.svelte';
   import Repos from './routes/Repos.svelte';
@@ -60,6 +61,20 @@
         refreshRepos(),
         refreshVault(),
       ]);
+      // The webview reached the end of its mount, so the Svelte app is
+      // up. The Rust side writes one line to the application's log saying
+      // so, and the packaged-app verification greps for that line: it is
+      // the evidence that the installed application's window shows the
+      // product rather than a blank page.
+      //
+      // A failure here must NOT break the boot. The window is already
+      // working by this point; a marker that could not be written is a
+      // missing diagnostic, not a broken application.
+      try {
+        await reportUiBoot();
+      } catch (err) {
+        console.warn('could not report the UI boot marker', err);
+      }
       booted = true;
     } catch (err) {
       // `[FACT]` Was `err instanceof Error ? err.message : String(err)`,

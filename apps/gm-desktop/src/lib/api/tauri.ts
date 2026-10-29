@@ -137,6 +137,22 @@ export async function appInfo(): Promise<AppInfo> {
   return await tauriInvoke('app_info');
 }
 
+/**
+ * Report that the webview's JavaScript ran and the Svelte app mounted.
+ *
+ * The Rust side answers by writing ONE line to the application's own log
+ * file. That line is what the packaged-app verification greps for: it is
+ * the evidence that the window the installer produced is showing the
+ * product and not a blank page, because a blank page never reaches the
+ * end of the root component's `onMount`.
+ *
+ * A failure here is deliberately NOT fatal to the boot: a window that is
+ * working must not be broken by a marker that could not be written.
+ */
+export async function reportUiBoot(): Promise<void> {
+  await tauriInvoke('report_ui_boot');
+}
+
 export async function vaultDiagnostics(): Promise<VaultDiagnostic> {
   return await tauriInvoke('vault_diagnostics');
 }

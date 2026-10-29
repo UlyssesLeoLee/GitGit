@@ -10,4 +10,5 @@ pub mod graph;
 pub mod repos;
 pub mod server;
 pub mod system;
+pub mod uiboot;
 pub mod vault;
