@@ -50,6 +50,26 @@
     command call from the webview => the webview's JavaScript ran => the
     Svelte application mounted => the window is showing the product.
 
+    The line carries a ONE-SHOT TOKEN that this script mints before it
+    starts the application and hands over through the environment. The
+    application's log file lives in the user's profile and survives a
+    launch, so a marker written by an EARLIER run can be sitting in it; a
+    check that greps for a constant marker can therefore be satisfied by
+    history, and would pass without this launch having booted anything.
+    Only the process that was given THIS launch's token can write a line
+    that matches THIS launch, so the search covers the whole log file
+    without having to know where in it the evidence sits. That matters
+    because `tauri-plugin-log` rotates its file by DELETING it and
+    creating a new one: a rule of the shape "only the bytes written after
+    the launch started" points past the end of the new file and reports a
+    healthy launch as a failure.
+
+    The decision — minting the token, and deciding whether a log file
+    carries this launch's marker — lives in `msi-launch-log.ps1`, next to
+    this file. It has no side effects, so `test-msi-launch-log.ps1` can
+    exercise it with synthetic log files, and the always-running `gate`
+    workflow runs that test on every pull request.
+
     It does NOT assert that the rendered UI is correct - that the routes
     show the right data, that the stylesheet loaded, that nothing is
     visually broken. It proves the application BOOTED, which is the step
@@ -102,29 +122,17 @@ function Write-Step { param([string]$M) Write-Host "==> $M" -ForegroundColor Cya
 function Write-Ok   { param([string]$M) Write-Host "    ok  $M" -ForegroundColor Green }
 function Write-Note { param([string]$M) Write-Host "    --  $M" -ForegroundColor DarkGray }
 
-# Does the log file carry the marker AFTER the given offset?
-#
-# [FACT] The file is opened with FileShare.ReadWrite, because the running
-# application holds it open for append and a reader that demands exclusive
-# access would fail on exactly the file it is looking for.
-function Test-MarkerInLog {
-    param([string]$Path, [long]$Offset, [string]$Marker)
-    $stream = $null
-    $reader = $null
-    try {
-        $stream = [System.IO.File]::Open($Path, [System.IO.FileMode]::Open,
-            [System.IO.FileAccess]::Read, [System.IO.FileShare]::ReadWrite)
-        if ($stream.Length -le $Offset) { return $false }
-        [void]$stream.Seek($Offset, [System.IO.SeekOrigin]::Begin)
-        $reader = [System.IO.StreamReader]::new($stream)
-        return $reader.ReadToEnd().Contains($Marker)
-    } catch {
-        return $false
-    } finally {
-        if ($null -ne $reader) { $reader.Dispose() }
-        elseif ($null -ne $stream) { $stream.Dispose() }
-    }
+# The decision half of this proof — the one-shot token and the search for
+# the marker that carries it — lives in `msi-launch-log.ps1`, which has no
+# side effects and can therefore be tested without a packaged MSI and a
+# Windows desktop. `test-msi-launch-log.ps1` does exactly that, and the
+# always-running `gate` workflow runs it on every pull request.
+$launchLogHelper = Join-Path $PSScriptRoot 'msi-launch-log.ps1'
+if (-not (Test-Path -LiteralPath $launchLogHelper)) {
+    Write-Error "LAUNCH PROOF FAILED: the launch-proof helper '$launchLogHelper' is not there"
+    exit 2
 }
+. $launchLogHelper
 
 if (-not (Test-Path -LiteralPath $Msi)) {
     Write-Error "LAUNCH PROOF FAILED: the package '$Msi' is not there"
@@ -236,20 +244,30 @@ try {
     $exe = $found[0].FullName
     Write-Ok "installed executable: $exe ($($found[0].Length) B)"
 
-    # --- the log state BEFORE the launch ------------------------------------
+    # --- the log directory, and this launch's one-shot token ----------------
     # [FACT] The application's log file lives in the user's profile and
     # SURVIVES a launch, so a marker written by an EARLIER run can be
-    # sitting in it. Searching the whole file would therefore accept a
-    # previous run's evidence, and the gate would pass without this launch
-    # having booted anything. The length of every log file is recorded
-    # here, before the launch, and only the bytes after it are searched.
+    # sitting in it. A check that greps for a constant marker can therefore
+    # be satisfied by history: it would pass without this launch having
+    # booted anything.
+    #
+    # [FACT] The fix is a token, not an offset. The launcher mints one per
+    # launch and hands it to the application through the environment; only
+    # the process that was given THIS token can write a line that matches
+    # THIS launch. The search can then cover the whole log file without
+    # caring where in it the evidence is — which matters because
+    # `tauri-plugin-log` rotates its file by DELETING it and creating a new
+    # one, so a recorded "length before the launch" points past the end of
+    # the new file and a healthy launch would be reported as a failure.
     $logDir = Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) (Join-Path $AppIdentifier 'logs')
-    $logOffsets = @{}
-    foreach ($existing in @(Get-ChildItem -LiteralPath $logDir -Filter '*.log' -File -ErrorAction SilentlyContinue)) {
-        $logOffsets[$existing.FullName] = $existing.Length
-    }
+    $bootNonce = New-BootNonce
+    $env:GITGIT_UI_BOOT_NONCE = $bootNonce
+    $UiBootMarkerText = Get-BootMarkerText -Marker $UiBootMarker -Nonce $bootNonce
+    Write-Host "    webview-boot marker: $UiBootMarkerText"
 
     # --- launch it -------------------------------------------------------
+    # [FACT] A child process inherits the environment it was started with,
+    # so the token set above reaches the application.
     $proc = Start-Process -FilePath $exe -PassThru
     Write-Step "started '$exe' (pid $($proc.Id)); waiting for a window"
 
@@ -299,28 +317,24 @@ try {
     # webview's JavaScript ran and the Svelte application mounted.
     Write-Step "waiting for the webview-boot marker in the application's log"
     $markerSeen = $false
+    $markerFile = $null
     $markerDeadline = (Get-Date).AddSeconds($MarkerTimeoutSeconds)
     while ((Get-Date) -lt $markerDeadline) {
-        $logs = @(Get-ChildItem -LiteralPath $logDir -Filter '*.log' -File -ErrorAction SilentlyContinue)
-        foreach ($log in $logs) {
-            $offset = if ($logOffsets.ContainsKey($log.FullName)) { $logOffsets[$log.FullName] } else { 0 }
-            if (Test-MarkerInLog -Path $log.FullName -Offset $offset -Marker $UiBootMarker) {
-                Write-Ok "the webview reported that the UI booted: '$UiBootMarker' in $($log.Name)"
-                $markerSeen = $true
-                break
-            }
-        }
-        if ($markerSeen) { break }
+        $markerFile = Find-BootMarkerInLogs -LogDir $logDir -MarkerText $UiBootMarkerText
+        if ($null -ne $markerFile) { $markerSeen = $true; break }
         if ($proc.HasExited) { break }
         Start-Sleep -Milliseconds 500
     }
     if (-not $markerSeen) {
         Write-Error ("LAUNCH PROOF FAILED: the application started and presented a window, but the " +
-                     "webview never reported that the UI booted - no '$UiBootMarker' line appeared in " +
+                     "webview never reported that the UI booted - no '$UiBootMarkerText' line appeared in " +
                      "the application's log directory '$logDir'. A window that renders nothing still " +
-                     "has a window handle, so this is the check that tells the two apart.")
+                     "has a window handle, so this is the check that tells the two apart. " +
+                     "(If the application was started WITHOUT this run's token, it writes the bare " +
+                     "marker instead, and that is deliberately not accepted.)")
         exit 1
     }
+    Write-Ok "the webview reported that the UI booted: '$(Split-Path -Leaf $markerFile)'"
 
     # --- and it did not start a second copy ------------------------------
     $copies = @(Get-Process -Name ([System.IO.Path]::GetFileNameWithoutExtension($exeFile)) -ErrorAction SilentlyContinue)

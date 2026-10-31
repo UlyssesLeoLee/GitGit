@@ -26,6 +26,33 @@
 //!   => the window shows the product's UI, not a blank page
 //! ```
 //!
+//! # The one-shot token, and why the line carries one
+//!
+//! `[FACT]` The application's log file lives in the user's profile and
+//! SURVIVES a launch. A marker written by an EARLIER run can therefore be
+//! sitting in it, and a check that greps for a constant marker can be
+//! satisfied by history — it would pass without this launch having booted
+//! anything.
+//!
+//! `[FACT]` The first implementation made the search POSITIONAL: the log
+//! file's length was recorded before the launch and only the bytes after
+//! it were searched. That has a hole that only opens in the field.
+//! `tauri-plugin-log` rotates its file at `max_file_size` — 1 MiB in this
+//! application — by DELETING the file and creating a fresh one, and it
+//! does that at start-up when the existing file is already at the limit.
+//! The recorded length then points past the end of the new, nearly empty
+//! file, the marker is never searched for, and a healthy launch is
+//! reported as a failure.
+//!
+//! `[INFERENCE]` So the line carries a token instead: the launcher mints
+//! one per launch and hands it to the application through the
+//! environment ([`UI_BOOT_NONCE_ENV`]). Only the process that was given
+//! THIS token can write a line that matches THIS launch, so the search
+//! can cover the whole file without caring where in it the evidence is —
+//! and a rotated file, a truncated file and a file full of yesterday's
+//! lines are all handled by the same rule: they cannot contain this
+//! launch's token.
+//!
 //! # Where the line goes, and why
 //!
 //! `[FACT]` The application's log file is written by `tauri-plugin-log`,
@@ -84,6 +111,24 @@ use crate::error::AppResult;
 /// ```
 pub const UI_BOOT_MARKER: &str = "GITGIT_UI_BOOT_MARKER_V1";
 
+/// The environment variable that carries this launch's one-shot token.
+///
+/// `[FACT]` The launcher (`scripts/verify-msi-launch.ps1`) puts a fresh
+/// token in this variable before it starts the application, and a child
+/// process inherits the environment it was started with. The application
+/// reads it once, when the marker is written.
+///
+/// `[INFERENCE]` The token is what makes the marker's LINE different from
+/// every earlier launch's line, and that is what lets the verification
+/// script search the WHOLE log file without caring where in it the
+/// evidence lives. A positional rule ("only the bytes written after the
+/// launch started") cannot make that promise: `tauri-plugin-log` rotates
+/// its file by deleting it and creating a new one, so a recorded offset
+/// points past the end of the new file and a healthy launch reads as a
+/// failure. A token has no such hole — a marker from an earlier run
+/// simply does not match.
+pub const UI_BOOT_NONCE_ENV: &str = "GITGIT_UI_BOOT_NONCE";
+
 /// Report that the webview's JavaScript ran and the Svelte app mounted.
 ///
 /// Called exactly once by the frontend, at the end of `App.svelte`'s
@@ -122,8 +167,27 @@ pub fn report_ui_boot() -> AppResult<()> {
 /// `[FACT]` `log::info!` (not `tracing::info!`) because of the sink
 /// analysis in the module header: the plugin's log file is fed by the
 /// `log` crate, and this crate's `tracing` events do not reach it.
+///
+/// `[FACT]` The token is read from the environment. When there is none —
+/// the application was started by a human rather than by the launch
+/// proof — the bare marker is written, so the line is always there and
+/// always greppable; only the launch proof insists on the token.
 fn write_boot_marker() {
-    tauri_plugin_log::log::info!("{UI_BOOT_MARKER}");
+    let nonce = std::env::var(UI_BOOT_NONCE_ENV).unwrap_or_default();
+    write_boot_marker_with(nonce.trim());
+}
+
+/// Write the marker line, with or without a token.
+///
+/// [FACT] The token is separated from the marker by a single space, and
+/// the marker constant comes first, so the line still starts with the
+/// stable text that the verification script reads out of this file.
+fn write_boot_marker_with(nonce: &str) {
+    if nonce.is_empty() {
+        tauri_plugin_log::log::info!("{UI_BOOT_MARKER}");
+    } else {
+        tauri_plugin_log::log::info!("{UI_BOOT_MARKER} {nonce}");
+    }
 }
 
 #[cfg(test)]
@@ -254,5 +318,51 @@ mod tests {
         // The command must never be able to break the boot: it answers
         // with `Ok(())` and has no failure path at all.
         assert!(report_ui_boot().is_ok());
+    }
+
+    #[test]
+    fn the_token_is_written_next_to_the_marker() {
+        let _serial = fresh_buffer();
+        set_up_like_the_app();
+
+        write_boot_marker_with("0123456789abcdef0123456789abcdef");
+
+        let captured = CAPTURED.lock().unwrap();
+        assert!(
+            captured
+                .iter()
+                .any(|line| line == "GITGIT_UI_BOOT_MARKER_V1 0123456789abcdef0123456789abcdef"),
+            "the marker and the token must end up on ONE line, because that line is \
+             what the verification script searches for. Captured: {captured:?}"
+        );
+    }
+
+    #[test]
+    fn a_marker_without_a_token_is_still_written() {
+        // The application is started by humans too, and those launches do
+        // not carry a token. The line must still be there — what the launch
+        // proof insists on is the token, not the line's existence.
+        let _serial = fresh_buffer();
+        set_up_like_the_app();
+
+        write_boot_marker_with("");
+
+        let captured = CAPTURED.lock().unwrap();
+        assert!(
+            captured.iter().any(|line| line == UI_BOOT_MARKER),
+            "the bare marker must be written when there is no token. Captured: {captured:?}"
+        );
+    }
+
+    #[test]
+    fn the_token_comes_from_the_environment_and_not_from_the_caller() {
+        // The frontend cannot know the token, so it cannot be a parameter:
+        // the launcher hands it to the application through the environment.
+        // This asserts the name, because the verification script and this
+        // constant have to agree on it and nothing else ties them together.
+        assert_eq!(UI_BOOT_NONCE_ENV, "GITGIT_UI_BOOT_NONCE");
+        assert!(UI_BOOT_NONCE_ENV
+            .chars()
+            .all(|c| c.is_ascii_uppercase() || c == '_' || c.is_ascii_digit()));
     }
 }
