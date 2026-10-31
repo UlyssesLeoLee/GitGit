@@ -189,7 +189,12 @@ if ($null -eq $markerMatch) {
     exit 2
 }
 $UiBootMarker = $markerMatch.Matches[0].Groups['marker'].Value
-Write-Host "    webview-boot marker: $UiBootMarker"
+# [FACT] The constant itself is not what the script searches for. What it
+# searches for is the constant AND this launch's token, and that text is
+# printed once, below, where the token has been minted - printing the bare
+# constant here made the log show two different "markers" for one launch,
+# and the bare one is NOT the text the script looks for.
+Write-Host "    webview-boot marker constant: $UiBootMarker"
 
 $work = Join-Path ([System.IO.Path]::GetTempPath()) ('gm-desktop-launch-' + [guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $work -Force | Out-Null
