@@ -316,3 +316,22 @@ describe('api / tauri — round trips against the mock backend', () => {
     expect(d.key_count).toBeGreaterThan(0);
   });
 });
+
+describe('api / tauri — the webview-boot report', () => {
+  it('sends the boot report with no arguments', async () => {
+    // `[FACT]` The command takes no arguments, and the Rust side matches
+    // them by name — so a wrapper that sent an argument the command does
+    // not have would be silently ignored, and a wrapper that sent the
+    // wrong command name would be a wrapper that reports nothing at all.
+    // The exact `{ cmd, args }` pair is what is asserted.
+    const calls = recordCalls();
+    await tauri.reportUiBoot();
+    expect(calls).toEqual([{ cmd: 'report_ui_boot', args: {} }]);
+  });
+
+  it('resolves without a value, because the report is a side effect', async () => {
+    const calls = recordCalls();
+    await expect(tauri.reportUiBoot()).resolves.toBeUndefined();
+    expect(commands(calls)).toEqual(['report_ui_boot']);
+  });
+});

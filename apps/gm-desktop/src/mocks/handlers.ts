@@ -464,6 +464,16 @@ async function handle(cmd: string, args?: Record<string, unknown>): Promise<unkn
       };
     case 'set_clipboard_text': return null;
 
+    /* --- the webview-boot marker ---
+     *
+     * The real command writes one line to the APPLICATION's log file, so
+     * that the packaged-app verification can tell that the webview booted.
+     * A browser tab has no application and no log file, so there is
+     * nothing to write and nothing to report. The call still has to
+     * succeed: the frontend treats a rejection as a non-event, but a mock
+     * that threw would be a false failure in the dev workflow. */
+    case 'report_ui_boot': return null;
+
     /* --- AI review (T9) ---
      *
      * Command shapes and refusals only. Token *delivery* is not mocked:

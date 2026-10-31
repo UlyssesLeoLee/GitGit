@@ -107,6 +107,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
             commands::system::app_info,
             commands::system::set_clipboard_text,
             commands::system::vault_diagnostics,
+            commands::uiboot::report_ui_boot,
             commands::graph::graph_load,
             commands::graph::graph_list_nodes,
             commands::graph::graph_list_edges,

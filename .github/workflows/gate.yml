@@ -128,6 +128,21 @@ jobs:
         shell: pwsh
         run: pwsh -NoProfile -File scripts/ci/check-powershell-automatic-variables.ps1
 
+      # The packaged-app launch proof has to be able to FAIL.
+      #
+      # [FACT] That proof rests on one question: does the log evidence
+      # belong to THIS launch? The decision lives in
+      # `apps/gm-desktop/scripts/msi-launch-log.ps1`, which has no side
+      # effects, so it can be exercised here with synthetic log files — no
+      # MSI, no Windows desktop, no application.
+      #
+      # [FACT] It was shown to fail: with the one-shot token dropped from
+      # the searched text, 5 of its 10 cases fail and it exits 1. A gate
+      # that has never been fed a failure is not known to be a gate.
+      - name: The launch proof rejects evidence that is not from this launch
+        shell: pwsh
+        run: pwsh -NoProfile -File apps/gm-desktop/scripts/test-msi-launch-log.ps1
+
       # Both frontends' static checks. These are the checks a pull request
       # that touches only a frontend would otherwise get from the
       # path-filtered workflow — here they run for every pull request.
