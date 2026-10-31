@@ -10,6 +10,15 @@ mod error;
 mod graph;
 mod state;
 
+/// The embedded server, asked for a smart-HTTP path over a real socket.
+///
+/// `[FACT]` This is a test-only module: it is compiled under `cfg(test)`
+/// and never reaches the shipped binary. It lives in the lib target
+/// because the desktop's CI runs `cargo test --locked --lib` — a test in
+/// `tests/` would not be run by that command at all.
+#[cfg(test)]
+mod embedded_server_tests;
+
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -236,11 +245,17 @@ pub use gitgit as gitgit_lib;
 /// Resolving it anywhere else would hand a test a server whose auth
 /// surface differs from the shipped one, which is the whole class of bug
 /// this change is about.
+///
+/// `[FACT]` The bound address comes back with the handle. A caller that
+/// binds port 0 — the right thing for a test, which must never take the
+/// product's own port — otherwise has no way to know which port the OS
+/// handed out, and the only alternative is to guess a free port and hope
+/// nobody takes it in between.
 pub async fn run_embedded_router(
     bind: String,
     vault_root: PathBuf,
     repos_dir: PathBuf,
-) -> AppResult<tokio::task::JoinHandle<()>> {
+) -> AppResult<(tokio::task::JoinHandle<()>, std::net::SocketAddr)> {
     let cfg = Config::new(bind.clone(), repos_dir, vault_root.clone());
     let file_vault = FileVault::new(&cfg.vault_file_root);
     // `resolve_admin_credential` takes `&V where V: Vault`, and
@@ -257,12 +272,15 @@ pub async fn run_embedded_router(
     let listener = tokio::net::TcpListener::bind(&cfg.bind)
         .await
         .map_err(|e| AppError::Bind(format!("bind {bind}: {e}")))?;
+    let addr = listener
+        .local_addr()
+        .map_err(|e| AppError::Bind(format!("local_addr {bind}: {e}")))?;
     let handle = tokio::spawn(async move {
         if let Err(e) = axum::serve(listener, router).await {
             tracing::error!(error = %e, "embedded router exited");
         }
     });
-    Ok(handle)
+    Ok((handle, addr))
 }
 
 // Add LogBuffer re-export for tests.
