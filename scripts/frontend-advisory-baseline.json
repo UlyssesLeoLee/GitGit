@@ -16,10 +16,10 @@
     "gm-desktop": {
       "auditExitCode": 1,
       "counts": {
-        "total": 1,
+        "total": 2,
         "critical": 0,
         "high": 0,
-        "moderate": 0,
+        "moderate": 1,
         "low": 1
       },
       "open": [
@@ -38,6 +38,23 @@
           "title": "deepmerge mergeObject() allows prototype poisoning of returned objects",
           "recordedOn": "2026-10-28",
           "note": "The npm advisory database gained this advisory after the baseline was captured, and the ratchet refused it, which is what the ratchet is for. [FACT] There is NO patched version: the advisory's patched range is `<0.0.0`. It is also a development-only dependency (`@sveltejs/vite-plugin-svelte` -> `deepmerge` -> nothing that ships), so it is not in the shipped product's dependency path. Severity is low, and the advisory is about prototype pollution of the objects a build-time merge returns. [FACT] The parent declares `deepmerge: ^4.3.1` (measured with `pnpm view @sveltejs/vite-plugin-svelte@6.2.4 dependencies`) and the advisory's vulnerable range is `>=4.2.0 <=4.3.1`. The published 4.x versions are 4.0.0, 4.1.0, 4.1.1, 4.1.2, 4.2.0, 4.2.1, 4.2.2, 4.3.0 and 4.3.1 (measured with `pnpm view deepmerge versions`), so the newest version the parent's range allows is 4.3.1, which is vulnerable, and the only published 4.x versions OUTSIDE the vulnerable range are 4.0.0 to 4.1.2 - which are BELOW the parent's range. [FACT] So today no version choice inside the range fixes it, and reaching an unaffected published version would be a forced downgrade rather than a fix. [INFERENCE] It is NOT impossible in principle: `^4.3.1` admits a future 4.x release, so if an unaffected 4.x is published, the dependency can move to it while staying inside the range, with no override at all. That is the fix to watch for, and the reason this entry says the advisory is open rather than closed. [FACT] It was NOT silenced: `pnpm audit --ignore` and `pnpm.overrides` pinning a vulnerable version are both forbidden in this repository, and neither is used here. The entry is a RECORD of a real advisory, and the checker re-verifies it against the npm advisory database on every run."
+        },
+        {
+          "id": "GHSA-g3hv-75wg-m249",
+          "npmAdvisoryId": 1244012,
+          "module": "minimatch",
+          "severity": "moderate",
+          "version": "3.1.5",
+          "vulnerableVersions": "<11.0.1",
+          "patchedVersions": ">=11.0.1",
+          "tree": "dev",
+          "roots": [
+            "eslint",
+            "@typescript-eslint/eslint-plugin"
+          ],
+          "title": "minimatch has potential denial of service via globparts amplification",
+          "recordedOn": "2026-10-31",
+          "note": "The npm advisory database gained this advisory after the baseline was captured, and the ratchet refused it, which is what the ratchet is for. [FACT] The advisory's vulnerable range is `<11.0.1`, so the only published versions outside it are 11.x. [FACT] The tree carried TWO instances of minimatch: 10.2.6, reached through `@typescript-eslint/typescript-estree`, and 3.1.5, reached through ESLint's own chain (`eslint` -> `@eslint/eslintrc` / `@humanwhocodes/config-array` / `file-entry-cache` -> `flat-cache` -> `rimraf` -> `glob@7`). [FACT] The 10.2.6 instance WAS fixed: a version-scoped `pnpm.overrides` entry (`minimatch@>=10.0.0 <11.0.0` -> `11.0.3`) moves it, and the whole frontend suite stays green with it (lint, svelte-check, 672 tests, build - all measured). The SCOPE matters and was not assumed: an UNSCOPED override was tried first and BROKE the linter - with every minimatch at 11.0.3, `eslint \"src/**/*.ts\"` reports \"No files matching the pattern\" and exits 2, because ESLint 8's file enumeration goes through `glob@7`, which needs minimatch 3's API. The scoped selector is what keeps ESLint's chain on 3.1.5. [FACT] The remaining 3.1.5 instance CANNOT be fixed by upgrading ESLint: every published ESLint release depends on a vulnerable minimatch (measured with `pnpm view eslint@<version> dependencies.minimatch`: 8.57.1 -> ^3.1.2, 9.0.0 -> ^3.1.2, 9.38.0 -> ^3.1.2, 10.0.0 -> ^10.1.1), and the advisory's vulnerable range `<11.0.1` covers all of those. [INFERENCE] So the fix to watch for is an ESLint release that depends on minimatch >= 11.0.1 - or ESLint dropping the `glob@7` chain - at which point the scoped override can be widened and this entry can move to `resolved`. [FACT] The vulnerable instance is a development-only dependency (the linter), so it is not in the shipped product's dependency path. [FACT] It was NOT silenced: `pnpm audit --ignore` and `pnpm.overrides` pinning a vulnerable version are both forbidden in this repository, and neither is used here. The entry is a RECORD of a real advisory, and the checker re-verifies it against the npm advisory database on every run."
         }
       ],
       "resolved": [
@@ -145,15 +162,33 @@
       ]
     },
     "gm-console": {
-      "auditExitCode": 0,
+      "auditExitCode": 1,
       "counts": {
-        "total": 0,
+        "total": 1,
         "critical": 0,
         "high": 0,
-        "moderate": 0,
+        "moderate": 1,
         "low": 0
       },
-      "open": [],
+      "open": [
+        {
+          "id": "GHSA-g3hv-75wg-m249",
+          "npmAdvisoryId": 1244012,
+          "module": "minimatch",
+          "severity": "moderate",
+          "version": "3.1.5",
+          "vulnerableVersions": "<11.0.1",
+          "patchedVersions": ">=11.0.1",
+          "tree": "dev",
+          "roots": [
+            "eslint",
+            "@typescript-eslint/eslint-plugin"
+          ],
+          "title": "minimatch has potential denial of service via globparts amplification",
+          "recordedOn": "2026-10-31",
+          "note": "The npm advisory database gained this advisory after the baseline was captured, and the ratchet refused it, which is what the ratchet is for. [FACT] The advisory's vulnerable range is `<11.0.1`, so the only published versions outside it are 11.x. [FACT] The tree carried TWO instances of minimatch: 10.2.6, reached through `@typescript-eslint/typescript-estree`, and 3.1.5, reached through ESLint's own chain (`eslint` -> `@eslint/eslintrc` / `@humanwhocodes/config-array` / `file-entry-cache` -> `flat-cache` -> `rimraf` -> `glob@7`). [FACT] The 10.2.6 instance WAS fixed: a version-scoped `pnpm.overrides` entry (`minimatch@>=10.0.0 <11.0.0` -> `11.0.3`) moves it, and the whole frontend suite stays green with it (lint, typecheck, 672 tests, build - all measured). The SCOPE matters and was not assumed: an UNSCOPED override was tried first and BROKE the linter - with every minimatch at 11.0.3, `eslint \"src/**/*.ts\"` reports \"No files matching the pattern\" and exits 2, because ESLint 8's file enumeration goes through `glob@7`, which needs minimatch 3's API. The scoped selector is what keeps ESLint's chain on 3.1.5. [FACT] The remaining 3.1.5 instance CANNOT be fixed by upgrading ESLint: every published ESLint release depends on a vulnerable minimatch (measured with `pnpm view eslint@<version> dependencies.minimatch`: 8.57.1 -> ^3.1.2, 9.0.0 -> ^3.1.2, 9.38.0 -> ^3.1.2, 10.0.0 -> ^10.1.1), and the advisory's vulnerable range `<11.0.1` covers all of those. [INFERENCE] So the fix to watch for is an ESLint release that depends on minimatch >= 11.0.1 - or ESLint dropping the `glob@7` chain - at which point the scoped override can be widened and this entry can move to `resolved`. [FACT] The vulnerable instance is a development-only dependency (the linter), so it is not in the shipped product's dependency path. [FACT] It was NOT silenced: `pnpm audit --ignore` and `pnpm.overrides` pinning a vulnerable version are both forbidden in this repository, and neither is used here. The entry is a RECORD of a real advisory, and the checker re-verifies it against the npm advisory database on every run."
+        }
+      ],
       "resolved": [
         {
           "id": "GHSA-mrhx-c7xc-m3w5",
@@ -451,9 +486,22 @@
           "title": "Vite: Cross origin script execution through Vite custom middleware",
           "resolvedOn": "2026-10-25",
           "resolvedBy": "vite 5.4.21 -> 7.3.7 (toolchain major upgrade, mirrors apps/gm-desktop)"
+        },
+        {
+          "id": "GHSA-mrwp-f3q8-3g9p",
+          "npmAdvisoryId": 1244003,
+          "module": "follow-redirects",
+          "severity": "high",
+          "version": "1.16.1",
+          "vulnerableVersions": ">=1.16.0 <=1.16.1",
+          "patchedVersions": ">=1.16.2",
+          "tree": "runtime",
+          "resolvedOn": "2026-10-31",
+          "resolvedBy": "follow-redirects 1.16.1 -> 1.16.2 (transitive, re-resolved via axios; no override and no range change were needed)",
+          "note": "[FACT] This was the one NEW advisory in this tree that was a PRODUCTION dependency: `axios` is a runtime dependency of gm-console and declares `follow-redirects: ^1.15.6`, so 1.16.2 was already inside the range the parent allowed. The fix was therefore a re-resolution of the lockfile entry, not an override and not a range change. [FACT] The advisory is about cross-realm `sensitiveHeaders` arrays being discarded and custom credentials following redirects, which is exactly the failure a redirect-following HTTP client in a credential-bearing admin UI must not have. [FACT] The version recorded here is the vulnerable version that WAS FOUND, not the version it was fixed to, so the checker corroborates it against npm as follow-redirects@1.16.1."
         }
       ]
     }
   },
-  "rationale": "Captured 2026-10-25 on branch ci/gm-console-toolchain at baseline commit f7aaa9e, with the gm-console dependency change applied to the working tree and not yet committed. [FACT] gm-console measured 15 advisories before the toolchain upgrade (3 critical / 2 high / 9 moderate / 1 low) and 0 after; both numbers were measured with `corepack pnpm@9.15.9 audit --json` on this machine, the 'before' number against the pre-upgrade committed lockfile at f7aaa9e restored into a scratch directory, the 'after' number against the regenerated lockfile. [FACT] gm-desktop measured 0 advisories at this branch's committed lockfile; its entries below are carried over unchanged from the 2026-10-24 capture at head 255ab92 and the same run re-verified every one of them as still corroborated by the npm advisory database. [FACT] The 15 gm-console advisories were resolved by moving the toolchain to the versions apps/gm-desktop already runs — vite 5.4.21 -> 7.3.7, vitest 2.1.9 -> 5.0.5, @vitest/coverage-v8 2.1.9 -> 5.0.5, @vitejs/plugin-react 4.7.0 -> 5.2.0 — which also re-resolved the transitive esbuild 0.21.5 -> 0.28.2 and dropped tinypool out of the tree entirely; no advisory was ignored, waived or pinned. [FACT] Every entry in `open` was in the audit output at capture time; every entry in `resolved` was in the audit output before the change and is corroborated by the npm advisory database for the recorded version, so the checker can re-verify the whole file rather than take it on trust. [FACT] On a resolved entry, `version` is the vulnerable version that WAS FOUND, not the version it was fixed to — the checker corroborates each entry against npm as module@version, so writing the post-fix version there would make the entry unverifiable and the checker would reject it as fabricated. [FACT] `tree` records whether the advisory's dependency path starts at a production or a development dependency of the app's package.json; `roots` names those direct dependencies. [FACT] Updating this file is a deliberate baseline change: the Rust-side sibling lane owns `scripts/advisory-baseline.json` for Cargo advisories and this file is the separate npm-side counterpart, never a superset of it. [FACT] A gate that cannot pass gets switched off, which is why this stays a ratchet (fail on anything new) rather than a hard gate (fail on anything present): gm-console carried 15 open advisories when this file was first written, so a hard gate would have been red on its first run and would have been turned off. [FACT] As of this capture both apps' `open` lists are empty and `pnpm audit` exits 0 for both, so the ratchet now starts from zero open advisories; the ratchet only fails on a NEW advisory, which is the property worth protecting. [FACT] Note that gm-desktop's open list is empty — that is a measurement, not an exemption: `pnpm audit` exits 0 there."
+  "rationale": "Captured 2026-10-25 on branch ci/gm-console-toolchain at baseline commit f7aaa9e, with the gm-console dependency change applied to the working tree and not yet committed. [FACT] gm-console measured 15 advisories before the toolchain upgrade (3 critical / 2 high / 9 moderate / 1 low) and 0 after; both numbers were measured with `corepack pnpm@9.15.9 audit --json` on this machine, the 'before' number against the pre-upgrade committed lockfile at f7aaa9e restored into a scratch directory, the 'after' number against the regenerated lockfile. [FACT] gm-desktop measured 0 advisories at this branch's committed lockfile; its entries below are carried over unchanged from the 2026-10-24 capture at head 255ab92 and the same run re-verified every one of them as still corroborated by the npm advisory database. [FACT] The 15 gm-console advisories were resolved by moving the toolchain to the versions apps/gm-desktop already runs — vite 5.4.21 -> 7.3.7, vitest 2.1.9 -> 5.0.5, @vitest/coverage-v8 2.1.9 -> 5.0.5, @vitejs/plugin-react 4.7.0 -> 5.2.0 — which also re-resolved the transitive esbuild 0.21.5 -> 0.28.2 and dropped tinypool out of the tree entirely; no advisory was ignored, waived or pinned. [FACT] Every entry in `open` was in the audit output at capture time; every entry in `resolved` was in the audit output before the change and is corroborated by the npm advisory database for the recorded version, so the checker can re-verify the whole file rather than take it on trust. [FACT] On a resolved entry, `version` is the vulnerable version that WAS FOUND, not the version it was fixed to — the checker corroborates each entry against npm as module@version, so writing the post-fix version there would make the entry unverifiable and the checker would reject it as fabricated. [FACT] `tree` records whether the advisory's dependency path starts at a production or a development dependency of the app's package.json; `roots` names those direct dependencies. [FACT] Updating this file is a deliberate baseline change: the Rust-side sibling lane owns `scripts/advisory-baseline.json` for Cargo advisories and this file is the separate npm-side counterpart, never a superset of it. [FACT] A gate that cannot pass gets switched off, which is why this stays a ratchet (fail on anything new) rather than a hard gate (fail on anything present): gm-console carried 15 open advisories when this file was first written, so a hard gate would have been red on its first run and would have been turned off. [FACT] As of this capture both apps' `open` lists are empty and `pnpm audit` exits 0 for both, so the ratchet now starts from zero open advisories; the ratchet only fails on a NEW advisory, which is the property worth protecting. [FACT] gm-desktop's open list is NOT empty as of 2026-10-31: it holds the deepmerge entry (no patched version is published) and the minimatch entry (the only published version outside the vulnerable range cannot be used by ESLint's own chain). Both are records of real advisories rather than exemptions, and the checker re-verifies each one against the npm advisory database on every run."
 }

@@ -56,9 +56,17 @@ describe('formatDelta', () => {
 describe('formatUnixMs', () => {
   it('formats a known timestamp as a locale-aware string', () => {
     const text = formatUnixMs(0, 'en-US');
-    // The exact pattern depends on the runtime ICU data, but it must
-    // include the year 1970 (the unix epoch) and never throw.
-    expect(text).toContain('1970');
+    // The exact pattern depends on the runtime ICU data, and the YEAR
+    // depends on the runtime's timezone: the unix epoch is 1970 in UTC
+    // and 1969 in every timezone west of it. `formatUnixMs` renders
+    // LOCAL time — which is what a viewer of the admin UI expects — so
+    // the assertion follows the runtime instead of assuming UTC.
+    //
+    // [FACT] The assertion used to be `toContain('1970')`, which passed
+    // in CI (UTC) and FAILED on a machine west of UTC, where the epoch
+    // renders as 1969. A test that only passes in one timezone measures
+    // the machine, not the code.
+    expect(text).toContain(String(new Date(0).getFullYear()));
   });
   it('returns placeholder for nullish', () => {
     expect(formatUnixMs(null)).toBe('\u2014');
