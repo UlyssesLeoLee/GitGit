@@ -87,17 +87,19 @@ edit，把 `{{resources}}` 槽位与 `{{#each resource_file_ids …}}` 循环从
 - per-machine 的 MSI 保留两个槽位 → 指引文件落在安装目录里、与可执行文件并排；
 - `.dmg` 由 macOS bundler 复制到 `Contents/Resources/`。
 
-`[FACT]` **代价要说清楚：per-user 的 `.msi` 不带指引文件。** 那是一个真实的
-§6(d) 缺口，不是遗漏；它原来也没有。`CORRESPONDING-SOURCE.md` 的
-"What this notice does not cover" 一节现在**只**记这一条。
+`[FACT]` **代价曾经是：per-user 的 `.msi` 不带指引文件。** 那是 2026-10-28 的
+结论，**2026-10-31 已被推翻**——缺口闭合了，机制与实测见下面第 8 节，探针见
+`docs/reports/2026-10-31-agpl-peruser-notice/`：指引文件不必自带组件，它可以作为
+`Path` 组件的一个 File 子节点 riding along，而那个组件的 KeyPath 已经是 HKCU
+注册表值。
 
 ## 6. 门禁
 
 `[FACT]` **`.msi`**：`apps/gm-desktop/scripts/verify-msi.ps1` 做的行政安装
 （`msiexec /a`）后按**内容**找指引文件（三个标记：`Corresponding Source for
-this build`、`AGPL-3.0`、以及从 `bundle.homepage` 推出的指定地点），per-machine
-变体缺失即红。per-user 变体**不**断言（断言一个永远不成立的东西，等于一个
-会被关掉的门禁），而是打印一条黄字说明它缺什么、为什么。
+this build`、`AGPL-3.0`、以及从 `bundle.homepage` 推出的指定地点），**两个变体
+都断言**，缺一个即红（2026-10-31 起；此前 per-user 变体不断言，只打印一条黄字
+说明它缺什么、为什么——那条黄字现在没有了，因为两个变体都带得上）。
 
 `[FACT]` **`.dmg`**：`apps/gm-desktop/scripts/verify-bundle.sh` 里原来那条
 「NO CORRESPONDING SOURCE NOTICE inside the mounted image」只打印不失败；
@@ -123,3 +125,38 @@ this build`、`AGPL-3.0`、以及从 `bundle.homepage` 推出的指定地点）�
 把**相对** `Source` 解析到 `<target>/release/wix/x64/`（bundler 把
 `update.xml`、`install-task.ps1` 写在那里），所以需要一份相对路径；这条路
 依赖 target 目录的层级，很脆，本轮**没有**实现，也**没有**声称它可行。
+
+## 8. 2026-10-31：缺口闭合（上一节的「没有结论」现在有结论了）
+
+`[FACT]` **那条路走得通，而且不脆。** 上一节担心的「依赖 target 目录的层级」，
+实测下来是可以避免的——**不要指向 target 目录里的任何地方，要指向它的同级兄弟
+目录**。
+
+| 事实 | 出处 |
+|---|---|
+| `candle` 的工作目录是 `<out>/wix/<arch>`，相对 `Source` 就相对它解析 | `tauri-bundler-2.10.4` `src/bundle/windows/msi/mod.rs:494`（`output_path`）与 `:829`（`current_dir(cwd)`） |
+| 那个目录**会被清**：`if output_path.exists() { fs::remove_dir_all(&output_path)?; }` | 同上 `:496` |
+| 但 `<out>/resources/` **不会被清**——bundler 自己把图标复制到那里 | 同上 `:210`（`copy_icon`） |
+| 所以相对路径 `../../resources/<file>` 在任何机器、任何 `CARGO_TARGET_DIR` 下都成立 | 两条相对路径都挂在 `<out>` 下 |
+
+`[FACT]` **形状**：组件的 KeyPath 是 **HKCU 注册表值**时，它可以**额外携带 File
+子节点**。仓库的 per-user 模板里 `Path` 组件（可执行文件那个）早就是这个形状——
+`render-wix-template.py` 有一条 edit 叫 *"ICE38: Path component keypath moves from
+the file to HKCU"*。指引文件现在挂在同一个组件下。
+
+`[FACT]` **实测**（不是推断）：per-user 形态的最小包，指引文件作为该组件的 File
+子节点，`candle` 退出 **0**、`light` 退出 **0**（旧形状是 204 / `LGHT0204`），
+且 MSI 的 File 表里确有该文件。探针与复现步骤：
+`docs/reports/2026-10-31-agpl-peruser-notice/`。
+
+`[FACT]` **落地**：
+- `render-wix-template.py` 的那条 ICE38 edit 现在同时加上 File 子节点；
+- `build-msi.ps1` 在构建前把仓里的 `CORRESPONDING-SOURCE.md` 复制进
+  `<target>/release/resources/`；
+- per-machine 与 `.dmg` **仍走 `bundle.resources`**（两边都加会让同一文件被装两遍）；
+- `verify-msi.ps1` 现在对**两个 scope 都**按内容断言指引存在（此前 per-user 只打印
+  一条黄字说明它缺什么）。
+
+`[UNVERIFIED-FACT]` **真实 MSI 的产物级证据仍来自 CI**：本地整包构建在 `light.exe`
+处 LGHT0094 失败，本机只能证明 WiX 层。CI 的 `msi` 作业构建两个 scope，并由
+`verify-msi.ps1` 对两者断言。

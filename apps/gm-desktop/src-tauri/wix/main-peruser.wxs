@@ -201,6 +201,25 @@
                 <RegistryValue Root="HKCU" Key="Software\\{{manufacturer}}\\{{product_name}}"
                                Name="Path" Type="string" Value="[INSTALLDIR]" KeyPath="yes" />
                 <File Id="Path" Source="{{main_binary_path}}" Checksum="yes"/>
+                <!-- AGPL-3.0 section 6(d): the Corresponding Source notice
+                     rides along in THIS component, so it installs and
+                     uninstalls with the program it belongs to, and so that
+                     it needs no component of its own - a component whose
+                     KeyPath is a FILE is exactly what ICE38 rejects here.
+                     [FACT] Measured, not inferred: a per-user-shaped
+                     package whose notice file is a child of an
+                     HKCU-keypath component links cleanly (candle exit 0,
+                     light exit 0) and the notice is in the MSI's File
+                     table, while the old shape exits 204 with LGHT0204
+                     (ICE38). The probe lives under
+                     docs/reports/2026-10-31-agpl-peruser-notice/.
+                     [FACT] The Source path is RELATIVE: candle runs in
+                     <out>/wix/<arch> and this file sits in <out>/resources,
+                     which is where the bundler copies the icon and which is
+                     NOT wiped - the bundler removes <out>/wix/<arch> and
+                     nothing else. An absolute path here would bind the
+                     generated template to one machine. -->
+                <File Id="CorrespondingSourceNotice" Source="../../resources/CORRESPONDING-SOURCE.md" Name="CORRESPONDING-SOURCE.md" Checksum="yes"/>
                 {{#if license}}
                 <!-- AGPL-3.0 section 4: a copy of the Licence must travel with
                      every copy of the Program ("give all recipients a copy of
@@ -259,9 +278,11 @@
                  [FACT] Measured, not inferred: with the resources
                  placeholder present, light.exe fails with LGHT0204 (ICE38)
                  and exits 204. [FACT] The per-MACHINE template keeps the
-                 placeholder and the notice reaches the per-machine MSI; this
-                 variant therefore does not carry it, and that residual gap
-                 is recorded in docs/plan/v0-tasks.md. -->
+                 placeholder and the notice reaches the per-machine MSI
+                 that way; this variant cannot, so the notice reaches the
+                 per-user MSI by a different route instead - it is a File
+                 child of the Path component, whose KeyPath is an HKCU
+                 registry value. -->
             <Component Id="CMP_UninstallShortcut" Guid="*">
 
                 <Shortcut Id="UninstallShortcut"
