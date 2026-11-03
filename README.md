@@ -1,6 +1,6 @@
 # GitGit
 
-> 山寨的 Git —— 但真正在做的是《AI-Native Engineering Platform 需求定义书》
+AI-Native Engineering Platform
 
 本仓库目前的主要内容不是代码，而是一份完整走完 **13 个主阶段 + 2 个补充阶段** 的产品需求调研与定义程序，产出对象是一个暂命名为 **AI-Native Engineering Platform** 的、Local-First / Cloud-Ready / Git-Native / AI-Native / Agent-Native / Graph-Native 的可自托管软件工程平台的正式需求定义书。
 
