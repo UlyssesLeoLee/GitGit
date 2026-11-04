@@ -306,7 +306,7 @@ Mock 日志确认 Rust 侧确实发出了 `Authorization: Bearer`，且未泄漏
 所以「AI 评审能否流式出字」已经不再是未知项；仍然未知的是**真实厂商端点**的
 行为：鉴权失败形态、限流响应、以及各家 SSE 方言与本仓解析器的差异。
 
-### P2 — 跨平台产物已在 CI 构建并安装验证；`.dmg` 未公证、GUI 从未运行过
+### P2 — 跨平台产物已在 CI 构建并安装验证；`.dmg` 未公证、macOS/Linux 的 GUI 从未运行过
 
 `tauri.conf.json` 声明了 `["msi","dmg","appimage","deb"]` 四种 target，
 此前只有 MSI 被构建过。现已新增 `.github/workflows/gm-desktop-bundle.yml`，
@@ -322,6 +322,13 @@ Mock 日志确认 Rust 侧确实发出了 `Authorization: Bearer`，且未泄漏
 `[FACT]` 四个 job 均已实测通过。`.dmg` 与 `.appimage` **均未签名**；macOS 未做
 notarization，会触发 Gatekeeper。Windows 的 4 个 MSI 变体已有签名链路并在发布
 路径强制，但未配置证书前打 tag 会 fail-closed（见上一节）。
+
+`[FACT]` **Windows 上的 GUI 已经被观测运行过（2026-10-31 起）。** `msi-launch`
+作业装好**打包后的** per-machine `.msi`、启动它，并断言 webview 报告了「UI 已挂载」
+——证据是应用自己日志文件里的那一行标记（CI 日志：
+`ok the webview reported that the UI booted: 'GITGIT_UI_BOOT_MARKER_V1 …'`）。
+所以「GUI 从未运行过」这句话如今只对 macOS 与 Linux 成立，见下面 `.deb` 一节的
+`[UNVERIFIED-FACT]`。
 
 #### `.deb` 已在裸机安装通过（2026-10-07，run `37553686524`）
 
