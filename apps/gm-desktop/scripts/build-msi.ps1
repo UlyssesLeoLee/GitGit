@@ -307,6 +307,25 @@ $lockBefore = if (Test-Path -LiteralPath $lockFile) {
 } else { $null }
 
 # ---------------------------------------------------------------------------
+# The Corresponding Source notice, staged where the WiX compile can find it
+# ---------------------------------------------------------------------------
+# [FACT] The per-user WiX template installs the AGPL-3.0 section 6(d) notice as
+# a File child of the `Path` component, with the RELATIVE path
+# `../../resources/CORRESPONDING-SOURCE.md`. The relative path is what makes it
+# portable: `candle` runs in `<out>/wix/<arch>`, so the file has to sit in
+# `<out>/resources`, which is where the bundler copies the icon and which the
+# bundler does NOT wipe - it removes `<out>/wix/<arch>` and nothing else. An
+# absolute path in the template would bind it to one machine.
+$CorrespondingSource = Join-Path $RepoRoot 'CORRESPONDING-SOURCE.md'
+if (-not (Test-Path -LiteralPath $CorrespondingSource)) {
+    throw "the Corresponding Source notice is missing: $CorrespondingSource"
+}
+$ResourcesDir = Join-Path $TargetDir 'release\resources'
+New-Item -ItemType Directory -Path $ResourcesDir -Force | Out-Null
+Copy-Item -LiteralPath $CorrespondingSource -Destination (Join-Path $ResourcesDir 'CORRESPONDING-SOURCE.md') -Force
+Write-Ok "Corresponding Source notice staged for the WiX compile: $ResourcesDir"
+
+# ---------------------------------------------------------------------------
 # Build loop
 # ---------------------------------------------------------------------------
 $records = @()

@@ -39,10 +39,15 @@ Corresponding Source from any of the addresses above.
 
 ## What this notice does not cover
 
-- The **per-user** `.msi` does not ship this file. The Tauri bundler renders
-  every `bundle.resources` entry as a component whose KeyPath is a *file*, and
-  ICE38 rejects a component that installs into the user profile whose
-  KeyPath is a file — so the per-user WiX template leaves the resources out
-  entirely, and the notice with them. The per-machine `.msi` does carry it.
-  `docs/plan/v0-tasks.md` records the measured failure this rests on, and
-  `docs/plan/agpl-corresponding-source-msi-dmg.md` has the detail.
+- **No distributed artefact of this project.** This notice ships with the
+  `.deb`, the `.AppImage`, the `.dmg`, and with both Windows installers —
+  the per-machine one and the per-user one.
+
+  The two Windows installers carry it by different routes, because the
+  per-user one cannot use the mechanism the others use. The Tauri bundler
+  renders every `bundle.resources` entry as a component whose KeyPath is a
+  *file*, and ICE38 rejects a component that installs into the user profile
+  whose KeyPath is a file. The per-user WiX template therefore installs
+  this file as a child of the component whose KeyPath is an HKCU registry
+  value — the same component the executable lives in, so the notice installs
+  and is removed together with the program it belongs to.

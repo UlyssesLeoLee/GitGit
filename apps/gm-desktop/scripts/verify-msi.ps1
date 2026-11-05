@@ -465,18 +465,27 @@ foreach ($f in $files) {
     # resources at all — which keeps that build working, and leaves the
     # notice out of that one variant. The gap is recorded in
     # `docs/plan/v0-tasks.md`; it is not a claim that the variant complies.
-    if ($scope -eq 'perMachine') {
-        if ($null -eq $admin.Notice) {
-            throw ("$($f.Name) ships no Corresponding Source notice next to the object code. " +
-                   "AGPL-3.0 section 6(d) requires the object code to carry written directions " +
-                   "saying where to find the Corresponding Source. The mechanism is " +
-                   "bundle.resources, which the MSI bundler renders as a resource component. " +
-                   "Extracted: $($admin.FileCount) file(s), none of them a notice.")
+    # [FACT] BOTH scopes must carry the notice. AGPL-3.0 section 6(d) does
+    # not care which scope the object code was installed under: the
+    # obligation is that the object code carries written directions saying
+    # where to find the Corresponding Source. The MECHANISM differs - the
+    # per-machine package gets the notice through `bundle.resources`, the
+    # per-user package as a File child of the `Path` component, whose
+    # KeyPath is an HKCU registry value (ICE38 rejects a file keypath in the
+    # user profile) - but the obligation is the same, so it is asserted for
+    # both.
+    if ($null -eq $admin.Notice) {
+        $mechanism = if ($scope -eq 'perMachine') {
+            'bundle.resources, which the MSI bundler renders as a resource component'
+        } else {
+            'a File child of the Path component, whose KeyPath is an HKCU registry value'
         }
-        Write-Ok "corresponding source notice: $($admin.NoticeRelPath) = $($admin.NoticeBytes) B"
-    } else {
-        Write-Host "    NOTE: this variant does not carry the Corresponding Source notice (ICE38 keeps a file keypath out of the user profile); see docs/plan/v0-tasks.md" -ForegroundColor Yellow
+        throw ("$($f.Name) ships no Corresponding Source notice next to the object code. " +
+               "AGPL-3.0 section 6(d) requires the object code to carry written directions " +
+               "saying where to find the Corresponding Source, in EVERY scope. The mechanism " +
+               "is $mechanism. Extracted: $($admin.FileCount) file(s), none of them a notice.")
     }
+    Write-Ok "corresponding source notice: $($admin.NoticeRelPath) = $($admin.NoticeBytes) B"
 
     # --- scope, read from the package itself
     $chain = Get-InstallDirChain -Path $f.FullName

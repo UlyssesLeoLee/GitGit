@@ -214,19 +214,27 @@ describe('the bundle is configured to carry the licence', () => {
     ).toBe(true);
   });
 
-  it('carries the Corresponding Source notice in bundle.resources, and keeps it out of the per-user MSI', () => {
+  it('carries the Corresponding Source notice in bundle.resources, and in the per-user MSI by another route', () => {
     // [FACT] `bundle.resources` is the one mechanism that reaches the
     // per-MACHINE MSI (the template renders it as `{{resources}}`) AND the
     // .dmg (the macOS bundler copies it into `<app>.app/Contents/Resources`).
     //
-    // [FACT] It must NOT reach the per-user MSI, and the reason is measured
-    // rather than inferred. The upstream bundler renders every entry as
-    // `<Component ... KeyPath="yes"><File .../></Component>` - a FILE as the
-    // keypath - and ICE38 requires a component that installs into the user
-    // profile to use an HKCU registry value as its KeyPath. With the
-    // resources placeholder present, `light.exe` fails with
+    // [FACT] It must NOT be rendered into the per-USER template, and the
+    // reason is measured rather than inferred. The upstream bundler renders
+    // every entry as `<Component ... KeyPath="yes"><File .../></Component>` -
+    // a FILE as the keypath - and ICE38 requires a component that installs
+    // into the user profile to use an HKCU registry value as its KeyPath. With
+    // the resources placeholder present, `light.exe` fails with
     // `LGHT0204 : ICE38: Component Res installs to user profile. It must use
     // a registry key under HKCU as its KeyPath, not a file.` and exits 204.
+    //
+    // [FACT] The per-user MSI nevertheless carries the notice, by a different
+    // route: as a File child of the `Path` component, whose KeyPath IS an HKCU
+    // registry value. Measured, not inferred: a per-user-shaped package whose
+    // notice file rides along in that component links cleanly (candle exit 0,
+    // light exit 0) and the notice is in the MSI's File table, while the old
+    // shape exits 204 with LGHT0204. The probe is under
+    // docs/reports/2026-10-31-agpl-peruser-notice/.
     //
     // [FACT] The per-MACHINE build is unaffected: in run 37644440611 the
     // per-machine build with a non-empty `bundle.resources` SUCCEEDED - it
@@ -313,6 +321,30 @@ describe('the bundle is configured to carry the licence', () => {
     expect(
       perUser.includes('resource_file_ids'),
       'the per-user WiX template must NOT reference resource components: there are none'
+    ).toBe(false);
+
+    // [FACT] The per-user MSI carries the notice by ANOTHER route: as a File
+    // child of the `Path` component, whose KeyPath is an HKCU registry value.
+    // A component whose KeyPath is a FILE is exactly what ICE38 rejects in
+    // the user profile, so the notice cannot ride along in a component of its
+    // own - but it can ride along in the component that already has the
+    // registry keypath.
+    //
+    // [FACT] The Source path is relative on purpose: `candle` runs in
+    // `<out>/wix/<arch>` and the file sits in `<out>/resources`, so the
+    // relative path holds on every machine and under any CARGO_TARGET_DIR. An
+    // absolute path would bind the committed template to one machine.
+    expect(
+      perUser.includes(
+        '<File Id="CorrespondingSourceNotice" Source="../../resources/CORRESPONDING-SOURCE.md"'
+      ),
+      'the per-user WiX template must install the Corresponding Source notice as a File child ' +
+        'of the Path component, or the per-user MSI ships without it'
+    ).toBe(true);
+    expect(
+      perMachine.includes('CorrespondingSourceNotice'),
+      'the per-MACHINE template must NOT carry the notice as a File child of the Path component: ' +
+        'it arrives through bundle.resources, and carrying it twice would install the same file twice'
     ).toBe(false);
   });
 

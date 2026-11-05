@@ -16,10 +16,10 @@
     "gm-desktop": {
       "auditExitCode": 1,
       "counts": {
-        "total": 2,
+        "total": 1,
         "critical": 0,
         "high": 0,
-        "moderate": 1,
+        "moderate": 0,
         "low": 1
       },
       "open": [
@@ -38,26 +38,22 @@
           "title": "deepmerge mergeObject() allows prototype poisoning of returned objects",
           "recordedOn": "2026-10-28",
           "note": "The npm advisory database gained this advisory after the baseline was captured, and the ratchet refused it, which is what the ratchet is for. [FACT] There is NO patched version: the advisory's patched range is `<0.0.0`. It is also a development-only dependency (`@sveltejs/vite-plugin-svelte` -> `deepmerge` -> nothing that ships), so it is not in the shipped product's dependency path. Severity is low, and the advisory is about prototype pollution of the objects a build-time merge returns. [FACT] The parent declares `deepmerge: ^4.3.1` (measured with `pnpm view @sveltejs/vite-plugin-svelte@6.2.4 dependencies`) and the advisory's vulnerable range is `>=4.2.0 <=4.3.1`. The published 4.x versions are 4.0.0, 4.1.0, 4.1.1, 4.1.2, 4.2.0, 4.2.1, 4.2.2, 4.3.0 and 4.3.1 (measured with `pnpm view deepmerge versions`), so the newest version the parent's range allows is 4.3.1, which is vulnerable, and the only published 4.x versions OUTSIDE the vulnerable range are 4.0.0 to 4.1.2 - which are BELOW the parent's range. [FACT] So today no version choice inside the range fixes it, and reaching an unaffected published version would be a forced downgrade rather than a fix. [INFERENCE] It is NOT impossible in principle: `^4.3.1` admits a future 4.x release, so if an unaffected 4.x is published, the dependency can move to it while staying inside the range, with no override at all. That is the fix to watch for, and the reason this entry says the advisory is open rather than closed. [FACT] It was NOT silenced: `pnpm audit --ignore` and `pnpm.overrides` pinning a vulnerable version are both forbidden in this repository, and neither is used here. The entry is a RECORD of a real advisory, and the checker re-verifies it against the npm advisory database on every run."
-        },
-        {
-          "id": "GHSA-g3hv-75wg-m249",
-          "npmAdvisoryId": 1244012,
-          "module": "minimatch",
-          "severity": "moderate",
-          "version": "3.1.5",
-          "vulnerableVersions": "<11.0.1",
-          "patchedVersions": ">=11.0.1",
-          "tree": "dev",
-          "roots": [
-            "eslint",
-            "@typescript-eslint/eslint-plugin"
-          ],
-          "title": "minimatch has potential denial of service via globparts amplification",
-          "recordedOn": "2026-10-31",
-          "note": "The npm advisory database gained this advisory after the baseline was captured, and the ratchet refused it, which is what the ratchet is for. [FACT] The advisory's vulnerable range is `<11.0.1`, so the only published versions outside it are 11.x. [FACT] The tree carried TWO instances of minimatch: 10.2.6, reached through `@typescript-eslint/typescript-estree`, and 3.1.5, reached through ESLint's own chain (`eslint` -> `@eslint/eslintrc` / `@humanwhocodes/config-array` / `file-entry-cache` -> `flat-cache` -> `rimraf` -> `glob@7`). [FACT] The 10.2.6 instance WAS fixed: a version-scoped `pnpm.overrides` entry (`minimatch@>=10.0.0 <11.0.0` -> `11.0.3`) moves it, and the whole frontend suite stays green with it (lint, svelte-check, 672 tests, build - all measured). The SCOPE matters and was not assumed: an UNSCOPED override was tried first and BROKE the linter - with every minimatch at 11.0.3, `eslint \"src/**/*.ts\"` reports \"No files matching the pattern\" and exits 2, because ESLint 8's file enumeration goes through `glob@7`, which needs minimatch 3's API. The scoped selector is what keeps ESLint's chain on 3.1.5. [FACT] The remaining 3.1.5 instance CANNOT be fixed by upgrading ESLint: every published ESLint release depends on a vulnerable minimatch (measured with `pnpm view eslint@<version> dependencies.minimatch`: 8.57.1 -> ^3.1.2, 9.0.0 -> ^3.1.2, 9.38.0 -> ^3.1.2, 10.0.0 -> ^10.1.1), and the advisory's vulnerable range `<11.0.1` covers all of those. [INFERENCE] So the fix to watch for is an ESLint release that depends on minimatch >= 11.0.1 - or ESLint dropping the `glob@7` chain - at which point the scoped override can be widened and this entry can move to `resolved`. [FACT] The vulnerable instance is a development-only dependency (the linter), so it is not in the shipped product's dependency path. [FACT] It was NOT silenced: `pnpm audit --ignore` and `pnpm.overrides` pinning a vulnerable version are both forbidden in this repository, and neither is used here. The entry is a RECORD of a real advisory, and the checker re-verifies it against the npm advisory database on every run."
         }
       ],
       "resolved": [
+        {
+          "id": "GHSA-g3hv-75wg-m249",
+          "npmAdvisoryId": 1244623,
+          "module": "minimatch",
+          "severity": "moderate",
+          "version": "10.2.6",
+          "vulnerableVersions": ">=7.0.0 <11.0.1",
+          "patchedVersions": ">=11.0.1",
+          "tree": "dev",
+          "resolvedOn": "2026-11-04",
+          "resolvedBy": "minimatch 10.2.6 -> 11.0.3 (transitive, via a version-scoped pnpm.overrides pin; the scope is what keeps ESLint's own minimatch@3.1.5 out of it)",
+          "note": "[FACT] The advisory's vulnerable range is `>=7.0.0 <11.0.1`, measured against the npm advisory database on 2026-11-04. On 2026-10-31 the same entry was reported as `<11.0.1`, which is why this entry first named 3.1.5 - a version the database does NOT report, and the ratchet rejected that record as uncorroborated (and correctly so: 3.x is below the advisory's floor). [FACT] The version that WAS in the tree and WAS vulnerable is 10.2.6, reached through `@typescript-eslint/typescript-estree`; it was moved to 11.0.3 by a version-scoped `pnpm.overrides` entry (`minimatch@>=10.0.0 <11.0.0` -> `11.0.3`). The scope matters and was measured, not assumed: an UNSCOPED override also moves ESLint's own minimatch@3.1.5, and `glob@7` then loses the minimatch 3 API it expects - `eslint \"src/**/*.ts\"` reports \"No files matching the pattern\" and exits 2. [FACT] The minimatch@3.1.5 instance ESLint's chain carries is BELOW the advisory's range (3.x < 7.0.0), so it is not affected by this advisory at all. [FACT] The override is kept: without it the tree still holds 10.2.6, which IS inside the vulnerable range. [FACT] The npm advisory id changed from 1244012 to 1244623 when the database entry was re-published; the GHSA id is unchanged. [FACT] This entry was NOT silenced: `pnpm audit --ignore` and pinning a vulnerable version are both forbidden in this repository, and neither is used."
+        },
         {
           "id": "GHSA-68fv-2mgg-jv7q",
           "npmAdvisoryId": 1241209,
@@ -162,34 +158,29 @@
       ]
     },
     "gm-console": {
-      "auditExitCode": 1,
+      "auditExitCode": 0,
       "counts": {
-        "total": 1,
+        "total": 0,
         "critical": 0,
         "high": 0,
-        "moderate": 1,
+        "moderate": 0,
         "low": 0
       },
-      "open": [
+      "open": [],
+      "resolved": [
         {
           "id": "GHSA-g3hv-75wg-m249",
-          "npmAdvisoryId": 1244012,
+          "npmAdvisoryId": 1244623,
           "module": "minimatch",
           "severity": "moderate",
-          "version": "3.1.5",
-          "vulnerableVersions": "<11.0.1",
+          "version": "10.2.6",
+          "vulnerableVersions": ">=7.0.0 <11.0.1",
           "patchedVersions": ">=11.0.1",
           "tree": "dev",
-          "roots": [
-            "eslint",
-            "@typescript-eslint/eslint-plugin"
-          ],
-          "title": "minimatch has potential denial of service via globparts amplification",
-          "recordedOn": "2026-10-31",
-          "note": "The npm advisory database gained this advisory after the baseline was captured, and the ratchet refused it, which is what the ratchet is for. [FACT] The advisory's vulnerable range is `<11.0.1`, so the only published versions outside it are 11.x. [FACT] The tree carried TWO instances of minimatch: 10.2.6, reached through `@typescript-eslint/typescript-estree`, and 3.1.5, reached through ESLint's own chain (`eslint` -> `@eslint/eslintrc` / `@humanwhocodes/config-array` / `file-entry-cache` -> `flat-cache` -> `rimraf` -> `glob@7`). [FACT] The 10.2.6 instance WAS fixed: a version-scoped `pnpm.overrides` entry (`minimatch@>=10.0.0 <11.0.0` -> `11.0.3`) moves it, and the whole frontend suite stays green with it (lint, typecheck, 672 tests, build - all measured). The SCOPE matters and was not assumed: an UNSCOPED override was tried first and BROKE the linter - with every minimatch at 11.0.3, `eslint \"src/**/*.ts\"` reports \"No files matching the pattern\" and exits 2, because ESLint 8's file enumeration goes through `glob@7`, which needs minimatch 3's API. The scoped selector is what keeps ESLint's chain on 3.1.5. [FACT] The remaining 3.1.5 instance CANNOT be fixed by upgrading ESLint: every published ESLint release depends on a vulnerable minimatch (measured with `pnpm view eslint@<version> dependencies.minimatch`: 8.57.1 -> ^3.1.2, 9.0.0 -> ^3.1.2, 9.38.0 -> ^3.1.2, 10.0.0 -> ^10.1.1), and the advisory's vulnerable range `<11.0.1` covers all of those. [INFERENCE] So the fix to watch for is an ESLint release that depends on minimatch >= 11.0.1 - or ESLint dropping the `glob@7` chain - at which point the scoped override can be widened and this entry can move to `resolved`. [FACT] The vulnerable instance is a development-only dependency (the linter), so it is not in the shipped product's dependency path. [FACT] It was NOT silenced: `pnpm audit --ignore` and `pnpm.overrides` pinning a vulnerable version are both forbidden in this repository, and neither is used here. The entry is a RECORD of a real advisory, and the checker re-verifies it against the npm advisory database on every run."
-        }
-      ],
-      "resolved": [
+          "resolvedOn": "2026-11-04",
+          "resolvedBy": "minimatch 10.2.6 -> 11.0.3 (transitive, via a version-scoped pnpm.overrides pin; the scope is what keeps ESLint's own minimatch@3.1.5 out of it)",
+          "note": "[FACT] The advisory's vulnerable range is `>=7.0.0 <11.0.1`, measured against the npm advisory database on 2026-11-04. On 2026-10-31 the same entry was reported as `<11.0.1`, which is why this entry first named 3.1.5 - a version the database does NOT report, and the ratchet rejected that record as uncorroborated (and correctly so: 3.x is below the advisory's floor). [FACT] The version that WAS in the tree and WAS vulnerable is 10.2.6, reached through `@typescript-eslint/typescript-estree`; it was moved to 11.0.3 by a version-scoped `pnpm.overrides` entry (`minimatch@>=10.0.0 <11.0.0` -> `11.0.3`). The scope matters and was measured, not assumed: an UNSCOPED override also moves ESLint's own minimatch@3.1.5, and `glob@7` then loses the minimatch 3 API it expects - `eslint \"src/**/*.ts\"` reports \"No files matching the pattern\" and exits 2. [FACT] The minimatch@3.1.5 instance ESLint's chain carries is BELOW the advisory's range (3.x < 7.0.0), so it is not affected by this advisory at all. [FACT] The override is kept: without it the tree still holds 10.2.6, which IS inside the vulnerable range. [FACT] The npm advisory id changed from 1244012 to 1244623 when the database entry was re-published; the GHSA id is unchanged. [FACT] This entry was NOT silenced: `pnpm audit --ignore` and pinning a vulnerable version are both forbidden in this repository, and neither is used."
+        },
         {
           "id": "GHSA-mrhx-c7xc-m3w5",
           "npmAdvisoryId": 1243066,

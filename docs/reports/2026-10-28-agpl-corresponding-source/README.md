@@ -2,6 +2,11 @@
 
 > `[FACT]` 本文是一次**本地实测**的记录。2026-10-28。
 > 结论与设计取舍见 `docs/plan/agpl-corresponding-source-msi-dmg.md`。
+>
+> **2026-10-31 更新**：本文记的那个形状（`bundle.resources` 条目）**仍然**不能进
+> per-user 的包——但缺口已经用另一条路闭合了：指引文件作为 `Path` 组件的 File 子
+> 节点，而那个组件的 KeyPath 是 HKCU 注册表值。见
+> `docs/reports/2026-10-31-agpl-peruser-notice/`。
 
 ## 记的是什么
 

@@ -174,7 +174,8 @@ EDITS = [
         '                <RegistryKey Root="HKCU" Key="Software\\Classes\\\\{{protocol}}">\n',
     ),
     (
-        "ICE38: Path component keypath moves from the file to HKCU",
+        "ICE38: Path component keypath moves from the file to HKCU, and the "
+        "Corresponding Source notice rides along in that component",
         '            <Component Id="Path" Guid="{{path_component_guid}}" Win64="$(var.Win64)">\n'
         '                <File Id="Path" Source="{{main_binary_path}}" KeyPath="yes" Checksum="yes"/>\n',
         '            <Component Id="Path" Guid="{{path_component_guid}}" Win64="$(var.Win64)">\n'
@@ -182,7 +183,26 @@ EDITS = [
         "                     must use an HKCU registry value as its KeyPath. -->\n"
         '                <RegistryValue Root="HKCU" Key="Software\\\\{{manufacturer}}\\\\{{product_name}}"\n'
         '                               Name="Path" Type="string" Value="[INSTALLDIR]" KeyPath="yes" />\n'
-        '                <File Id="Path" Source="{{main_binary_path}}" Checksum="yes"/>\n',
+        '                <File Id="Path" Source="{{main_binary_path}}" Checksum="yes"/>\n'
+        "                <!-- AGPL-3.0 section 6(d): the Corresponding Source notice\n"
+        "                     rides along in THIS component, so it installs and\n"
+        "                     uninstalls with the program it belongs to, and so that\n"
+        "                     it needs no component of its own - a component whose\n"
+        "                     KeyPath is a FILE is exactly what ICE38 rejects here.\n"
+        "                     [FACT] Measured, not inferred: a per-user-shaped\n"
+        "                     package whose notice file is a child of an\n"
+        "                     HKCU-keypath component links cleanly (candle exit 0,\n"
+        "                     light exit 0) and the notice is in the MSI's File\n"
+        "                     table, while the old shape exits 204 with LGHT0204\n"
+        "                     (ICE38). The probe lives under\n"
+        "                     docs/reports/2026-10-31-agpl-peruser-notice/.\n"
+        "                     [FACT] The Source path is RELATIVE: candle runs in\n"
+        "                     <out>/wix/<arch> and this file sits in <out>/resources,\n"
+        "                     which is where the bundler copies the icon and which is\n"
+        "                     NOT wiped - the bundler removes <out>/wix/<arch> and\n"
+        "                     nothing else. An absolute path here would bind the\n"
+        "                     generated template to one machine. -->\n"
+        '                <File Id="CorrespondingSourceNotice" Source="../../resources/CORRESPONDING-SOURCE.md" Name="CORRESPONDING-SOURCE.md" Checksum="yes"/>\n',
     ),
     (
         "ICE64: remove ProgramsFolder from a component inside that directory",
@@ -223,9 +243,11 @@ EDITS = [
         "                 [FACT] Measured, not inferred: with the resources\n"
         "                 placeholder present, light.exe fails with LGHT0204 (ICE38)\n"
         "                 and exits 204. [FACT] The per-MACHINE template keeps the\n"
-        "                 placeholder and the notice reaches the per-machine MSI; this\n"
-        "                 variant therefore does not carry it, and that residual gap\n"
-        "                 is recorded in docs/plan/v0-tasks.md. -->\n",
+        "                 placeholder and the notice reaches the per-machine MSI\n"
+        "                 that way; this variant cannot, so the notice reaches the\n"
+        "                 per-user MSI by a different route instead - it is a File\n"
+        "                 child of the Path component, whose KeyPath is an HKCU\n"
+        "                 registry value. -->\n",
     ),
     (
         "ICE38: and no ComponentRef for a resource that is not there",
