@@ -178,6 +178,37 @@ describe('dmg — the job launches the application and checks the exit code', ()
       ).toContain("steps.detect.outputs.gm_desktop_bundle == 'true'");
     }
   });
+
+  it('both steps decide their OWN verdict, with an explicit exit code', () => {
+    // [FACT] The FIRST CI run of the red-path step ended with exit code 1
+    // even though every one of its checks had passed: the only non-zero
+    // exit code in that step was the child's, which is SUPPOSED to be 1
+    // (the application is deliberately not started, so the proof must
+    // fail). The raw log carried no error record at all between the
+    // proof's own last line and GitHub's "Process completed with exit code
+    // 1". Whether the host PowerShell propagates that as the session's
+    // exit code is a property of the runner's PowerShell version and not
+    // of this repository — so the step must not depend on it.
+    for (const step of [redPathStep, launchStep]) {
+      expect(
+        step?.run ?? '',
+        `the step "${step?.name}" has no explicit exit code, so its verdict is whatever the host PowerShell happens to propagate`
+      ).toMatch(/^\s*exit 0\s*$/m);
+    }
+  });
+
+  it('the red-path step does not let the child\'s expected failure become a terminating error', () => {
+    // [FACT] The child is SUPPOSED to exit non-zero here. Under
+    // `$ErrorActionPreference = 'Stop'` a native command that exits
+    // non-zero raises a terminating error when the native-error preference
+    // is on, and the step would abort before it could read the code that
+    // is the whole point of the step. The repository's own PowerShell
+    // scripts switch that preference off for the same reason.
+    expect(
+      redPathStep?.run ?? '',
+      'the red-path step does not switch off the native-error preference'
+    ).toMatch(/\$PSNativeCommandUseErrorActionPreference\s*=\s*\$false/);
+  });
 });
 
 describe('dmg — the script checks the right thing', () => {
