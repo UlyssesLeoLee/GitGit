@@ -306,7 +306,7 @@ Mock 日志确认 Rust 侧确实发出了 `Authorization: Bearer`，且未泄漏
 所以「AI 评审能否流式出字」已经不再是未知项；仍然未知的是**真实厂商端点**的
 行为：鉴权失败形态、限流响应、以及各家 SSE 方言与本仓解析器的差异。
 
-### P2 — 跨平台产物已在 CI 构建并安装验证；`.dmg` 未公证、macOS/Linux 的 GUI 从未运行过
+### P2 — 跨平台产物已在 CI 构建并安装验证；`.dmg` 未公证、Linux 的 GUI 从未运行过
 
 `tauri.conf.json` 声明了 `["msi","dmg","appimage","deb"]` 四种 target，
 此前只有 MSI 被构建过。现已新增 `.github/workflows/gm-desktop-bundle.yml`，
@@ -314,7 +314,7 @@ Mock 日志确认 Rust 侧确实发出了 `Authorization: Bearer`，且未泄漏
 
 | 产物 | runner | 校验方式 |
 |---|---|---|
-| `.dmg` | `macos-latest` | `hdiutil imageinfo` + 只读挂载，断言 app 二进制 ≥ 1 MiB |
+| `.dmg` | `macos-latest` | `hdiutil imageinfo` + 只读挂载，断言 app 二进制 ≥ 1 MiB；**并从挂载卷里真的启动该应用**，断言 webview 报告了「UI 已挂载」 |
 | `.deb` | `ubuntu-latest` | `dpkg-deb --info` / `--contents`，版本必须与 `tauri.conf.json` 一致 |
 | `.appimage` | `ubuntu-latest` | ELF magic + `file` + 5 MiB 下限 |
 | `.deb`（第二道） | `ubuntu:24.04` 容器 | **真机安装**：`apt-get install ./pkg/*.deb` → `dpkg-query` 断言 `install ok installed` → `ldd` 无 `=> not found` → `desktop-file-validate` |
@@ -328,6 +328,50 @@ notarization，会触发 Gatekeeper。Windows 的 4 个 MSI 变体已有签名�
 ——证据是应用自己日志文件里的那一行标记（CI 日志：
 `ok the webview reported that the UI booted: 'GITGIT_UI_BOOT_MARKER_V1 …'`）。
 所以「GUI 从未运行过」这句话如今只对 macOS 与 Linux 成立，见下面 `.deb` 一节的
+`[UNVERIFIED-FACT]`。
+
+`[FACT]` **macOS 上的 GUI 也已经被观测运行过（2026-11-05 起）。** `dmg` 作业把镜像
+**只读挂载**后，**从挂载卷里启动**应用本体（`Contents/MacOS/gm-desktop`），并要求
+webview 在应用**自己的日志文件**里写下带「本次启动一次性 token」的那一行标记。实测
+（run `42032236510`，`dmg (unsigned, ad-hoc app)` 作业全绿）：
+
+```
+==> launch proof for gitgit Desktop_0.1.0_aarch64.dmg (binary 'gm-desktop', identifier 'com.gitgit.desktop')
+    ok  mounted read-only at /var/folders/.../T/gm-desktop-dmg-launch-73d1166eeea4489e855c9bd805c7c5de/volume
+    ok  application bundle: .../volume/gitgit Desktop.app
+    webview-boot marker: GITGIT_UI_BOOT_MARKER_V1 7e5dc073954940659cb54ddea5ce797e
+==> starting '.../volume/gitgit Desktop.app/Contents/MacOS/gm-desktop'; waiting for the webview-boot marker
+    started (pid 22816)
+    ok  the webview reported that the UI booted: '/Users/runner/Library/Logs/com.gitgit.desktop/gitgit Desktop.log'
+    ok  log directory: /Users/runner/Library/Logs/com.gitgit.desktop
+```
+
+`[FACT]` 日志路径 **`/Users/runner/Library/Logs/com.gitgit.desktop/gitgit Desktop.log`**
+与 Tauri 在 macOS 上的 `app_log_dir()`（`~/Library/Logs/<bundle identifier>`）一致；
+该 identifier 是从 `tauri.conf.json` 读出来的，不是写死的。
+
+`[FACT]` **判定逻辑没有第二份实现**：macOS 侧直接 dot-source Windows 侧那一份
+（`apps/gm-desktop/scripts/msi-launch-log.ps1`——文件名里的 `msi` 是历史名，逻辑本身
+与平台无关），两个平台因此不会在「什么算证据」这件事上漂移。标记行带**每次启动
+一次性**的 token（`GITGIT_UI_BOOT_NONCE`），所以应用日志里上一轮留下的标记满足不了
+本轮的门禁。
+
+`[FACT]` **红路径也是证明的一部分**：同一个作业里另有一个 step，**不启动应用**地跑
+一遍证明并**要求它失败**（唯一能写下这枚 token 的进程从未启动，那行标记不可能出现）。
+实测同一个 run 里它报的是 `LAUNCH PROOF FAILED: the webview never reported that the
+UI booted …`，随后 step 自己为绿——证明这条路是**红**的，不是被跳过的。
+
+> `[FACT]` 第一轮 run（`42030461126`）里，这个红路径 step 自己红了（exit 1）而
+> **原始日志里没有任何错误记录**：那一步里唯一的非零退出码是子进程的，而它**本来
+> 就该是 1**。所以它现在自带显式 `exit 0`，并在开头关掉
+> `$PSNativeCommandUseErrorActionPreference`——宿主 PowerShell 会不会把子进程的退出码
+> 传播成会话退出码，是 runner 上 PowerShell 版本的属性，不是本仓的属性。
+
+`[FACT]` **它没有证明窗口看起来对。** macOS 没有 `PrintWindow`，Windows 那条像素
+判据（`apps/gm-desktop/scripts/window-capture.ps1`）不在本条范围内；这一条证明的是
+「应用启动了，并把产品渲染进了 webview」，不是「界面正确」。它不替代视觉回归测试。
+
+所以「GUI 从未运行过」这句话如今**只对 Linux 成立**，见下面 `.deb` 一节的
 `[UNVERIFIED-FACT]`。
 
 #### `.deb` 已在裸机安装通过（2026-10-07，run `37553686524`）

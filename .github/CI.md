@@ -130,7 +130,7 @@
 
 | 平台 | target | runner | 结构校验（判定"产物为真"的依据） | 签名 |
 | --- | --- | --- | --- | --- |
-| macOS | `dmg` | `macos-latest` | `hdiutil imageinfo` 解析镜像 → `hdiutil attach -readonly -nobrowse` **只读挂载** → 断言 `.app` 内 `Contents/MacOS/gm-desktop` ≥ 1 MiB、`Info.plist` 含 manifest 版本 | `[FACT]` **未签名**。`APPLE_SIGNING_IDENTITY=-` 仅为 ad-hoc 签名；**未公证**（notarization 需要 Apple ID / App Store Connect key，本项目没有） |
+| macOS | `dmg` | `macos-latest` | `hdiutil imageinfo` 解析镜像 → `hdiutil attach -readonly -nobrowse` **只读挂载** → 断言 `.app` 内 `Contents/MacOS/gm-desktop` ≥ 1 MiB、`Info.plist` 含 manifest 版本 → **并从挂载卷里真的启动该应用**，断言 webview 报告了「UI 已挂载」（见下节） | `[FACT]` **未签名**。`APPLE_SIGNING_IDENTITY=-` 仅为 ad-hoc 签名；**未公证**（notarization 需要 Apple ID / App Store Connect key，本项目没有） |
 | Linux | `deb` | `ubuntu-latest` | `dpkg-deb --info` 解析 control 字段、`Version:` 必须等于 `tauri.conf.json` → `--contents` 必须含 `usr/bin/gm-desktop` ≥ 1 MiB 与 `.desktop` 条目 | `[FACT]` 不需要签名，也没有任何签名 |
 | Linux | `appimage` | `ubuntu-latest` | 前 4 字节必须是 ELF magic `\x7fELF` + `file(1)` 必须是 64 位 ELF 可执行 + 5 MiB 体积下限 | `[FACT]` 不需要签名 |
 | Linux | `deb`（第二道） | `ubuntu:24.04` **容器** | **真机安装**：见下节 | `[FACT]` 不需要签名 |
@@ -353,6 +353,56 @@ webkit 应用起不来（无 dbus、无 seat），那是与打包无关的失败
 > `-Filter 'gm-desktop'` 匹配不到 `gm-desktop.exe`。本 job 第一次 CI 运行就栽在
 > 这里：装成功了、文件就在 Program Files、脚本却说「没找到」——应用一次都没被启动。
 > 现在文件名从 crate 名派生一次（`"$ExeName.exe"`），文件搜索与进程名都从同一个变量取。
+
+## 打包产物启动证明：macOS `.dmg`（2026-11-05）
+
+`[FACT]` **macOS 的打包产物现在会被真的启动。** `gm-desktop-bundle.yml` 的 `dmg`
+job（**不是新 job** —— 那个名字是被分支保护钉住的 required context
+`dmg (unsigned, ad-hoc app)`，改名会让 PR 永远 pending）把 `.dmg` **只读挂载**，
+从**挂载卷里**启动应用本体，并断言 webview 报告了「UI 已挂载」。
+
+判定与 Windows lane 同源：webview 报告挂载成功时，应用往**自己的日志文件**写
+一行 `GITGIT_UI_BOOT_MARKER_V1`，而这行**带本次启动的一次性 token**（环境变量
+`GITGIT_UI_BOOT_NONCE`，由启动器铸造后交给它启动的子进程）。**判定逻辑没有第二份
+实现**：`verify-dmg-launch.ps1` 直接 dot-source `msi-launch-log.ps1`（文件名里的
+`msi` 是历史名，逻辑本身与平台无关），两个平台因此不会在「什么算证据」这件事上
+漂移。日志目录也不是写死的：`tauri.conf.json` 的 `identifier` 读出来，macOS 上
+Tauri 的 `app_log_dir()` 是 `~/Library/Logs/<identifier>`。
+
+`[FACT]` **实测**（run `42032236510`，`dmg (unsigned, ad-hoc app)` 全绿）：
+
+```
+==> launch proof for gitgit Desktop_0.1.0_aarch64.dmg (binary 'gm-desktop', identifier 'com.gitgit.desktop')
+    ok  mounted read-only at /var/folders/.../volume
+    ok  application bundle: /var/folders/.../volume/gitgit Desktop.app
+    webview-boot marker: GITGIT_UI_BOOT_MARKER_V1 7e5dc073954940659cb54ddea5ce797e
+==> starting '.../volume/gitgit Desktop.app/Contents/MacOS/gm-desktop'; waiting for the webview-boot marker
+    started (pid 22816)
+    ok  the webview reported that the UI booted: '/Users/runner/Library/Logs/com.gitgit.desktop/gitgit Desktop.log'
+    ok  log directory: /Users/runner/Library/Logs/com.gitgit.desktop
+```
+
+`[FACT]` **红路径是证明的一部分，不是可选项。** 同一个 job 里另有一个 step：它
+**不启动应用**地跑一遍证明，并**要求它失败** —— 唯一能写下这枚 token 的进程从未
+启动，那行标记就不可能出现，证明必须变红。「因为什么都没检查到而通过」比没有门禁
+更糟，所以这个 step 明确要求非零退出码，而不是接受一个跳过。
+
+> `[FACT]` 第一轮 CI run（`42030461126`）里这个 step 自己红了（exit 1），而**原始
+> 日志里没有留下任何错误记录** —— 证明的输出与 GitHub 的
+> `Process completed with exit code 1` 之间什么都没有。那一步里唯一的非零退出码是
+> 子进程的，而它**本来就该是 1**（红路径要求证明失败）。宿主 PowerShell 会不会把
+> 子进程的退出码传播成会话退出码，是 runner 上 PowerShell 版本的属性，不是本仓的
+> 属性 —— 所以这个 step 自带显式 `exit 0`，并在开头关掉
+> `$PSNativeCommandUseErrorActionPreference`（仓库自己的 PowerShell 脚本也是这么
+> 做的：否则子进程的非零退出码会在读到它之前就变成一个终止性错误）。
+
+`[FACT]` **它没有证明窗口看起来对。** macOS 没有 `PrintWindow`，Windows lane 的
+像素判据（`window-capture.ps1`）不在本 lane 范围内；本 lane 证明的是「应用启动了，
+并把产品渲染进了 webview」，不是「界面正确」。它不替代视觉回归测试。
+
+`[FACT]` **Linux 容器那一侧没有变。** `deb-install` 依旧刻意不启动窗口：webkit/GTK
+应用在无 dbus、无 seat、无硬件加速的容器里启动失败的原因与打包无关，而这类会误红
+的门禁最终只会被关掉。
 
 ## 触发器定义
 

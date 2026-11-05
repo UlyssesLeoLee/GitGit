@@ -251,6 +251,99 @@ jobs:
             --target dmg \
             --dir apps/gm-desktop/src-tauri/target/release/bundle/dmg
 
+      # ── the application inside the image is LAUNCHED ──────────────────────
+      #
+      # [FACT] Everything above is a statement about the PACKAGE: the image
+      # parses, it mounts, the `.app` inside it holds a real Mach-O binary
+      # and the manifest's version. The application inside it had never been
+      # started on any machine, and the repository said so in plain words
+      # (README.md: the macOS/Linux GUI has never run).
+      #
+      # [FACT] The Windows lane had already broken that symmetry:
+      # `verify-msi-launch.ps1` installs the packaged application, launches
+      # it and waits for the webview to report that it booted. The same
+      # question can be asked of the macOS artefact, and `macos-latest` has a
+      # window server (Xcode UI tests run there), so it is asked here.
+      #
+      # The two steps below are the macOS counterpart of that proof, and
+      # they are deliberately TWO steps: the first one proves the check can
+      # go red, the second one is the check itself.
+      #
+      # [FACT] The red path comes FIRST on purpose. If the application
+      # cannot be started on the runner at all, that is a finding and the
+      # job is red either way — but the red-path proof is what says the
+      # check is a check and not a step that quietly succeeds.
+      - name: Prove the launch proof fails when the application never starts
+        if: steps.detect.outputs.gm_desktop_bundle == 'true'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          # The child's exit code is the VERDICT here, and it is SUPPOSED to
+          # be non-zero. So the two things that could swallow it are turned
+          # off first: the native-error preference (a non-zero exit from a
+          # native command would otherwise raise a terminating error under
+          # `$ErrorActionPreference = 'Stop'`, before the code is even
+          # read) and the host's exit-code propagation (see the `exit 0` at
+          # the end of this step).
+          if (Get-Variable -Name PSNativeCommandUseErrorActionPreference -ErrorAction SilentlyContinue) {
+            $PSNativeCommandUseErrorActionPreference = $false
+          }
+          $dmg = Get-ChildItem -Path 'apps/gm-desktop/src-tauri/target/release/bundle/dmg' -Filter '*.dmg' -File | Select-Object -First 1
+          if (-not $dmg) { throw 'no .dmg was built, so there is nothing to launch' }
+          $stdout = Join-Path ([System.IO.Path]::GetTempPath()) 'dmg-launch-redpath.out'
+          $stderr = Join-Path ([System.IO.Path]::GetTempPath()) 'dmg-launch-redpath.err'
+          # The child's own exit code is the verdict. Its output goes to
+          # FILES rather than being merged into this shell's streams, so
+          # that a line on its stderr cannot be turned into a terminating
+          # error here and mask the exit code this step is about to read.
+          pwsh -NoProfile -File apps/gm-desktop/scripts/verify-dmg-launch.ps1 -DmgPath $dmg.FullName -SelfTestRedPath -MarkerTimeoutSeconds 10 > $stdout 2> $stderr
+          $code = $LASTEXITCODE
+          Get-Content -LiteralPath $stdout -ErrorAction SilentlyContinue
+          Get-Content -LiteralPath $stderr -ErrorAction SilentlyContinue
+          if ($code -eq 0) {
+            throw 'the launch proof PASSED without ever starting the application - it would pass on a machine with no application at all'
+          }
+          if ($code -ne 1) {
+            throw "the launch proof exited $code, which is a setup error rather than the proof failure this step expects"
+          }
+          $redPathOutput = Get-Content -LiteralPath $stdout -Raw
+          if ($redPathOutput -notmatch 'LAUNCH PROOF FAILED') {
+            throw 'the launch proof failed without printing the LAUNCH PROOF FAILED message, so the failure would be unreadable'
+          }
+          # [FACT] The step ends with an explicit `exit 0`, and that is
+          # load-bearing rather than decoration. The FIRST CI run of this
+          # step ended with exit code 1 even though every one of its checks
+          # had passed, and the raw log carried no error record at all
+          # between the proof's own last line and GitHub's
+          # "Process completed with exit code 1": the only non-zero exit
+          # code in the step was the child's, which is SUPPOSED to be 1.
+          # Whether the host PowerShell propagates that as the session's
+          # exit code is a property of the runner's PowerShell version and
+          # not of this repository, so this step does not depend on it: it
+          # decides its own verdict and says so.
+          exit 0
+
+      - name: Launch the application from the mounted .dmg and assert the webview booted
+        if: steps.detect.outputs.gm_desktop_bundle == 'true'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if (Get-Variable -Name PSNativeCommandUseErrorActionPreference -ErrorAction SilentlyContinue) {
+            $PSNativeCommandUseErrorActionPreference = $false
+          }
+          $dmg = Get-ChildItem -Path 'apps/gm-desktop/src-tauri/target/release/bundle/dmg' -Filter '*.dmg' -File | Select-Object -First 1
+          if (-not $dmg) { throw 'no .dmg was built, so there is nothing to launch' }
+          # Shelled out to `pwsh -File` rather than invoked with `&`, so the
+          # script's exit code lands in $LASTEXITCODE and the explicit check
+          # below is live code.
+          pwsh -NoProfile -File apps/gm-desktop/scripts/verify-dmg-launch.ps1 -DmgPath $dmg.FullName
+          if ($LASTEXITCODE -ne 0) { throw "verify-dmg-launch.ps1 exited $LASTEXITCODE" }
+          # The verdict is this step's own, not the child's: the step has
+          # just checked that code, and it says so itself rather than
+          # leaving the session's exit code to whatever the host PowerShell
+          # propagates. (See the red-path step above for why that matters.)
+          exit 0
+
       # The artifact name comes from the manifest the verify step wrote, so it
       # cannot drift from what was actually built. A missing or versionless
       # manifest fails here rather than producing an artifact named
