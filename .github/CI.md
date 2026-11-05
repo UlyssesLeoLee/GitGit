@@ -354,6 +354,78 @@ webkit 应用起不来（无 dbus、无 seat），那是与打包无关的失败
 > 这里：装成功了、文件就在 Program Files、脚本却说「没找到」——应用一次都没被启动。
 > 现在文件名从 crate 名派生一次（`"$ExeName.exe"`），文件搜索与进程名都从同一个变量取。
 
+## 窗口像素断言：窗口不是一块白板（2026-11-04）
+
+`[FACT]` **`msi-launch` 现在断言窗口里的**像素**，不只是窗口存在。**
+「窗口句柄非零 + webview 启动标记」这两条，白页 + 标题栏、启动闪屏、
+报错页、Windows 崩溃对话框**全都满足**——而这四种恰恰是这道 job 要抓的失败。
+
+`[FACT]` **判据是产品特有的，不是「不是纯色」。** 两条，必须同时成立：
+
+1. 捕获里必须有产品自己的**强调色**像素。强调色不是写死的，而是从产品自己的
+   `tailwind.config.js` 里读出来的（`#22c55e` / `#16a34a` / `#15803d`），
+   所以判据不会和实际发布的调色板脱节。
+2. 捕获里必须有**多于一个色块**（每通道 4 bit 量化后 ≥ 12 块），
+   所以「一整片品牌色」的闪屏也过不了。
+
+> `[FACT]` **只取饱和的那几档强调色。** 实测 2026-11-04：Windows 11 标题栏画的是
+> `#F3F3FF`，而产品最浅的一档强调色 `#f0fdf4` 距它每通道 ≤ 12 —— 一个完全没有产品的
+> 空窗口也能匹配上（实测匹配 39713 像素）。`#22c55e` / `#16a34a` / `#15803d` 在
+> 同一张空窗口上的匹配数是 0。
+
+实测（**runner**：`windows-latest`，2026-11-05 UTC，打包后的 `.msi` 装出来的那一份）：
+
+| 捕获方式 | 尺寸 | 不同颜色数 | 色块数 | 强调色像素 |
+| --- | --- | --- | --- | --- |
+| `PrintWindow(PW_CLIENTONLY\|PW_RENDERFULLCONTENT)` | 1044x788 | 2835 | 773 | **8010** |
+| `PrintWindow(PW_RENDERFULLCONTENT)` | 1044x788 | 2965 | — | 8010 |
+| `PrintWindow(PW_CLIENTONLY)` | 1044x788 | 2 | — | 0 |
+| `PrintWindow(0)` | 1044x788 | 497 | — | 0 |
+| **故意空白窗口（负对照）** | 1280x800 | **2** | **2** | **0** |
+
+同一套判据在开发机（Windows 11，2026-11-04，打包后的 release 二进制）上的数：
+
+| 捕获方式 | 尺寸 | 不同颜色数 | 色块数 | 强调色像素 |
+| --- | --- | --- | --- | --- |
+| `PrintWindow(PW_CLIENTONLY\|PW_RENDERFULLCONTENT)` | 1296x839 | 620 | 173 | 6753 |
+| `PrintWindow(PW_RENDERFULLCONTENT)` | 1296x839 | 752 | 203 | 6753 |
+| `PrintWindow(PW_CLIENTONLY)` | 1296x839 | 2 | 2 | 0 |
+| `PrintWindow(0)` | 1296x839 | 372 | 111 | 0 |
+| **故意空白窗口（负对照）** | 1280x800 | **2** | **2** | **0** |
+
+`[FACT]` **门限：强调色 ≥ 150 像素、色块 ≥ 12。** runner 上实测 8010 / 773，
+分别是门限的 53 倍与 64 倍；空白对照是 0 / 2，两条都不过。
+
+`[FACT]` **`PW_CLIENTONLY` 单独用抓不到 webview。** WebView2 走 DirectComposition，
+只有 DWM 路径（`PW_RENDERFULLCONTENT`）才问合成器要屏幕上的内容。
+所以四种策略按「DWM 优先」排序逐个试，取强调色像素最多的那一帧。
+（runner 与开发机上都是 `PW_CLIENTONLY` 抓成 2 色、0 强调色像素。）
+
+`[FACT]` **job 自己带负对照。** 每次跑 `msi-launch` 都会先用**同一条捕获路径**
+抓一张**故意空白**的窗口（一个没有内容的顶层窗口），并断言同一套判据**拒绝**它；
+拒绝不了，这道 job 直接判失败。所以「这条判据能变红」不是承诺，是每次运行都在做的事实。
+runner 上 2026-11-05 实测：负对照 `0 accent pixels, 2 distinct colours, 2 colour regions, 1280x800`
+→ 被拒绝；应用窗口 `8010 accent pixels, 2835 distinct colours, 773 colour regions, 1044x788`
+→ 通过。
+
+`[FACT]` **整条脚本的红路径也实测过。** 把判据临时指向一个产品并不使用的颜色
+（`tailwind.config.js` 的强调色临时改成 `#ff00ff`，随后还原），
+`verify-msi-launch.ps1` 退出码 1，并打印：
+「expected: at least 150 pixels of the product's accent colour and at least 12 colour regions.
+measured: 0 accent pixels, 620 distinct colours, 173 colour regions, 1296x839.
+The capture is at '…/window.png'」——门限、数值与截图路径都在。
+
+`[FACT]` **判据本身每个 PR 都被测一次。** 决定逻辑放在
+`apps/gm-desktop/scripts/window-capture.ps1`（无副作用），由
+`apps/gm-desktop/scripts/test-window-capture.ps1` 用合成捕获驱动，
+而 `gate` workflow（每个 PR 都跑）执行它。合成用例覆盖四种必须被拒绝的失败：
+纯白页面、整片品牌色的闪屏、纯白页面 + 原生标题栏、报错页。
+
+`[FACT]` **两张 PNG 会作为 artefact 留下。** `msi-launch-evidence/window.png`
+（应用窗口）与 `msi-launch-evidence/blank-control.png`（空白对照），
+由 `actions/upload-artifact@v4` 上传，保留 7 天。判红时第一张就是
+「窗口到底显示了什么」的答案。
+
 ## 触发器定义
 
 > `[FACT]` 2026-10-24 核验：下表逐字段核对自**六个** workflow 的 `on:` 块，不是凭印象写的。
