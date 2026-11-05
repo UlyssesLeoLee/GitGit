@@ -110,6 +110,8 @@ param(
     [string]$ExeName,
     [int]$TimeoutSeconds = 90,
     [int]$MarkerTimeoutSeconds = 60,
+    [int]$SettleSeconds = 4,
+    [string]$EvidenceDir,
     [switch]$KeepLogs
 )
 
@@ -134,6 +136,17 @@ if (-not (Test-Path -LiteralPath $launchLogHelper)) {
 }
 . $launchLogHelper
 
+# The other half — capturing the window's pixels and deciding whether they
+# show the product — lives in `window-capture.ps1`, for the same reason and
+# with the same consequence: `test-window-capture.ps1` exercises the
+# decision on every pull request, without an MSI and without a desktop.
+$windowCaptureHelper = Join-Path $PSScriptRoot 'window-capture.ps1'
+if (-not (Test-Path -LiteralPath $windowCaptureHelper)) {
+    Write-Error "LAUNCH PROOF FAILED: the window-capture helper '$windowCaptureHelper' is not there"
+    exit 2
+}
+. $windowCaptureHelper
+
 if (-not (Test-Path -LiteralPath $Msi)) {
     Write-Error "LAUNCH PROOF FAILED: the package '$Msi' is not there"
     exit 2
@@ -153,6 +166,20 @@ if (-not $ExeName) {
     $ExeName = $nameLine.Matches[0].Groups[1].Value
 }
 Write-Step "launch proof for $(Split-Path -Leaf $Msi) (executable '$ExeName')"
+
+# --- the colour the capture is measured against ------------------------------
+# [FACT] The accent colour is read out of the product's own Tailwind
+# configuration rather than written down here, so the check cannot drift away
+# from the palette the application actually ships. A palette that could not
+# be read is a setup error, not a pass.
+$tailwindConfig = Join-Path $repoRoot 'apps/gm-desktop/tailwind.config.js'
+try {
+    $accentColors = @(Get-ProductAccentColors -TailwindConfigPath $tailwindConfig)
+} catch {
+    Write-Error "LAUNCH PROOF FAILED: the product's accent palette could not be read: $_"
+    exit 2
+}
+Write-Host ("    accent palette checked for: " + (($accentColors | ForEach-Object { $_.Hex }) -join ' '))
 
 # --- the identity the application's log file is found under -------------------
 # [FACT] `tauri-plugin-log`'s `LogDir` target resolves to Tauri's
@@ -340,6 +367,103 @@ try {
         exit 1
     }
     Write-Ok "the webview reported that the UI booted: '$(Split-Path -Leaf $markerFile)'"
+
+    # --- and did the window show the PRODUCT? -----------------------------
+    # [FACT] The boot marker says the webview's JavaScript ran. It does not
+    # say what the user would SEE. A webview that loaded nothing, a webview
+    # that showed an error page and a native crash dialog all produce the
+    # same window handle, the same title and the same boot marker, and all
+    # three are failures this proof is supposed to catch.
+    #
+    # [FACT] So the window is captured and the PIXELS are measured. The
+    # criterion is product-specific: the capture has to contain the
+    # product's own accent colour — read out of `tailwind.config.js`, not
+    # written down here — and more than one colour region, so that neither
+    # a blank page nor a flat splash screen can satisfy it.
+    Write-Step 'capturing the window and measuring its pixels'
+    if (-not $EvidenceDir) {
+        $EvidenceDir = Join-Path $repoRoot 'msi-launch-evidence'
+    }
+    New-Item -ItemType Directory -Path $EvidenceDir -Force | Out-Null
+    $windowShot = Join-Path $EvidenceDir 'window.png'
+    $blankShot = Join-Path $EvidenceDir 'blank-control.png'
+
+    # [FACT] The marker is written by the webview BEFORE the route content
+    # is rendered (`App.svelte` awaits the marker and only then sets
+    # `booted`), so the capture is taken a few seconds after the marker
+    # rather than the instant it appears. Without the pause the capture can
+    # catch the boot spinner instead of the product.
+    if ($SettleSeconds -gt 0) {
+        Start-Sleep -Seconds $SettleSeconds
+    }
+
+    # --- the negative control, first ---------------------------------------
+    # [FACT] A capture of a deliberately blank surface, through the same
+    # path and decided by the same function, has to be REJECTED. If it were
+    # not, the check below would be proving nothing, and it would be proving
+    # it in the same run that reports the result.
+    $blankEvidence = Get-BlankControlEvidence -Width 1280 -Height 800 -AccentColors $accentColors
+    if ($null -eq $blankEvidence.Capture) {
+        Write-Error ("LAUNCH PROOF FAILED: the blank control window could not be captured (" +
+                     "$($blankEvidence.Verdict.Measured)), so the capture path itself could not be " +
+                     "shown to work")
+        exit 2
+    }
+    $blankMeasurement = $blankEvidence.Measurement
+    $blankVerdict = $blankEvidence.Verdict
+    try {
+        Save-CapturedPng -Pixels $blankEvidence.Capture.Pixels -Width $blankEvidence.Capture.Width `
+            -Height $blankEvidence.Capture.Height -Path $blankShot | Out-Null
+    } catch { }
+    Write-Host ("    blank control: {0} accent pixels, {1} distinct colours, {2} colour regions, {3}x{4}" -f
+        $blankMeasurement.AccentPixels, $blankMeasurement.DistinctColours,
+        $blankMeasurement.ColourRegions, $blankEvidence.Capture.Width, $blankEvidence.Capture.Height)
+    if ($blankVerdict.Passed) {
+        Write-Error ("LAUNCH PROOF FAILED: the capture path accepted a deliberately BLANK window " +
+                     "(measured: $($blankVerdict.Measured)), so accepting the application's window " +
+                     "would prove nothing. The capture is at '$blankShot'.")
+        exit 1
+    }
+    Write-Ok "the capture path rejects a blank window ($($blankVerdict.Reason))"
+
+    # --- and now the application's own window ------------------------------
+    $evidence = Get-WindowCaptureEvidence -Handle $handle -AccentColors $accentColors
+    foreach ($candidate in $evidence.Candidates) {
+        if (-not $candidate.Ok) {
+            Write-Note ("    {0}: failed ({1})" -f $candidate.Strategy, $candidate.Error)
+            continue
+        }
+        Write-Note ("    {0}: {1}x{2}, {3} distinct colours, {4} accent pixels" -f
+            $candidate.Strategy, $candidate.Width, $candidate.Height,
+            $candidate.DistinctColours, $candidate.AccentPixels)
+    }
+    if ($null -eq $evidence.Capture) {
+        Write-Error ("LAUNCH PROOF FAILED: the application's window could not be captured at all " +
+                     "(every capture strategy failed), so nothing can be said about what it shows")
+        exit 1
+    }
+    try {
+        Save-CapturedPng -Pixels $evidence.Capture.Pixels -Width $evidence.Capture.Width `
+            -Height $evidence.Capture.Height -Path $windowShot | Out-Null
+        Write-Note "    capture kept at $windowShot"
+    } catch {
+        Write-Note "    the capture could not be written to '$windowShot': $_"
+    }
+    Write-Host ("    measured: {0} accent pixels, {1} distinct colours, {2} colour regions, {3}x{4} (via {5})" -f
+        $evidence.Measurement.AccentPixels, $evidence.Measurement.DistinctColours,
+        $evidence.Measurement.ColourRegions, $evidence.Capture.Width,
+        $evidence.Capture.Height, $evidence.Capture.Strategy)
+    Write-Host ("    palette:  " + (Get-TopColourSummary -Measurement $evidence.Measurement))
+
+    if (-not $evidence.Verdict.Passed) {
+        Write-Error ("LAUNCH PROOF FAILED: the application's window was captured, but the capture does " +
+                     "not show the product - $($evidence.Verdict.Reason). " +
+                     "expected: $($evidence.Verdict.Expected). " +
+                     "measured: $($evidence.Verdict.Measured). " +
+                     "The capture is at '$windowShot'.")
+        exit 1
+    }
+    Write-Ok "the window shows the product: $($evidence.Verdict.Measured)"
 
     # --- and it did not start a second copy ------------------------------
     $copies = @(Get-Process -Name ([System.IO.Path]::GetFileNameWithoutExtension($exeFile)) -ErrorAction SilentlyContinue)

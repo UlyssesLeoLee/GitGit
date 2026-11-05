@@ -793,3 +793,23 @@ jobs:
           if (-not $msi) { throw 'no perMachine .msi was downloaded' }
           pwsh -NoProfile -File ./apps/gm-desktop/scripts/verify-msi-launch.ps1 -Msi $msi.FullName
           if ($LASTEXITCODE -ne 0) { throw "verify-msi-launch.ps1 exited $LASTEXITCODE" }
+
+      # The window capture is evidence, so it is kept.
+      #
+      # [FACT] `verify-msi-launch.ps1` writes two PNGs: the application's
+      # window, and the deliberately blank control window it captured to
+      # show that the capture path rejects a blank surface. When the check
+      # goes red, the first of them is the answer to "what did the window
+      # actually show?", and a human can look at it.
+      #
+      # [FACT] `if: always()` rather than `if: failure()`: a passing run's
+      # capture is the reference the next red run is compared against, and
+      # the file is a few tens of kilobytes.
+      - name: Keep the window captures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: msi-launch-window-capture
+          path: msi-launch-evidence/
+          if-no-files-found: warn
+          retention-days: 7
