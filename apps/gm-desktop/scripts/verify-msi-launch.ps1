@@ -473,11 +473,18 @@ try {
 }
 finally {
     # --- stop it ---------------------------------------------------------
-    Get-Process -Name ([System.IO.Path]::GetFileNameWithoutExtension($exeFile)) -ErrorAction SilentlyContinue |
-        ForEach-Object {
-            Write-Note "stopping pid $($_.Id)"
-            try { $_.Kill() } catch { }
-        }
+    # [FACT] `$exeFile` is still null when the install itself failed, and
+    # `Get-Process -Name $null` throws an argument-validation error that
+    # REPLACES the real reason: the operator would see "cannot validate
+    # argument on parameter 'Name'" instead of "msiexec /i exited 1603".
+    # The stop is skipped when there is nothing to stop.
+    if ($exeFile) {
+        Get-Process -Name ([System.IO.Path]::GetFileNameWithoutExtension($exeFile)) -ErrorAction SilentlyContinue |
+            ForEach-Object {
+                Write-Note "stopping pid $($_.Id)"
+                try { $_.Kill() } catch { }
+            }
+    }
     Start-Sleep -Seconds 2
 
     # --- and remove the package ------------------------------------------
