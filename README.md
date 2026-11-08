@@ -124,11 +124,15 @@ MVP 需求数演进：45（Phase 9 初始）→ **37**（Phase 9 按最小完整
 
 ## 状态
 
-**Baseline v1.0**（Phase 1–13 主程序完成，Phase 14 IPA 合规补充、Phase 15 终审验收已并入）。
+**Baseline v1.1**（Phase 1–13 主程序完成，Phase 14 IPA 合规补充、Phase 15 终审验收、Phase 16 sync（2026-09-01）已并入）。
 
 明确排除在本基线范围之外的内容：具体实现代码、UI 线框图/原型、法律与许可证审查、benchmark 实测数据、市场定位（Go-to-Market）决策、正式 ADR 文档产出物。这些留待后续阶段处理。
 
-已知悬而未决的最重要一条：整个程序**全程没有人类干系人正式签核环节**（Phase 14 finding F14-7，对照 IPA 共通フレーム 的流程要求属于真实缺口），已记录为需人类决策的开放问题，无法靠继续编辑文档解决。
+`[FACT]` **F14-7（整个程序全程没有人类干系人正式签核环节）已在 Phase 16 sync（2026-09-01）中关闭**，
+证据见 [`docs_archive_rust_impl_2026_08_26/process/F14-7-signoff-gap.md`](docs_archive_rust_impl_2026_08_26/process/F14-7-signoff-gap.md)：Ulysses
+（一人公司 12 角色，per DEC-008）已对全部 8 份评审记录模板完成签核（per 8/27 19:39/20:56/21:59
+JST 三次强化 代签授权），见 commit `b11f6c5`。本段早先把 F14-7 记作「需人类决策的开放问题」，
+那是 Baseline v1.0 时的状态；**当前的开放问题以主文档 §54 为准**。
 
 ---
 
