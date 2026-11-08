@@ -143,6 +143,31 @@ jobs:
         shell: pwsh
         run: pwsh -NoProfile -File apps/gm-desktop/scripts/test-msi-launch-log.ps1
 
+      # The PIXEL half of the packaged-app launch proof has to be able to
+      # FAIL as well.
+      #
+      # [FACT] `verify-msi-launch.ps1` now captures the application's window
+      # and asserts that the pixels show the product rather than a blank
+      # rectangle. The decision lives in
+      # `apps/gm-desktop/scripts/window-capture.ps1`, which has no side
+      # effects, so it is exercised here with synthetic captures — no MSI,
+      # no Windows desktop, no application.
+      #
+      # [FACT] The cases are the failures the check exists to catch: a flat
+      # white surface, a flat splash screen in the accent colour, a white
+      # page with the native title bar around it, and the REAL fallback
+      # composition - the application's shell, with its accent-coloured
+      # controls, and an error card where the route content should be. A
+      # check that has never been fed those is not known to be a check.
+      #
+      # [FACT] The error case models the real composition because the shell
+      # paints accent-coloured controls of its own: a whole-window
+      # measurement of the accent colour is satisfied by an error screen,
+      # so the accent colour is counted in the ROUTE CONTENT AREA only.
+      - name: The launch proof rejects a window that does not show the product
+        shell: pwsh
+        run: pwsh -NoProfile -File apps/gm-desktop/scripts/test-window-capture.ps1
+
       # Both frontends' static checks. These are the checks a pull request
       # that touches only a frontend would otherwise get from the
       # path-filtered workflow — here they run for every pull request.

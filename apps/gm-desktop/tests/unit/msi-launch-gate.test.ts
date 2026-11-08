@@ -40,8 +40,11 @@ import { parse } from 'yaml';
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', '..');
 const WORKFLOW = join(REPO_ROOT, '.github', 'workflows', 'gm-desktop.yml');
+const GATE_WORKFLOW = join(REPO_ROOT, '.github', 'workflows', 'gate.yml');
 const LAUNCH_SCRIPT = join(REPO_ROOT, 'apps', 'gm-desktop', 'scripts', 'verify-msi-launch.ps1');
 const INSTALL_SCRIPT = join(REPO_ROOT, 'apps', 'gm-desktop', 'scripts', 'verify-msi-install.ps1');
+const CAPTURE_HELPER = join(REPO_ROOT, 'apps', 'gm-desktop', 'scripts', 'window-capture.ps1');
+const CAPTURE_TEST = join(REPO_ROOT, 'apps', 'gm-desktop', 'scripts', 'test-window-capture.ps1');
 
 type Step = {
   name?: string;
@@ -58,14 +61,24 @@ const doc = parse(readFileSync(WORKFLOW, 'utf8')) as {
   }>;
 };
 
+// The always-running gate lives in its own workflow, so it is parsed from
+// its own file: the pixel decision is only worth anything if it is
+// exercised on every pull request, and that is the `gate` job's business.
+const gateDoc = parse(readFileSync(GATE_WORKFLOW, 'utf8')) as {
+  jobs: Record<string, { steps?: Step[] }>;
+};
+
 const launchJob = doc.jobs['msi-launch'];
 const installJob = doc.jobs['msi-install'];
 
 const scriptExists = existsSync(LAUNCH_SCRIPT);
 const script = scriptExists ? readFileSync(LAUNCH_SCRIPT, 'utf8') : '';
+const helper = existsSync(CAPTURE_HELPER) ? readFileSync(CAPTURE_HELPER, 'utf8') : '';
+const captureTest = existsSync(CAPTURE_TEST) ? readFileSync(CAPTURE_TEST, 'utf8') : '';
 
 const launchRuns = (launchJob?.steps ?? []).map((s) => s.run ?? '').join('\n');
 const installRuns = (installJob?.steps ?? []).map((s) => s.run ?? '').join('\n');
+const gateRuns = (gateDoc.jobs['gate']?.steps ?? []).map((s) => s.run ?? '').join('\n');
 
 describe('msi-launch — the job exists and tests the packaged artefact', () => {
   it('found the job', () => {
@@ -196,5 +209,148 @@ describe('msi-launch — the script checks the right thing', () => {
       script,
       'the script does not uninstall the package it installed'
     ).toMatch(/'\/x'/);
+  });
+});
+
+/**
+ * The pixel half.
+ *
+ * A window handle and a boot marker are both true of a window that shows
+ * NOTHING: `MainWindowHandle` is non-zero for a window that was created and
+ * never drawn, and the boot marker only says that the webview's JavaScript
+ * ran. A white page with a title bar, a splash screen, an error screen and
+ * a native crash dialog all satisfy those two assertions, and all four are
+ * failures this job exists to catch.
+ *
+ * So the window is captured and the pixels are measured, and the criterion
+ * has to be PRODUCT-SPECIFIC — "not one flat colour" is satisfied by every
+ * one of those failures.
+ */
+describe('msi-launch — the window is asserted to show more than a blank rectangle', () => {
+  it('the capture helper and its test are there', () => {
+    expect(
+      existsSync(CAPTURE_HELPER),
+      'apps/gm-desktop/scripts/window-capture.ps1 is missing, so nothing can capture the window'
+    ).toBe(true);
+    expect(
+      existsSync(CAPTURE_TEST),
+      'apps/gm-desktop/scripts/test-window-capture.ps1 is missing, so the decision is never shown to fail'
+    ).toBe(true);
+  });
+
+  it('the launch proof captures the window and measures its pixels', () => {
+    expect(
+      script,
+      'the script does not capture the window at all'
+    ).toMatch(/Get-WindowCaptureEvidence/);
+    expect(
+      script,
+      'the script captures the window but never acts on the verdict about its pixels'
+    ).toMatch(/\.Verdict\.Passed/);
+    expect(
+      script,
+      'the script does not save the capture, so nobody can look at what the window showed'
+    ).toMatch(/Save-CapturedPng/);
+  });
+
+  it('the criterion is product-specific, not "not one flat colour"', () => {
+    // [FACT] The accent colour is READ OUT of the product's own Tailwind
+    // configuration rather than written down, so the check cannot drift away
+    // from the palette the application ships.
+    expect(
+      script,
+      "the script does not read the accent palette out of the product's own configuration"
+    ).toMatch(/Get-ProductAccentColors/);
+    expect(
+      script,
+      'the script does not check the capture for the accent colour'
+    ).toMatch(/AccentColors/);
+  });
+
+  it('the accent colour is counted in the ROUTE CONTENT area, not the whole window', () => {
+    // [FACT] The application is a SHELL - a `w-56` sidebar and a `h-12`
+    // header - around the area the route renders into, and the shell paints
+    // accent-coloured controls of its own: the selected theme and locale
+    // toggles in the sidebar, and the header's primary button.
+    //
+    // Measured 2026-11-05 on a capture of the running application: the
+    // shell alone supplied 4489 accent pixels against a threshold of 150,
+    // so a WHOLE-WINDOW measurement of the accent colour is satisfied by a
+    // screen whose route content shows an error boundary. The accent
+    // evidence has to come from the route content area.
+    expect(
+      helper,
+      'the capture helper does not measure the route content area at all'
+    ).toMatch(/Get-RouteContentRegion/);
+    expect(
+      helper,
+      'the capture helper does not read the shell size, so the route content area cannot be located'
+    ).toMatch(/Get-ProductShellLayout/);
+    expect(
+      script,
+      'the script does not pass the shell layout to the capture, so the accent colour is counted over the whole window'
+    ).toMatch(/-Layout/);
+  });
+
+  it('the synthetic error case models the REAL fallback composition', () => {
+    // [FACT] The previous case was a white surface with red text, which is
+    // not what the application looks like when a route throws: the shell is
+    // still there, with its accent-coloured controls, and only the route
+    // content is replaced. The case has to reproduce that, and be shown to
+    // fail — a threshold the real error screen satisfies is not a threshold.
+    expect(
+      captureTest,
+      'the synthetic test does not build the real fallback composition'
+    ).toMatch(/ErrorFallback/);
+    expect(
+      captureTest,
+      'the synthetic test does not assert that the real error composition is rejected'
+    ).toMatch(/error composition is rejected/);
+    expect(
+      captureTest,
+      'the synthetic test does not show that a whole-window measurement would have accepted the error composition'
+    ).toMatch(/whole-window measurement would have accepted/);
+  });
+
+  it('the capture path is shown to reject a blank window, in the same run', () => {
+    // A check that has never been fed a failure is not known to be a check.
+    // The blank control is a real window captured through the real capture
+    // path, and the same decision has to reject it.
+    expect(
+      script,
+      'the script does not capture a deliberately blank surface'
+    ).toMatch(/Get-BlankControlEvidence/);
+    expect(
+      script,
+      'the script does not assert that the blank surface is rejected'
+    ).toMatch(/blankVerdict/);
+  });
+
+  it('the decision is exercised on every pull request', () => {
+    expect(
+      gateRuns,
+      'the always-running gate does not run the window-capture test, so the decision is never shown to fail'
+    ).toContain('test-window-capture.ps1');
+  });
+
+  it('the capture is kept, so a red run can be looked at', () => {
+    const upload = (launchJob?.steps ?? []).find((s) =>
+      (s.uses ?? '').startsWith('actions/upload-artifact@')
+    );
+    expect(upload, 'the job does not keep the window capture').toBeDefined();
+    expect(
+      String(upload?.with?.path ?? ''),
+      'the artefact does not point at the directory the capture is written to'
+    ).toContain('msi-launch-evidence');
+  });
+
+  it('the assertions that were already there are still there', () => {
+    // The pixel check is ADDITIVE. The window handle, the title, the boot
+    // marker and the single-instance check all stay: the pixels say what
+    // the window shows, and the rest says that the application started.
+    expect(script, 'the window handle check is gone').toMatch(/MainWindowHandle/);
+    expect(script, 'the window title check is gone').toMatch(/MainWindowTitle/);
+    expect(script, 'the boot marker check is gone').toMatch(/Find-BootMarkerInLogs/);
+    expect(script, 'the single-instance check is gone').toMatch(/Get-Process -Name/);
   });
 });
