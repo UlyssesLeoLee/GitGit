@@ -181,6 +181,28 @@ try {
 }
 Write-Host ("    accent palette checked for: " + (($accentColors | ForEach-Object { $_.Hex }) -join ' '))
 
+# --- the shell around the route content area --------------------------------
+# [FACT] The accent colour is counted in the ROUTE CONTENT AREA - the client
+# area less the sidebar and the header - because the shell paints
+# accent-coloured controls of its own. Measured 2026-11-05 on the development
+# machine: the shell alone supplied 4489 accent pixels against a threshold of
+# 150, so a whole-window measurement of the accent colour is satisfied by a
+# screen whose route content shows an error boundary.
+#
+# The shell's size is read out of the product's OWN components, so a layout
+# change cannot leave this measuring the wrong area.
+$sidebarSource = Join-Path $repoRoot 'apps/gm-desktop/src/lib/components/Sidebar.svelte'
+$statusBarSource = Join-Path $repoRoot 'apps/gm-desktop/src/lib/components/ServerStatusBar.svelte'
+try {
+    $layout = Get-ProductShellLayout -SidebarSourcePath $sidebarSource -StatusBarSourcePath $statusBarSource
+} catch {
+    Write-Error "LAUNCH PROOF FAILED: the product's shell layout could not be read: $_"
+    exit 2
+}
+Write-Host ("    route content area starts after the shell: " +
+    "$($layout.SidebarWidthPx)x$($layout.HeaderHeightPx) CSS pixels " +
+    "(sidebar w-$($layout.SidebarUnits), header h-$($layout.HeaderUnits))")
+
 # --- the identity the application's log file is found under -------------------
 # [FACT] `tauri-plugin-log`'s `LogDir` target resolves to Tauri's
 # `app_log_dir()`, which is `data_local_dir()` + the bundle identifier +
@@ -402,7 +424,7 @@ try {
     # path and decided by the same function, has to be REJECTED. If it were
     # not, the check below would be proving nothing, and it would be proving
     # it in the same run that reports the result.
-    $blankEvidence = Get-BlankControlEvidence -Width 1280 -Height 800 -AccentColors $accentColors
+    $blankEvidence = Get-BlankControlEvidence -Width 1280 -Height 800 -AccentColors $accentColors -Layout $layout
     if ($null -eq $blankEvidence.Capture) {
         Write-Error ("LAUNCH PROOF FAILED: the blank control window could not be captured (" +
                      "$($blankEvidence.Verdict.Measured)), so the capture path itself could not be " +
@@ -415,7 +437,8 @@ try {
         Save-CapturedPng -Pixels $blankEvidence.Capture.Pixels -Width $blankEvidence.Capture.Width `
             -Height $blankEvidence.Capture.Height -Path $blankShot | Out-Null
     } catch { }
-    Write-Host ("    blank control: {0} accent pixels, {1} distinct colours, {2} colour regions, {3}x{4}" -f
+    Write-Host ("    blank control: {0} accent pixels in the route content area, {1} distinct colours, " +
+        "{2} colour regions, {3}x{4}" -f
         $blankMeasurement.AccentPixels, $blankMeasurement.DistinctColours,
         $blankMeasurement.ColourRegions, $blankEvidence.Capture.Width, $blankEvidence.Capture.Height)
     if ($blankVerdict.Passed) {
@@ -427,13 +450,13 @@ try {
     Write-Ok "the capture path rejects a blank window ($($blankVerdict.Reason))"
 
     # --- and now the application's own window ------------------------------
-    $evidence = Get-WindowCaptureEvidence -Handle $handle -AccentColors $accentColors
+    $evidence = Get-WindowCaptureEvidence -Handle $handle -AccentColors $accentColors -Layout $layout
     foreach ($candidate in $evidence.Candidates) {
         if (-not $candidate.Ok) {
             Write-Note ("    {0}: failed ({1})" -f $candidate.Strategy, $candidate.Error)
             continue
         }
-        Write-Note ("    {0}: {1}x{2}, {3} distinct colours, {4} accent pixels" -f
+        Write-Note ("    {0}: {1}x{2}, {3} distinct colours, {4} accent pixels in the route content area" -f
             $candidate.Strategy, $candidate.Width, $candidate.Height,
             $candidate.DistinctColours, $candidate.AccentPixels)
     }
@@ -449,7 +472,8 @@ try {
     } catch {
         Write-Note "    the capture could not be written to '$windowShot': $_"
     }
-    Write-Host ("    measured: {0} accent pixels, {1} distinct colours, {2} colour regions, {3}x{4} (via {5})" -f
+    Write-Host ("    measured: {0} accent pixels in the route content area, {1} distinct colours, " +
+        "{2} colour regions, {3}x{4} (via {5})" -f
         $evidence.Measurement.AccentPixels, $evidence.Measurement.DistinctColours,
         $evidence.Measurement.ColourRegions, $evidence.Capture.Width,
         $evidence.Capture.Height, $evidence.Capture.Strategy)

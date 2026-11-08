@@ -23,6 +23,32 @@
     real blank window through the real capture path and asserts that the same
     decision rejects it.
 
+    THE ERROR CASE MODELS THE REAL COMPOSITION
+    ===========================================
+    [FACT] The application is a SHELL - a sidebar of `w-56` and a header of
+    `h-12` - around the area the route renders into, and the shell paints
+    accent-coloured controls of its own: the selected theme and locale
+    toggles in the sidebar, and the header's primary button and server
+    indicator.
+
+    [FACT] Measured 2026-11-05 on the development machine, on a capture of
+    the running application (1296x839 window, 1280x800 client area):
+        the whole window          6753 accent pixels,  93 colour regions
+        the sidebar (x < 224)     2225 accent pixels
+        the header  (y <  48)     2264 accent pixels
+        the route content area    2264 accent pixels,  15 colour regions
+    The shell alone supplies 4489 accent pixels - 29x the threshold of 150 -
+    so a WHOLE-WINDOW measurement of the accent colour is satisfied by a
+    screen whose route content shows an error boundary. That is the defect
+    this case now reproduces: the error composition below is built with the
+    shell's accent-coloured controls in place, and the assertion is that the
+    route content area of that composition holds NO accent colour, so the
+    decision rejects it.
+
+    An earlier version of this case was a white surface with red text on it.
+    That was not what the application looks like when a route throws, so the
+    case never exercised the failure it claimed to.
+
     THE CASES
     =========
     Each of them is a failure the check has to catch:
@@ -30,9 +56,13 @@
       2. a flat surface in the product's accent colour — a splash screen;
       3. a white page with the native title bar around it — the exact thing
          a "is it one flat colour?" check is fooled by;
-      4. an error screen — a white card with red text on it;
+      4. the REAL fallback composition — the shell with its accent-coloured
+         controls, and an error card where the route content should be — which
+         has to be REJECTED;
       5. the product, rendered — which has to be ACCEPTED, so the check is
-         not simply refusing everything.
+         not simply refusing everything;
+      6. the product without its accent-coloured control — which has to be
+         rejected, so the check is not simply counting green pixels.
 
 .NOTES
     Exit codes
@@ -58,6 +88,8 @@ if (-not (Test-Path -LiteralPath $helper)) {
 
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..' '..' '..')).Path
 $tailwindConfig = Join-Path $repoRoot 'apps/gm-desktop/tailwind.config.js'
+$sidebarSource = Join-Path $repoRoot 'apps/gm-desktop/src/lib/components/Sidebar.svelte'
+$statusBarSource = Join-Path $repoRoot 'apps/gm-desktop/src/lib/components/ServerStatusBar.svelte'
 
 $script:Failures = 0
 $script:CaseCount = 0
@@ -111,50 +143,111 @@ public static class GitGitSyntheticCapture
                               int x0, int y0, int rw, int rh, int r, int g, int b)
     {
         byte[] px = Flat(width, height, br, bg, bb);
-        for (int y = y0; y < y0 + rh && y < height; y++)
-        {
-            for (int x = x0; x < x0 + rw && x < width; x++)
-            {
-                int i = (y * width + x) * 4;
-                px[i] = (byte)b; px[i + 1] = (byte)g; px[i + 2] = (byte)r; px[i + 3] = 255;
-            }
-        }
+        Fill(px, width, height, x0, y0, x0 + rw, y0 + rh, r, g, b);
         return px;
     }
 
     /// <summary>
-    /// A surface that looks like a rendered product: a sidebar, a header, a
-    /// content area with text-like bands, and one block in the accent
-    /// colour. The text-like bands are what a real interface produces
-    /// (antialiased glyphs give a lot of slightly different colours), and
-    /// they are what makes the "more than one colour region" condition
-    /// meaningful rather than accidental.
+    /// The REAL fallback composition: the application shell, with the
+    /// accent-coloured controls the shell paints of its own, and an error
+    /// card where the route content should be.
     /// </summary>
-    public static byte[] Product(int width, int height, int accentR, int accentG, int accentB,
+    /// <remarks>
+    /// [FACT] The colours are the product's own, measured 2026-11-05 on a
+    /// capture of the running application: the shell's selected theme and
+    /// locale toggles are the brand green `#22c55e`, the sidebar's active
+    /// navigation link is `#15803d` on the palest step `#f0fdf4`, and the
+    /// error card is `#dc2626` text on a `#fef2f2` field with a `#fca5a5`
+    /// border — none of which is the brand green.
+    /// </remarks>
+    public static byte[] ErrorFallback(int width, int height,
+                                       int sidebarWidth, int headerHeight,
+                                       int accentR, int accentG, int accentB)
+    {
+        byte[] px = Flat(width, height, 255, 255, 255);
+
+        // The main panel's background, and the header's, and the sidebar's.
+        Fill(px, width, height, sidebarWidth, 0, width, height, 248, 250, 252);
+        Fill(px, width, height, sidebarWidth, 0, width, headerHeight, 255, 255, 255);
+        Fill(px, width, height, 0, 0, sidebarWidth, height, 255, 255, 255);
+        // The shell's edges.
+        Fill(px, width, height, sidebarWidth - 1, 0, sidebarWidth, height, 226, 232, 240);
+        Fill(px, width, height, sidebarWidth, headerHeight - 1, width, headerHeight, 226, 232, 240);
+
+        // The sidebar's selected theme toggle and locale switcher: the
+        // SHELL paints these, in the brand green, whatever the route shows.
+        Fill(px, width, height, 16, height - 120, 100, height - 96, accentR, accentG, accentB);
+        Fill(px, width, height, 16, height - 80, 84, height - 56, accentR, accentG, accentB);
+        // The sidebar's active navigation link: the palest step with the
+        // darker green text.
+        Fill(px, width, height, 16, 48, 96, 88, 240, 253, 244);
+        Fill(px, width, height, 24, 56, 72, 80, 21, 128, 61);
+        // The header's server indicator and its primary button.
+        Fill(px, width, height, sidebarWidth + 16, 18, sidebarWidth + 26, 28, accentR, accentG, accentB);
+        Fill(px, width, height, width - 96, 8, width - 16, 40, accentR, accentG, accentB);
+
+        // The ERROR CARD, where the route content would be: red, not green.
+        int cardX = sidebarWidth + 24;
+        int cardY = headerHeight + 24;
+        Fill(px, width, height, cardX, cardY, cardX + 360, cardY + 120, 254, 242, 242);
+        Fill(px, width, height, cardX, cardY, cardX + 360, cardY + 1, 252, 165, 165);
+        Fill(px, width, height, cardX, cardY + 119, cardX + 360, cardY + 120, 252, 165, 165);
+        Fill(px, width, height, cardX, cardY + 1, cardX + 1, cardY + 119, 252, 165, 165);
+        Fill(px, width, height, cardX + 359, cardY + 1, cardX + 360, cardY + 119, 252, 165, 165);
+        // The heading and the message, in red.
+        Fill(px, width, height, cardX + 16, cardY + 16, cardX + 180, cardY + 32, 185, 28, 28);
+        Fill(px, width, height, cardX + 16, cardY + 44, cardX + 300, cardY + 56, 220, 38, 38);
+        // The retry button, in slate.
+        Fill(px, width, height, cardX + 16, cardY + 80, cardX + 100, cardY + 104, 226, 232, 240);
+
+        return px;
+    }
+
+    /// <summary>
+    /// The product, rendered: the same shell, with route content that
+    /// carries the brand green.
+    /// </summary>
+    public static byte[] Product(int width, int height,
+                                 int sidebarWidth, int headerHeight,
+                                 int accentR, int accentG, int accentB,
                                  bool withAccent)
     {
         byte[] px = Flat(width, height, 255, 255, 255);
-        // the sidebar
-        Fill(px, width, height, 0, 0, 160, height, 241, 245, 249);
-        // the header
-        Fill(px, width, height, 0, 0, width, 40, 255, 255, 255);
-        // the header's bottom edge
-        Fill(px, width, height, 0, 39, width, 40, 226, 232, 240);
-        // the sidebar's right edge
-        Fill(px, width, height, 159, 0, 160, height, 226, 232, 240);
-        // text-like bands down the content area
-        for (int i = 0; i < 28; i++)
+
+        Fill(px, width, height, sidebarWidth, 0, width, height, 248, 250, 252);
+        Fill(px, width, height, sidebarWidth, 0, width, headerHeight, 255, 255, 255);
+        Fill(px, width, height, 0, 0, sidebarWidth, height, 255, 255, 255);
+        Fill(px, width, height, sidebarWidth - 1, 0, sidebarWidth, height, 226, 232, 240);
+        Fill(px, width, height, sidebarWidth, headerHeight - 1, width, headerHeight, 226, 232, 240);
+
+        // The shell's own accent-coloured controls.
+        Fill(px, width, height, 16, height - 120, 100, height - 96, accentR, accentG, accentB);
+        Fill(px, width, height, 16, height - 80, 84, height - 56, accentR, accentG, accentB);
+        Fill(px, width, height, 16, 48, 96, 88, 240, 253, 244);
+        Fill(px, width, height, 24, 56, 72, 80, 21, 128, 61);
+        Fill(px, width, height, sidebarWidth + 16, 18, sidebarWidth + 26, 28, accentR, accentG, accentB);
+        Fill(px, width, height, width - 96, 8, width - 16, 40, accentR, accentG, accentB);
+
+        // The route content: a card with text-like bands, and - when the
+        // product is rendered - the brand green.
+        int cardX = sidebarWidth + 24;
+        int cardY = headerHeight + 24;
+        Fill(px, width, height, cardX, cardY, cardX + 360, cardY + 200, 255, 255, 255);
+        Fill(px, width, height, cardX, cardY, cardX + 360, cardY + 1, 226, 232, 240);
+        Fill(px, width, height, cardX, cardY + 199, cardX + 360, cardY + 200, 226, 232, 240);
+        for (int i = 0; i < 12; i++)
         {
-            int y = 60 + i * 8;
-            int shade = 45 + (i * 7) % 150;
-            Fill(px, width, height, 180, y, 180 + 40 + (i * 7) % 220, y + 3,
-                 shade, (int)(shade * 1.15), (int)(shade * 1.45));
+            int y = cardY + 20 + i * 12;
+            int shade = 60 + (i * 13) % 140;
+            Fill(px, width, height, cardX + 16, y, cardX + 16 + 60 + (i * 9) % 200, y + 4,
+                 shade, (int)(shade * 1.1), (int)(shade * 1.4));
         }
-        // the accent control
         if (withAccent)
         {
-            Fill(px, width, height, 190, 340, 190 + 72, 340 + 26, accentR, accentG, accentB);
+            Fill(px, width, height, cardX + 16, cardY + 168, cardX + 88, cardY + 192,
+                 accentR, accentG, accentB);
         }
+
         return px;
     }
 
@@ -187,7 +280,7 @@ if (-not ('GitGitSyntheticCapture' -as [type])) {
 }
 
 # ---------------------------------------------------------------------------
-# The palette the check is measured against.
+# The palette and the layout the check is measured against.
 # ---------------------------------------------------------------------------
 Write-Case "the accent palette is read out of the product's own configuration"
 try {
@@ -203,12 +296,33 @@ Assert-True ($hexes -contains '#22c55e') "the brand green #22c55e is one of the 
 Assert-True ($hexes -notcontains '#f0fdf4') 'the palest accent step is NOT checked for, because the native title bar matches it'
 Assert-True ($hexes -notcontains '#dcfce7') 'the second-palest accent step is NOT checked for either'
 
-$width = 640
-$height = 400
+Write-Case "the shell's size is read out of the product's own components"
+try {
+    $layout = Get-ProductShellLayout -SidebarSourcePath $sidebarSource -StatusBarSourcePath $statusBarSource
+} catch {
+    Write-Error "the product's shell layout could not be read: $_"
+    exit 2
+}
+Assert-Equal 224 $layout.SidebarWidthPx 'the sidebar is 224 CSS pixels wide (w-56)'
+Assert-Equal 48 $layout.HeaderHeightPx 'the header is 48 CSS pixels tall (h-12)'
+
+$width = 1280
+$height = 800
 $accentR = 0x22; $accentG = 0xc5; $accentB = 0x5e
+$sidebarWidth = $layout.SidebarWidthPx
+$headerHeight = $layout.HeaderHeightPx
 
 function Measure-Buffer {
-    param([byte[]]$Pixels, [int]$W = 640, [int]$H = 400)
+    param([byte[]]$Pixels, [int]$W = 1280, [int]$H = 800)
+    # [FACT] The accent colour is counted in the ROUTE CONTENT AREA: the
+    # client area less the shell. The synthetic buffers ARE the client area,
+    # so the region's origin is the shell's own size.
+    return Measure-CapturedPixels -Pixels $Pixels -Width $W -Height $H -AccentColors $accent `
+        -RegionX0 $sidebarWidth -RegionY0 $headerHeight -RegionX1 $W -RegionY1 $H
+}
+
+function Measure-WholeWindow {
+    param([byte[]]$Pixels, [int]$W = 1280, [int]$H = 800)
     return Measure-CapturedPixels -Pixels $Pixels -Width $W -Height $H -AccentColors $accent
 }
 
@@ -250,21 +364,31 @@ Assert-Equal 0 $measurement.AccentPixels 'the native title bar colour is not mis
 Assert-True (-not $verdict.Passed) 'the white page with a title bar is rejected'
 
 # ---------------------------------------------------------------------------
-# 4. an error screen: a white card with red text
+# 4. the REAL fallback composition: the shell, with an error card where the
+#    route content should be.
 # ---------------------------------------------------------------------------
-Write-Case 'an error screen is not the product'
-$errorScreen = [GitGitSyntheticCapture]::Rect($width, $height, 255, 255, 255, 40, 40, 400, 120, 255, 255, 255)
-$errorScreen = [GitGitSyntheticCapture]::Rect($width, $height, 255, 255, 255, 60, 60, 200, 16, 220, 38, 38)
+Write-Case 'the real fallback composition is rejected'
+$errorScreen = [GitGitSyntheticCapture]::ErrorFallback($width, $height, $sidebarWidth, $headerHeight,
+                                                       $accentR, $accentG, $accentB)
 $measurement = Measure-Buffer -Pixels $errorScreen
 $verdict = Verdict -Measurement $measurement
-Assert-Equal 0 $measurement.AccentPixels 'the error screen holds no accent pixels'
-Assert-True (-not $verdict.Passed) 'the error screen is rejected'
+# [FACT] The shell alone supplies accent pixels, so the WHOLE-WINDOW
+# measurement would have accepted this screen: that is the defect the
+# region-scoped measurement fixes.
+$wholeWindow = Measure-WholeWindow -Pixels $errorScreen
+Assert-True ($wholeWindow.AccentPixels -ge 150) (
+    "the whole window holds accent pixels from the shell (" + $wholeWindow.AccentPixels +
+    '), so a whole-window measurement would have accepted this screen')
+Assert-Equal 0 $measurement.AccentPixels (
+    'the route content area of the error composition holds NO accent pixels')
+Assert-True (-not $verdict.Passed) 'the error composition is rejected'
 
 # ---------------------------------------------------------------------------
 # 5. the product, rendered
 # ---------------------------------------------------------------------------
 Write-Case 'the product itself is accepted'
-$product = [GitGitSyntheticCapture]::Product($width, $height, $accentR, $accentG, $accentB, $true)
+$product = [GitGitSyntheticCapture]::Product($width, $height, $sidebarWidth, $headerHeight,
+                                             $accentR, $accentG, $accentB, $true)
 $measurement = Measure-Buffer -Pixels $product
 $verdict = Verdict -Measurement $measurement
 Assert-True ($measurement.AccentPixels -ge 150) ("the product holds accent pixels (" + $measurement.AccentPixels + ')')
@@ -272,10 +396,11 @@ Assert-True ($measurement.ColourRegions -ge 12) ("the product holds colour regio
 Assert-True ($verdict.Passed) 'the rendered product is accepted'
 
 # ---------------------------------------------------------------------------
-# 6. the product, rendered without the accent control
+# 6. the product without its accent-coloured control
 # ---------------------------------------------------------------------------
 Write-Case 'a layout without the product accent is rejected'
-$noAccent = [GitGitSyntheticCapture]::Product($width, $height, $accentR, $accentG, $accentB, $false)
+$noAccent = [GitGitSyntheticCapture]::Product($width, $height, $sidebarWidth, $headerHeight,
+                                             $accentR, $accentG, $accentB, $false)
 $measurement = Measure-Buffer -Pixels $noAccent
 $verdict = Verdict -Measurement $measurement
 Assert-True ($measurement.ColourRegions -ge 12) 'the layout still holds colour regions'

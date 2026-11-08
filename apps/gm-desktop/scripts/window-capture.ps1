@@ -27,10 +27,38 @@
     a Windows crash dialog. All four are exactly the failures this check
     exists to catch, so the criterion here is deliberately PRODUCT-SPECIFIC:
 
-      * the capture must contain the product's own ACCENT COLOUR, and
+      * the ROUTE CONTENT AREA must contain the product's own ACCENT
+        COLOUR, and
       * the capture must contain more than one COLOUR REGION, so that a flat
         fill (a splash screen that happens to be the brand colour) cannot
         satisfy it.
+
+    WHY THE ACCENT COLOUR IS COUNTED IN THE ROUTE CONTENT AREA
+    ===========================================================
+    The application is a SHELL around a route content area: a sidebar
+    (width `w-56`), a header (height `h-12`) and, to their right and below,
+    the area the ROUTE renders into. The shell paints accent-coloured
+    elements of its own - the selected theme and locale controls in the
+    sidebar, the header's primary button - so a whole-window measurement of
+    the accent colour CANNOT tell the product from a screen whose route
+    content has been replaced by an error boundary: the shell still supplies
+    the accent pixels.
+
+    [FACT] Measured 2026-11-05 on the development machine, on a capture of
+    the running application (1296x839 window, 1280x800 client area):
+        the whole window          6753 accent pixels,  93 colour regions
+        the sidebar (x < 224)     2225 accent pixels
+        the header  (y <  48)     2264 accent pixels
+        the route content area    2264 accent pixels,  15 colour regions
+    The shell alone therefore supplies 4489 accent pixels - 29x the
+    threshold of 150 - so a whole-window criterion is satisfied by an error
+    screen. The accent colour is consequently counted in the route content
+    area ONLY, and the shell's pixels can no longer vouch for the product.
+
+    The route content area is the client area minus the shell, and the
+    shell's size is READ OUT OF THE PRODUCT'S OWN COMPONENTS (`w-56` on
+    the sidebar's `<aside>`, `h-12` on the status bar's `<header>`) so that
+    a layout change cannot silently leave this measuring the wrong area.
 
     The accent colour is not written down here. It is READ OUT of the
     product's own `tailwind.config.js`, so the check cannot drift away from
@@ -91,13 +119,24 @@ public sealed class GitGitCaptureResult
 
 public sealed class GitGitPixelStats
 {
+    /// <summary>The capture's width, in pixels.</summary>
     public int Width;
+    /// <summary>The capture's height, in pixels.</summary>
     public int Height;
     public int TotalPixels;
+    /// <summary>The ACCENT region's left edge, in capture pixels.</summary>
+    public int RegionX;
+    /// <summary>The ACCENT region's top edge, in capture pixels.</summary>
+    public int RegionY;
+    /// <summary>The ACCENT region's width, in capture pixels.</summary>
+    public int RegionWidth;
+    /// <summary>The ACCENT region's height, in capture pixels.</summary>
+    public int RegionHeight;
     /// <summary>How many exactly different RGB values the capture contains.</summary>
     public int DistinctColours;
     /// <summary>How many quantised (4 bits per channel) colour regions it contains.</summary>
     public int ColourRegions;
+    /// <summary>How many accent-coloured pixels the ACCENT REGION contains.</summary>
     public int AccentPixels;
     public int[] AccentPixelsPerColour;
     public int[] TopColours;
@@ -105,10 +144,36 @@ public sealed class GitGitPixelStats
     public bool AllBlack;
 }
 
+/// <summary>
+/// Where the application's client area sits, and how big one CSS pixel is
+/// in the capture.
+/// </summary>
+public sealed class GitGitClientGeometry
+{
+    public int WindowWidth;
+    public int WindowHeight;
+    public int ClientWidth;
+    public int ClientHeight;
+    /// <summary>The client's top-left corner, in window-rectangle coordinates.</summary>
+    public int ClientOriginX;
+    /// <summary>The client's top-left corner, in window-rectangle coordinates.</summary>
+    public int ClientOriginY;
+    public int DpiForWindow;
+    public int DpiForSystem;
+    /// <summary>THIS process's awareness: 0 = unaware, 1 = system, 2 = per-monitor.</summary>
+    public int Awareness;
+    /// <summary>How many captured pixels one CSS pixel is worth.</summary>
+    public double PixelsPerCssPixel;
+    public bool Ok;
+    public string Error;
+}
 public static class GitGitWindowCapture
 {
     [StructLayout(LayoutKind.Sequential)]
     public struct RECT { public int Left, Top, Right, Bottom; }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct POINT { public int X, Y; }
 
     [StructLayout(LayoutKind.Sequential)]
     public struct BITMAPINFOHEADER
@@ -130,6 +195,18 @@ public static class GitGitWindowCapture
 
     [DllImport("user32.dll", SetLastError = true)]
     static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
+    [DllImport("user32.dll", SetLastError = true)]
+    static extern bool GetClientRect(IntPtr hWnd, out RECT lpRect);
+    [DllImport("user32.dll", SetLastError = true)]
+    static extern bool ClientToScreen(IntPtr hWnd, ref POINT lpPoint);
+    [DllImport("user32.dll")]
+    static extern uint GetDpiForWindow(IntPtr hwnd);
+    [DllImport("user32.dll")]
+    static extern uint GetDpiForSystem();
+    [DllImport("user32.dll")]
+    static extern int GetAwarenessFromDpiAwarenessContext(IntPtr hdc);
+    [DllImport("user32.dll")]
+    static extern IntPtr GetThreadDpiAwarenessContext();
     [DllImport("user32.dll", SetLastError = true)]
     static extern bool PrintWindow(IntPtr hWnd, IntPtr hdcBlt, uint nFlags);
     [DllImport("user32.dll")]
@@ -301,16 +378,174 @@ public static class GitGitWindowCapture
         if (win != IntPtr.Zero) DestroyWindow(win);
     }
 
-    /// <summary>The pixel statistics the decision is made from.</summary>
-    public static GitGitPixelStats Measure(byte[] argb, int width, int height, int[] accentRgb, int tolerance)
+    /// <summary>
+    /// Where the application's client area is, and how big one CSS pixel is
+    /// in a capture of it.
+    /// </summary>
+    public static GitGitClientGeometry GetClientGeometry(long hwnd)
+    {
+        GitGitClientGeometry g = new GitGitClientGeometry();
+        IntPtr h = new IntPtr(hwnd);
+        RECT wr;
+        if (!GetWindowRect(h, out wr))
+        {
+            g.Error = "GetWindowRect failed (win32 error " + Marshal.GetLastWin32Error() + ")";
+            return g;
+        }
+        RECT cr;
+        if (!GetClientRect(h, out cr))
+        {
+            g.Error = "GetClientRect failed (win32 error " + Marshal.GetLastWin32Error() + ")";
+            return g;
+        }
+        g.WindowWidth = wr.Right - wr.Left;
+        g.WindowHeight = wr.Bottom - wr.Top;
+        g.ClientWidth = cr.Right - cr.Left;
+        g.ClientHeight = cr.Bottom - cr.Top;
+
+        // The client's top-left corner, in the coordinates of the window
+        // rectangle — which is the coordinate space a whole-window capture
+        // is drawn in.
+        POINT origin = new POINT();
+        origin.X = 0; origin.Y = 0;
+        if (ClientToScreen(h, ref origin))
+        {
+            g.ClientOriginX = origin.X - wr.Left;
+            g.ClientOriginY = origin.Y - wr.Top;
+        }
+
+        // [FACT] The DPI of the window is what the webview lays itself out
+        // against, and the awareness of THIS process decides whether the
+        // capture is in physical pixels or in the virtualised ones. The two
+        // together give the number of captured pixels one CSS pixel is
+        // worth:
+        //   * a PER-MONITOR aware process captures physical pixels, so the
+        //     window's own DPI is the scale (96 DPI = 1.0);
+        //   * a SYSTEM aware process captures in the system's DPI, so the
+        //     system's DPI is the scale;
+        //   * an UNAWARE process captures in the virtualised 96-DPI space,
+        //     which is the space CSS pixels are defined in, so one CSS
+        //     pixel is one captured pixel whatever the monitor is.
+        // Measured 2026-11-05 on the development machine: the process is
+        // UNAWARE (0), the system DPI is 96 and the window's DPI is 96, so
+        // the scale is 1.0 and the capture's client area is 1280x800 for a
+        // 1280x800 window — the CSS pixels and the captured pixels are the
+        // same pixels.
+        g.DpiForWindow = (int)SafeDpiForWindow(h);
+        g.DpiForSystem = (int)SafeDpiForSystem();
+        g.Awareness = SafeAwareness();
+        g.PixelsPerCssPixel = ComputePixelsPerCssPixel(g.Awareness, g.DpiForWindow, g.DpiForSystem);
+        g.Ok = true;
+        return g;
+    }
+
+    /// <summary>
+    /// How many captured pixels one CSS pixel of the webview is worth.
+    /// </summary>
+    /// <remarks>
+    /// [FACT] A CSS pixel is 1/96 inch by definition, and the coordinate
+    /// space a capture is made in depends on the awareness of the process
+    /// making it:
+    ///   * a PER-MONITOR aware process captures physical pixels, and the
+    ///     webview laid itself out at the window's DPI, so the scale is
+    ///     DpiForWindow / 96;
+    ///   * a SYSTEM aware process works in the system's DPI, which is the
+    ///     space the webview laid itself out in too, so the scale is 1;
+    ///   * an UNAWARE process works in a virtualised 96-DPI space while the
+    ///     webview laid itself out at the window's DPI, so the scale is
+    ///     DpiForWindow / DpiForSystem.
+    /// [FACT] Measured 2026-11-05 on the development machine: the process
+    /// is UNAWARE (0), the system DPI is 96 and the window's DPI is 96, so
+    /// the scale is 1.0 — and indeed the captured client area measured
+    /// 1280x800 for a 1280x800 window, so the CSS pixels and the captured
+    /// pixels were the same pixels.
+    /// [INFERENCE] The DPI ratios themselves are derived from the
+    /// definitions above rather than measured at a second DPI; every
+    /// environment this check runs in is at 96 DPI, where all three
+    /// branches agree.
+    /// </remarks>
+    static double ComputePixelsPerCssPixel(int awareness, int dpiForWindow, int dpiForSystem)
+    {
+        int windowDpi = dpiForWindow > 0 ? dpiForWindow : 96;
+        int systemDpi = dpiForSystem > 0 ? dpiForSystem : 96;
+        if (awareness == 2)
+        {
+            return windowDpi / 96.0;
+        }
+        if (awareness == 1)
+        {
+            return 1.0;
+        }
+        return windowDpi / (double)systemDpi;
+    }
+
+    static uint SafeDpiForWindow(IntPtr h)
+    {
+        try { uint v = GetDpiForWindow(h); return v == 0 ? 96u : v; }
+        catch { return 96u; }
+    }
+
+    static uint SafeDpiForSystem()
+    {
+        try { uint v = GetDpiForSystem(); return v == 0 ? 96u : v; }
+        catch { return 96u; }
+    }
+
+    static int SafeAwareness()
+    {
+        try { return GetAwarenessFromDpiAwarenessContext(GetThreadDpiAwarenessContext()); }
+        catch { return 0; }
+    }
+
+    /// <summary>
+    /// The pixel statistics the decision is made from: the accent colour is
+    /// counted over a REGION, the colour regions over the whole capture.
+    /// </summary>
+    /// <remarks>
+    /// [FACT] The region is the point of this measurement. The
+    /// application is a shell around a route content area, so the whole
+    /// window can carry the product's accent colour - and several colour
+    /// regions - while the route content area shows an error boundary.
+    /// Measuring the accent colour in the route content area only is what
+    /// makes the shell's pixels unable to vouch for the product.
+    ///
+    /// [FACT] The colour regions stay a WHOLE-CAPTURE measurement, because
+    /// their job is to reject a flat fill - a splash screen in the brand
+    /// colour - and a flat fill is flat everywhere.
+    /// </remarks>
+    public static GitGitPixelStats Measure(byte[] argb, int width, int height, int[] accentRgb, int tolerance,
+                                            int x0, int y0, int x1, int y1)
     {
         GitGitPixelStats s = new GitGitPixelStats();
-        s.Width = width; s.Height = height;
+        if (argb == null || width <= 0 || height <= 0) return s;
+
+        // (0,0,0,0) is the "no region" call: the whole capture is measured.
+        // [FACT] A region that is degenerate AFTER clamping is NOT widened to
+        // the whole capture: that would let the shell's pixels vouch for the
+        // product again, which is the defect this measurement exists to
+        // prevent. Such a region simply holds no accent colour.
+        bool whole = (x0 == 0 && y0 == 0 && x1 == 0 && y1 == 0);
+        if (whole) { x0 = 0; y0 = 0; x1 = width; y1 = height; }
+        else
+        {
+            if (x0 < 0) x0 = 0;
+            if (y0 < 0) y0 = 0;
+            if (x1 > width) x1 = width;
+            if (y1 > height) y1 = height;
+            if (x1 < x0) x1 = x0;
+            if (y1 < y0) y1 = y0;
+        }
+
+        s.RegionX = x0;
+        s.RegionY = y0;
+        s.RegionWidth = x1 - x0;
+        s.RegionHeight = y1 - y0;
+        s.Width = width;
+        s.Height = height;
         s.TotalPixels = width * height;
         s.AccentPixelsPerColour = new int[accentRgb.Length / 3];
         s.TopColours = new int[0];
         s.TopCounts = new int[0];
-        if (argb == null || width <= 0 || height <= 0) return s;
 
         HashSet<int> exact = new HashSet<int>();
         int[] regions = new int[4096];
@@ -319,29 +554,36 @@ public static class GitGitWindowCapture
         bool allBlack = true;
         int accentCount = accentRgb.Length / 3;
 
-        for (int i = 0; i + 3 < argb.Length; i += 4)
+        for (int y = 0; y < height; y++)
         {
-            // The buffer is BGRA — GDI's own order, and the order GDI+'s
-            // `Format32bppArgb` keeps in memory, so the PNG artefact and this
-            // measurement read the same bytes.
-            int b = argb[i];
-            int g = argb[i + 1];
-            int r = argb[i + 2];
-            if (r != 0 || g != 0 || b != 0) allBlack = false;
-            exact.Add((r << 16) | (g << 8) | b);
-            int q = ((r >> 4) << 8) | ((g >> 4) << 4) | (b >> 4);
-            if (regions[q] == 0) regionCount++;
-            regions[q]++;
-            for (int a = 0; a < accentCount; a++)
+            bool rowInRegion = y >= y0 && y < y1;
+            for (int x = 0; x < width; x++)
             {
-                int ar = accentRgb[a * 3];
-                int ag = accentRgb[a * 3 + 1];
-                int ab = accentRgb[a * 3 + 2];
-                if (Math.Abs(r - ar) <= tolerance && Math.Abs(g - ag) <= tolerance && Math.Abs(b - ab) <= tolerance)
+                int i = (y * width + x) * 4;
+                // The buffer is BGRA — GDI's own order, and the order GDI+'s
+                // `Format32bppArgb` keeps in memory, so the PNG artefact and this
+                // measurement read the same bytes.
+                int b = argb[i];
+                int g = argb[i + 1];
+                int r = argb[i + 2];
+                if (r != 0 || g != 0 || b != 0) allBlack = false;
+                exact.Add((r << 16) | (g << 8) | b);
+                int q = ((r >> 4) << 8) | ((g >> 4) << 4) | (b >> 4);
+                if (regions[q] == 0) regionCount++;
+                regions[q]++;
+                // The accent colour is counted in the region only.
+                if (!rowInRegion || x < x0 || x >= x1) continue;
+                for (int a = 0; a < accentCount; a++)
                 {
-                    accent++;
-                    s.AccentPixelsPerColour[a]++;
-                    break;
+                    int ar = accentRgb[a * 3];
+                    int ag = accentRgb[a * 3 + 1];
+                    int ab = accentRgb[a * 3 + 2];
+                    if (Math.Abs(r - ar) <= tolerance && Math.Abs(g - ag) <= tolerance && Math.Abs(b - ab) <= tolerance)
+                    {
+                        accent++;
+                        s.AccentPixelsPerColour[a]++;
+                        break;
+                    }
                 }
             }
         }
@@ -478,6 +720,133 @@ function Get-ProductAccentColors {
 }
 
 # ---------------------------------------------------------------------------
+# The product's own shell geometry.
+# ---------------------------------------------------------------------------
+function Get-ProductShellLayout {
+    <#
+    .SYNOPSIS
+        The size of the shell around the route content area, in CSS pixels.
+
+    .DESCRIPTION
+        The application is a sidebar plus a header around the area the route
+        renders into. The accent colour is counted in THAT AREA ONLY, so the
+        shell's own accent-coloured controls cannot vouch for the product -
+        see the note at the top of this file.
+
+        [FACT] The sizes are READ OUT OF THE PRODUCT'S OWN COMPONENTS
+        rather than written down here, so a layout change cannot silently
+        leave this measuring the wrong area:
+          * `Sidebar.svelte`'s `<aside>` carries `w-56`, which is Tailwind's
+            14rem = 224px at the default 16px root font size;
+          * `ServerStatusBar.svelte`'s `<header>` carries `h-12`, which is
+            Tailwind's 3rem = 48px.
+        [FACT] Measured 2026-11-05 on the development machine, on a capture
+        of the running application: the sidebar's right border column is at
+        x=223 and the header's bottom border row is at y=47, so the shell
+        measures exactly 224x48 CSS pixels - which is what this function
+        reads out of the sources.
+
+        [FACT] Tailwind's spacing scale is `0.25rem` per unit, and the
+        product sets no root font size (`app.css` sets `font-feature-settings`
+        but no `font-size`), so one Tailwind spacing unit is 4 CSS pixels.
+
+    .PARAMETER SidebarSourcePath
+        Path to `src/lib/components/Sidebar.svelte`.
+
+    .PARAMETER StatusBarSourcePath
+        Path to `src/lib/components/ServerStatusBar.svelte`.
+
+    .OUTPUTS
+        An object with `SidebarWidthPx` and `HeaderHeightPx`.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$SidebarSourcePath,
+        [Parameter(Mandatory)][string]$StatusBarSourcePath
+    )
+
+    foreach ($path in @($SidebarSourcePath, $StatusBarSourcePath)) {
+        if (-not (Test-Path -LiteralPath $path)) {
+            throw "the product's component '$path' is not there, so the shell's size is unknown"
+        }
+    }
+
+    # `w-56` on the sidebar's `<aside>`, and `h-12` on the header's
+    # `<header>`. The regex is anchored on the class attribute of the
+    # element that carries the data-testid, so a `w-`/`h-` utility on some
+    # other element in the same file cannot be mistaken for it.
+    $sidebarWidthUnits = Get-ComponentSpacingUnits -Path $SidebarSourcePath -TestId 'sidebar' -Prefix 'w'
+    $headerHeightUnits = Get-ComponentSpacingUnits -Path $StatusBarSourcePath -TestId 'server-status-bar' -Prefix 'h'
+
+    # [FACT] Tailwind's default spacing scale is 0.25rem per unit and the
+    # root font size is the 16px default, so one unit is 4 CSS pixels.
+    $unitPx = 0.25 * 16
+
+    return [pscustomobject]@{
+        SidebarWidthPx  = [int][Math]::Round($sidebarWidthUnits * $unitPx)
+        HeaderHeightPx  = [int][Math]::Round($headerHeightUnits * $unitPx)
+        SidebarUnits    = $sidebarWidthUnits
+        HeaderUnits     = $headerHeightUnits
+    }
+}
+
+function Get-ComponentSpacingUnits {
+    <#
+    .SYNOPSIS
+        One Tailwind spacing utility's unit count, read out of a component.
+
+    .DESCRIPTION
+        The utility is looked for in the class attribute of the element
+        that carries the given data-testid, so the utility of a DIFFERENT
+        element in the same file cannot be mistaken for it.
+
+    .PARAMETER Path
+        The component's source file.
+
+    .PARAMETER TestId
+        The data-testid of the element carrying the utility.
+
+    .PARAMETER Prefix
+        The utility's prefix: `w` for a width, `h` for a height.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$Path,
+        [Parameter(Mandatory)][string]$TestId,
+        [Parameter(Mandatory)][ValidateSet('w', 'h')][string]$Prefix
+    )
+
+    $text = Get-Content -LiteralPath $Path -Raw -Encoding UTF8
+    $marker = 'data-testid="' + $TestId + '"'
+    $at = $text.IndexOf($marker)
+    if ($at -lt 0) {
+        throw "the component '$Path' has no element with data-testid='$TestId', so its size is unknown"
+    }
+
+    # The element carrying the testid: from its opening `<` to its closing
+    # `>`. The class attribute is looked for inside it, wherever it sits.
+    $elementStart = $text.LastIndexOf('<', $at)
+    $elementEnd = $text.IndexOf('>', $at)
+    if ($elementStart -lt 0 -or $elementEnd -lt 0) {
+        throw "the element with data-testid='$TestId' in '$Path' has no opening tag, so its size is unknown"
+    }
+    $element = $text.Substring($elementStart, $elementEnd - $elementStart)
+    $classMatch = [regex]::Match($element, 'class="(?<cls>[^"]*)"')
+    if (-not $classMatch.Success) {
+        throw "the element with data-testid='$TestId' in '$Path' has no class attribute, so its size is unknown"
+    }
+
+    # The utility has to be a whole class name: `w-56` is the sidebar's
+    # width, `max-w-` and `w-` inside another utility are not.
+    $utility = [regex]::Match($classMatch.Groups['cls'].Value, "(?:^|\s)$Prefix-(\d+)(?:\s|$)")
+    if (-not $utility.Success) {
+        throw ("the element with data-testid='$TestId' in '$Path' carries no '$Prefix-<n>' spacing utility, " +
+               "so its size is unknown")
+    }
+    return [int]$utility.Groups[1].Value
+}
+
+# ---------------------------------------------------------------------------
 # The capture.
 # ---------------------------------------------------------------------------
 function Capture-WindowPixels {
@@ -514,17 +883,28 @@ function Capture-WindowPixels {
     .PARAMETER Handle
         The window handle.
 
+    .PARAMETER ClientOriginX
+        The client area's left edge within the window, in capture pixels.
+        Used for the whole-window strategies, whose capture holds the client
+        area at the window's own client origin.
+
+    .PARAMETER ClientOriginY
+        The client area's top edge within the window, in capture pixels.
+
     .PARAMETER Strategies
         Which `PrintWindow` flag sets to try. Default: all of them, in the
         order above.
 
     .OUTPUTS
         The candidate captures, each with `Strategy`, `Width`, `Height`,
-        `Pixels` (BGRA bytes), `AllBlack` and `DistinctColours`.
+        `Pixels` (BGRA bytes), `AllBlack`, `DistinctColours` and the client
+        area's origin within the capture.
     #>
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)][IntPtr]$Handle,
+        [int]$ClientOriginX = 0,
+        [int]$ClientOriginY = 0,
         [int[]]$Strategies = @(3, 2, 1, 0)
     )
 
@@ -537,10 +917,16 @@ function Capture-WindowPixels {
             $candidates += [pscustomobject]@{
                 Strategy = $result.Strategy; Ok = $false; Width = 0; Height = 0
                 Pixels = $null; AllBlack = $true; DistinctColours = 0; Error = $result.Error
+                ClientOriginX = 0; ClientOriginY = 0
             }
             continue
         }
-        $stats = [GitGitWindowCapture]::Measure($result.Pixels, $result.Width, $result.Height, [int[]]@(), 0)
+        $stats = [GitGitWindowCapture]::Measure($result.Pixels, $result.Width, $result.Height,
+                                               [int[]]@(), 0, 0, 0, 0, 0)
+        # [FACT] A `PW_CLIENTONLY` capture holds the client area at the
+        # capture's origin, and a whole-window capture holds it at the
+        # window's own client origin.
+        $clientOnly = (($flags -band 1) -ne 0)
         $candidates += [pscustomobject]@{
             Strategy        = $result.Strategy
             Ok              = $true
@@ -550,6 +936,8 @@ function Capture-WindowPixels {
             AllBlack        = $stats.AllBlack
             DistinctColours = $stats.DistinctColours
             Error           = $null
+            ClientOriginX   = if ($clientOnly) { 0 } else { $ClientOriginX }
+            ClientOriginY   = if ($clientOnly) { 0 } else { $ClientOriginY }
         }
     }
 
@@ -559,16 +947,84 @@ function Capture-WindowPixels {
     if (@($candidates | Where-Object { -not $_.AllBlack }).Count -eq 0) {
         $screen = [GitGitWindowCapture]::CaptureScreen($Handle.ToInt64())
         if ($screen.Ok) {
-            $stats = [GitGitWindowCapture]::Measure($screen.Pixels, $screen.Width, $screen.Height, [int[]]@(), 0)
+            $stats = [GitGitWindowCapture]::Measure($screen.Pixels, $screen.Width, $screen.Height,
+                                                   [int[]]@(), 0, 0, 0, 0, 0)
             $candidates += [pscustomobject]@{
                 Strategy = $screen.Strategy; Ok = $true; Width = $screen.Width; Height = $screen.Height
                 Pixels = $screen.Pixels; AllBlack = $stats.AllBlack
                 DistinctColours = $stats.DistinctColours; Error = $null
+                ClientOriginX = $ClientOriginX; ClientOriginY = $ClientOriginY
             }
         }
     }
 
     return $candidates
+}
+
+function Get-RouteContentRegion {
+    <#
+    .SYNOPSIS
+        The route content area of a capture: the client area, less the shell
+        around it.
+
+    .DESCRIPTION
+        [FACT] This is the region the accent colour is counted over. The
+        shell paints accent-coloured controls of its own - the selected
+        theme and locale toggles in the sidebar, the header's primary button
+        - so a whole-window measurement of the accent colour is satisfied by
+        a screen whose route content shows an error boundary. Measured
+        2026-11-05 on the development machine: the shell alone supplies
+        4489 accent pixels (2225 in the sidebar, 2264 in the header) against
+        a threshold of 150, while the route content area holds 2264.
+
+        [FACT] The client area's origin within the capture depends on the
+        strategy: a `PW_CLIENTONLY` capture holds the client area at the
+        capture's origin, and a whole-window capture holds it at the
+        window's own client origin.
+
+    .PARAMETER ClientWidth
+        The client area's width, in capture pixels.
+
+    .PARAMETER ClientHeight
+        The client area's height, in capture pixels.
+
+    .PARAMETER ClientOriginX
+        The client area's left edge within the capture, in capture pixels.
+
+    .PARAMETER ClientOriginY
+        The client area's top edge within the capture, in capture pixels.
+
+    .PARAMETER Scale
+        How many capture pixels one CSS pixel is worth.
+
+    .PARAMETER Layout
+        The shell's size, as returned by `Get-ProductShellLayout`.
+
+    .OUTPUTS
+        An object with `X0`, `Y0`, `X1` and `Y1`: the region to count the
+        accent colour over.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][int]$ClientWidth,
+        [Parameter(Mandatory)][int]$ClientHeight,
+        [int]$ClientOriginX = 0,
+        [int]$ClientOriginY = 0,
+        [double]$Scale = 1.0,
+        [Parameter(Mandatory)]$Layout
+    )
+
+    $x0 = $ClientOriginX + [int][Math]::Round($Layout.SidebarWidthPx * $Scale)
+    $y0 = $ClientOriginY + [int][Math]::Round($Layout.HeaderHeightPx * $Scale)
+    $x1 = $ClientOriginX + $ClientWidth
+    $y1 = $ClientOriginY + $ClientHeight
+
+    # [FACT] A window too small to hold the shell has no route content area
+    # at all. The region is left empty rather than widened, because a
+    # widened region would let the shell's pixels vouch for the product.
+    if ($x1 -lt $x0) { $x1 = $x0 }
+    if ($y1 -lt $y0) { $y1 = $y0 }
+    return [pscustomobject]@{ X0 = $x0; Y0 = $y0; X1 = $x1; Y1 = $y1 }
 }
 
 function Get-WindowCaptureEvidence {
@@ -579,11 +1035,12 @@ function Get-WindowCaptureEvidence {
 
     .DESCRIPTION
         [FACT] The candidate that is kept is the one with the MOST accent
-        pixels, with ties going to the strategy that was tried first. That
-        is a choice about which frame carries the product, not about whether
-        the product is there: the decision that follows still applies the
-        full threshold, so a window with no accent colour in it at all is
-        rejected whichever frame was kept.
+        pixels IN THE ROUTE CONTENT AREA, with ties going to the strategy
+        that was tried first. That is a choice about which frame carries the
+        product, not about whether the product is there: the decision that
+        follows still applies the full threshold, so a window with no accent
+        colour in its route content area at all is rejected whichever frame
+        was kept.
 
         [FACT] A screen copy is never preferred over a `PrintWindow` frame.
         A screen copy shows whatever happens to be on top of the window, so
@@ -595,11 +1052,14 @@ function Get-WindowCaptureEvidence {
     .PARAMETER AccentColors
         The accent colours, as returned by `Get-ProductAccentColors`.
 
+    .PARAMETER Layout
+        The shell's size, as returned by `Get-ProductShellLayout`.
+
     .PARAMETER Tolerance
         How far a pixel may sit from an accent colour, per channel.
 
     .PARAMETER MinAccentPixels
-        How many accent pixels the capture must hold. Default 150.
+        How many accent pixels the route content area must hold. Default 150.
 
     .PARAMETER MinColourRegions
         How many quantised colour regions the capture must hold. Default 12.
@@ -612,18 +1072,41 @@ function Get-WindowCaptureEvidence {
     param(
         [Parameter(Mandatory)][IntPtr]$Handle,
         [Parameter(Mandatory)][object[]]$AccentColors,
+        [Parameter(Mandatory)]$Layout,
         [int]$Tolerance = 12,
         [int]$MinAccentPixels = 150,
         [int]$MinColourRegions = 12
     )
 
-    $candidates = @(Capture-WindowPixels -Handle $Handle)
+    Initialize-WindowCaptureNative
+    $geometry = [GitGitWindowCapture]::GetClientGeometry($Handle.ToInt64())
+    if (-not $geometry.Ok) {
+        return [pscustomobject]@{
+            Capture    = $null
+            Measurement = $null
+            Verdict    = [pscustomobject]@{
+                Passed   = $false
+                Reason   = 'the window could not be measured'
+                Expected = 'a capture of the window'
+                Measured = $geometry.Error
+            }
+            Candidates = @()
+        }
+    }
+
+    $candidates = @(Capture-WindowPixels -Handle $Handle `
+        -ClientOriginX $geometry.ClientOriginX -ClientOriginY $geometry.ClientOriginY)
     $best = $null
     $bestAccent = -1
     foreach ($candidate in $candidates) {
         if (-not $candidate.Ok) { continue }
+        $region = Get-RouteContentRegion -ClientWidth $geometry.ClientWidth `
+            -ClientHeight $geometry.ClientHeight `
+            -ClientOriginX $candidate.ClientOriginX -ClientOriginY $candidate.ClientOriginY `
+            -Scale $geometry.PixelsPerCssPixel -Layout $Layout
         $stats = Measure-CapturedPixels -Pixels $candidate.Pixels -Width $candidate.Width `
-            -Height $candidate.Height -AccentColors $AccentColors -Tolerance $Tolerance
+            -Height $candidate.Height -AccentColors $AccentColors -Tolerance $Tolerance `
+            -RegionX0 $region.X0 -RegionY0 $region.Y0 -RegionX1 $region.X1 -RegionY1 $region.Y1
         $candidate | Add-Member -NotePropertyName AccentPixels -NotePropertyValue $stats.AccentPixels -Force
         $candidate | Add-Member -NotePropertyName ColourRegions -NotePropertyValue $stats.ColourRegions -Force
         if ($stats.AccentPixels -gt $bestAccent) {
@@ -682,6 +1165,7 @@ function Get-BlankControlEvidence {
         [int]$Width = 1280,
         [int]$Height = 800,
         [Parameter(Mandatory)][object[]]$AccentColors,
+        [Parameter(Mandatory)]$Layout,
         [int]$Tolerance = 12
     )
 
@@ -702,7 +1186,7 @@ function Get-BlankControlEvidence {
     }
     try {
         return Get-WindowCaptureEvidence -Handle ([IntPtr]$handle) `
-            -AccentColors $AccentColors -Tolerance $Tolerance
+            -AccentColors $AccentColors -Layout $Layout -Tolerance $Tolerance
     } finally {
         [GitGitWindowCapture]::DestroyBlankSurface($handle)
     }
@@ -753,7 +1237,15 @@ function Measure-CapturedPixels {
     <#
     .SYNOPSIS
         Measure a capture: how many different colours it holds, and how many
-        pixels are the product's accent colour.
+        pixels of the product's accent colour its ACCENT REGION holds.
+
+    .DESCRIPTION
+        [FACT] The accent colour is counted over the ACCENT REGION - the
+        route content area - and the colour regions over the whole capture.
+        The region is what makes the shell's own accent-coloured controls
+        unable to vouch for the product; the colour regions stay
+        whole-capture because their job is to reject a flat fill, and a flat
+        fill is flat everywhere.
 
     .PARAMETER Pixels
         The BGRA bytes of the capture.
@@ -763,6 +1255,20 @@ function Measure-CapturedPixels {
 
     .PARAMETER Tolerance
         How far a pixel may sit from an accent colour, per channel.
+
+    .PARAMETER RegionX0
+        The left edge of the accent region, in capture pixels. The default
+        (0) means the whole capture is the accent region.
+
+    .PARAMETER RegionY0
+        The top edge of the accent region, in capture pixels.
+
+    .PARAMETER RegionX1
+        The right edge of the accent region, in capture pixels. The default
+        (0) means the whole capture is the accent region.
+
+    .PARAMETER RegionY1
+        The bottom edge of the accent region, in capture pixels.
     #>
     [CmdletBinding()]
     param(
@@ -770,7 +1276,11 @@ function Measure-CapturedPixels {
         [Parameter(Mandatory)][int]$Width,
         [Parameter(Mandatory)][int]$Height,
         [Parameter(Mandatory)][object[]]$AccentColors,
-        [int]$Tolerance = 12
+        [int]$Tolerance = 12,
+        [int]$RegionX0 = 0,
+        [int]$RegionY0 = 0,
+        [int]$RegionX1 = 0,
+        [int]$RegionY1 = 0
     )
 
     Initialize-WindowCaptureNative
@@ -780,7 +1290,8 @@ function Measure-CapturedPixels {
         $flat[$i * 3 + 1] = $AccentColors[$i].G
         $flat[$i * 3 + 2] = $AccentColors[$i].B
     }
-    return [GitGitWindowCapture]::Measure($Pixels, $Width, $Height, $flat, $Tolerance)
+    return [GitGitWindowCapture]::Measure($Pixels, $Width, $Height, $flat, $Tolerance,
+                                          $RegionX0, $RegionY0, $RegionX1, $RegionY1)
 }
 
 function Get-TopColourSummary {
@@ -815,8 +1326,8 @@ function Test-CapturedProduct {
     .DESCRIPTION
         Two conditions, and BOTH have to hold:
 
-          1. the capture contains at least `MinAccentPixels` pixels of the
-             product's own accent colour, and
+          1. the ACCENT REGION - the route content area - contains at least
+             `MinAccentPixels` pixels of the product's own accent colour, and
           2. the capture contains at least `MinColourRegions` quantised
              colour regions, so a flat fill cannot satisfy it.
 
@@ -824,11 +1335,20 @@ function Test-CapturedProduct {
         is the brand colour; condition 2 alone would be satisfied by a white
         page with a title bar. Together they are not.
 
+        [FACT] Condition 1 is measured over the route content area and NOT
+        over the whole window, because the shell paints accent-coloured
+        controls of its own. Measured 2026-11-05: the shell alone supplies
+        4489 accent pixels (2225 in the sidebar, 2264 in the header), so a
+        whole-window measurement of the accent colour is satisfied by a
+        screen whose route content shows an error boundary. The route
+        content area of the same capture holds 2264 accent pixels, and an
+        error boundary holds none.
+
     .PARAMETER Measurement
         What `Measure-CapturedPixels` returned.
 
     .PARAMETER MinAccentPixels
-        How many accent pixels the capture must hold. Default 150.
+        How many accent pixels the route content area must hold. Default 150.
 
     .PARAMETER MinColourRegions
         How many quantised colour regions the capture must hold. Default 12.
@@ -844,16 +1364,17 @@ function Test-CapturedProduct {
         [int]$MinColourRegions = 12
     )
 
-    $expected = ("at least $MinAccentPixels pixels of the product's accent colour " +
+    $expected = ("at least $MinAccentPixels pixels of the product's accent colour in the route content area " +
                  "and at least $MinColourRegions colour regions")
-    $measured = ("{0} accent pixels, {1} distinct colours, {2} colour regions, {3}x{4}" -f
+    $measured = ("{0} accent pixels in the route content area, {1} distinct colours, " +
+                 "{2} colour regions, {3}x{4}" -f
                  $Measurement.AccentPixels, $Measurement.DistinctColours,
                  $Measurement.ColourRegions, $Measurement.Width, $Measurement.Height)
 
     if ($Measurement.AccentPixels -lt $MinAccentPixels) {
         return [pscustomobject]@{
             Passed   = $false
-            Reason   = "the capture does not contain the product's accent colour"
+            Reason   = "the route content area does not contain the product's accent colour"
             Expected = $expected
             Measured = $measured
         }
@@ -868,7 +1389,7 @@ function Test-CapturedProduct {
     }
     return [pscustomobject]@{
         Passed   = $true
-        Reason   = 'the capture contains the product accent colour and more than one colour region'
+        Reason   = 'the route content area contains the product accent colour, and the capture has more than one colour region'
         Expected = $expected
         Measured = $measured
     }

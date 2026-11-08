@@ -73,6 +73,8 @@ const installJob = doc.jobs['msi-install'];
 
 const scriptExists = existsSync(LAUNCH_SCRIPT);
 const script = scriptExists ? readFileSync(LAUNCH_SCRIPT, 'utf8') : '';
+const helper = existsSync(CAPTURE_HELPER) ? readFileSync(CAPTURE_HELPER, 'utf8') : '';
+const captureTest = existsSync(CAPTURE_TEST) ? readFileSync(CAPTURE_TEST, 'utf8') : '';
 
 const launchRuns = (launchJob?.steps ?? []).map((s) => s.run ?? '').join('\n');
 const installRuns = (installJob?.steps ?? []).map((s) => s.run ?? '').join('\n');
@@ -263,6 +265,51 @@ describe('msi-launch — the window is asserted to show more than a blank rectan
       script,
       'the script does not check the capture for the accent colour'
     ).toMatch(/AccentColors/);
+  });
+
+  it('the accent colour is counted in the ROUTE CONTENT area, not the whole window', () => {
+    // [FACT] The application is a SHELL - a `w-56` sidebar and a `h-12`
+    // header - around the area the route renders into, and the shell paints
+    // accent-coloured controls of its own: the selected theme and locale
+    // toggles in the sidebar, and the header's primary button.
+    //
+    // Measured 2026-11-05 on a capture of the running application: the
+    // shell alone supplied 4489 accent pixels against a threshold of 150,
+    // so a WHOLE-WINDOW measurement of the accent colour is satisfied by a
+    // screen whose route content shows an error boundary. The accent
+    // evidence has to come from the route content area.
+    expect(
+      helper,
+      'the capture helper does not measure the route content area at all'
+    ).toMatch(/Get-RouteContentRegion/);
+    expect(
+      helper,
+      'the capture helper does not read the shell size, so the route content area cannot be located'
+    ).toMatch(/Get-ProductShellLayout/);
+    expect(
+      script,
+      'the script does not pass the shell layout to the capture, so the accent colour is counted over the whole window'
+    ).toMatch(/-Layout/);
+  });
+
+  it('the synthetic error case models the REAL fallback composition', () => {
+    // [FACT] The previous case was a white surface with red text, which is
+    // not what the application looks like when a route throws: the shell is
+    // still there, with its accent-coloured controls, and only the route
+    // content is replaced. The case has to reproduce that, and be shown to
+    // fail — a threshold the real error screen satisfies is not a threshold.
+    expect(
+      captureTest,
+      'the synthetic test does not build the real fallback composition'
+    ).toMatch(/ErrorFallback/);
+    expect(
+      captureTest,
+      'the synthetic test does not assert that the real error composition is rejected'
+    ).toMatch(/error composition is rejected/);
+    expect(
+      captureTest,
+      'the synthetic test does not show that a whole-window measurement would have accepted the error composition'
+    ).toMatch(/whole-window measurement would have accepted/);
   });
 
   it('the capture path is shown to reject a blank window, in the same run', () => {
