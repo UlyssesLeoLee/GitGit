@@ -410,7 +410,10 @@ pub fn resolve_worktree(root: &Path, name: &str) -> Result<PathBuf> {
 /// The exact-match check against git's own `??` list is the real boundary
 /// for untracked files; this is the cheap second gate, applied to every
 /// path argument so no code path can skip it.
-fn validate_rel_path(path: &str) -> Result<&str> {
+///
+/// `[FACT]` Public because the conflict core writes back to the work tree
+/// (ADR §3.6) and must apply the same rule to the path it writes.
+pub fn validate_rel_path(path: &str) -> Result<&str> {
     let trimmed = path.trim();
     if trimmed.is_empty() {
         return Err(GitGitError::Http("empty path".to_string()));
