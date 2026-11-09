@@ -127,7 +127,18 @@ pub async fn await_success(mut child: Child, cmd: &str) -> Result<()> {
     Ok(())
 }
 
-async fn run_capture(cmd: &str, args: &[&str], cwd: Option<&Path>) -> Result<std::process::Output> {
+/// Run a command, capture its output, and report the exit status as data.
+///
+/// `[FACT]` Public because the conflict core needs two things this helper's
+/// callers could not have: the **exit code** and the **stdout bytes**, both
+/// of them at once. `git merge-file` uses the exit code as the number of
+/// conflict regions (ADR §2.1) and `git diff --no-index` exits 1 when the
+/// files differ, which is its normal case — both are answers, not failures.
+pub async fn run_capture(
+    cmd: &str,
+    args: &[&str],
+    cwd: Option<&Path>,
+) -> Result<std::process::Output> {
     let mut c = Command::new(cmd);
     c.args(args);
     if let Some(dir) = cwd {

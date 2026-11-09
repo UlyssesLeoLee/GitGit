@@ -218,7 +218,7 @@
 - `[PROPOSAL]` base 的来源优先级：index stage 1 > `git merge-base <ours> <theirs>`。
 - `[PROPOSAL]` **base 不可得时（任一 blob 缺失 / 路径在 base 处不存在 / 文件是二进制）**，该路径**不进入冲突仲裁**，直接标为「需要 git 原生处理」，对话框只显示提示，不假装能仲裁。
 
-**什么会让我们改主意**：`[UNVERIFIED-FACT]` 「stage 1 恒等于 merge base」在**递归合并（ort）以外的策略**、或**rename/rename 冲突**下可能不成立。本次只在一次普通内容冲突上实测过（§2.3），Lane A 的验收测试必须覆盖 rename 场景，否则这条降级为 `[UNVERIFIED-FACT]`。
+**什么会让我们改主意**：`[FACT]` **rename 场景已实测**（Lane A 的验收测试 `a_rename_conflict_is_left_to_git`，git 2.41.0.windows.1）：两侧把同一个文件改成不同名字时，未解决的 index 把**同一个 blob 的三个 stage 摊在三个不同路径上**——stage 1 在旧名字下，stage 2 / stage 3 各自在一边的新名字下。因此**没有一条路径同时带三个 stage**，三方合并不成立；「stage 1 = merge base」这句话在 rename 下只对**带着 stage 1 的那条路径**成立（该路径的 stage 1 blob 与 merge base 的 blob 逐字节相同）。Lane A 的处置：**这些路径不进入冲突仲裁**，直接标「需要 git 原生处理」（§3.2 的 base 不可得条款）。**其余合并策略（非 ort）仍未实测，那部分仍是 `[UNVERIFIED-FACT]`。**
 
 ### 3.3 Q3：AI 拿到什么？
 
@@ -333,7 +333,7 @@
 >
 > `[FACT]` 本仓目前**没有**任何写入 / 暂存路径：全仓 `git add` 只出现在测试夹具里（`src/repo/status.rs:772`、`:1057`、`:1085` 等），生产代码没有。所以「写回 + 暂存」是**新增**能力，且必须走既有白名单 argv 助手（`src/repo/status.rs:448`）的路子，**绝不能**拼 shell 字符串（`:441-447` 的理由）。
 >
-> `[UNVERIFIED-FACT]` `git add <path>` 在「路径含空格 / 非 ASCII / 以 `-` 开头」时的行为需要 Lane A 实测；本仓已有 `validate_rel_path` 的先例（`src/repo/status.rs:413-437`）可以复用。
+> `[FACT]` `git add <path>` 在「路径含空格 / 非 ASCII / 以 `-` 开头」时的行为**已实测**（Lane A 的验收测试 `a_path_with_spaces_and_non_ascii_can_be_staged`，git 2.41.0.windows.1）：`git add -- <path>` 三种路径都能正常暂存（`git status --porcelain=v1` 里三行都是 `M ` 开头，即已进 index）。**一个会咬人的细节**：git 默认把非 ASCII 路径打印成八进制转义（`"\303\274n\303\257code.txt"`），断言「路径是否出现在 status 里」必须加 `-c core.quotePath=false`，否则会误判成「没暂存」。本仓的 `validate_rel_path` 先例（`src/repo/status.rs:413-437`）照常复用。
 
 **替代方案与取舍**：
 
