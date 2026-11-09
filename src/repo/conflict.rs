@@ -1232,6 +1232,26 @@ pub async fn conflict_set_from_blobs_in(
         });
     }
 
+    // `[FACT]` Text that is not valid UTF-8 passes the binary check (that
+    // one looks for a NUL byte), and `merge-file` hands those bytes back
+    // unchanged. Reading them as UTF-8 with replacement characters would
+    // corrupt them — and the write-back would write the corruption back
+    // into the file, even for a region the user's choice did not touch.
+    // So such a path is left to git, exactly like a binary one.
+    if std::str::from_utf8(ours).is_err()
+        || std::str::from_utf8(base).is_err()
+        || std::str::from_utf8(theirs).is_err()
+    {
+        return Ok(ConflictSet {
+            path: path.to_string(),
+            base_oid: Some(base_oid.to_string()),
+            disposition: Disposition::NeedsGit,
+            regions: Vec::new(),
+            scope_map: ScopeMap::whole_file(0),
+            merged: String::new(),
+        });
+    }
+
     let mut temps = TempFiles::in_root(root)?;
     let ours_file = temps.write("ours", ours)?;
     let base_file = temps.write("base", base)?;
@@ -1494,7 +1514,28 @@ pub async fn write_resolved(workdir: &Path, rel_path: &str, content: &str) -> Re
         std::fs::create_dir_all(parent)?;
     }
     std::fs::write(&target, content.as_bytes())?;
-    run_capture("git", &["add", "--", rel], Some(workdir)).await?;
+    // `--literal-pathspecs` makes git read the argument as a literal
+    // path name instead of a glob. Without it, resolving a file called
+    // `a[b].txt` would also stage `ab.txt` — the write-back would touch
+    // files the user never chose.
+    //
+    // The exit status is checked: `git add` can fail (a locked index,
+    // permissions), and reporting success while the index still holds an
+    // unresolved conflict is exactly the failure this layer exists to
+    // prevent.
+    let out = run_capture(
+        "git",
+        &["--literal-pathspecs", "add", "--", rel],
+        Some(workdir),
+    )
+    .await?;
+    if !out.status.success() {
+        return Err(GitGitError::GitExit {
+            cmd: "git --literal-pathspecs add -- <path>".to_string(),
+            status: out.status.code().unwrap_or(-1),
+            stderr: String::from_utf8_lossy(&out.stderr).trim().to_string(),
+        });
+    }
     Ok(())
 }
 
@@ -2338,6 +2379,91 @@ mod tests {
             .await
             .unwrap_err();
         assert!(format!("{err}").contains(".."), "got: {err}");
+    }
+
+    /// Text that is not valid UTF-8 passes the binary check (that one
+    /// looks for a NUL byte). Reading it as UTF-8 would replace the bad
+    /// bytes with U+FFFD and the write-back would corrupt the file — so
+    /// such a path is left to git, like a binary one.
+    #[tokio::test]
+    async fn a_non_utf8_path_is_left_to_git() {
+        let set = conflict_set_from_blobs(
+            "f.txt",
+            "oid",
+            b"l1\n\xff\nl3\n",
+            b"l1\nl2\nl3\n",
+            b"l1\nT2\nl3\n",
+        )
+        .await
+        .unwrap();
+        assert_eq!(set.disposition, Disposition::NeedsGit);
+        assert!(set.regions.is_empty());
+        assert!(set.merged.is_empty());
+    }
+
+    /// `git add` can fail — a locked index, for instance — and the
+    /// write-back must not claim success: the index would still hold the
+    /// unresolved conflict.
+    #[tokio::test]
+    async fn a_failed_git_add_is_reported() {
+        let Some(dir) = repo_with_conflict(
+            "locked-index",
+            "l1\nl2\nl3\n",
+            "l1\nO2\nl3\n",
+            "l1\nT2\nl3\n",
+        ) else {
+            return;
+        };
+        // A lock file in the way makes `git add` fail.
+        std::fs::write(dir.join(".git").join("index.lock"), "held").unwrap();
+        let err = write_resolved(&dir, "f.txt", "l1\nO2\nl3\n")
+            .await
+            .unwrap_err();
+        let text = format!("{err}");
+        assert!(
+            text.contains("add") && text.contains("index.lock"),
+            "the failure must name the command and git's own reason: {text}"
+        );
+    }
+
+    /// `git add -- <path>` reads the path as a **pathspec**, so a name
+    /// with glob syntax would stage other files as well. The write-back
+    /// must stage exactly the file it wrote.
+    #[tokio::test]
+    async fn the_staged_path_is_a_literal_path_name() {
+        let dir = unique_temp("literal-pathspec");
+        if !git_ok(&dir, &["init", "-q", "-b", "main"]) {
+            return;
+        }
+        if !git_ok(&dir, &["config", "user.email", "t@example.invalid"])
+            || !git_ok(&dir, &["config", "user.name", "t"])
+        {
+            return;
+        }
+        // `a[b].txt` is a legal file name on Windows; read as a glob it
+        // would also match `ab.txt`.
+        std::fs::write(dir.join("a[b].txt"), "one\n").unwrap();
+        std::fs::write(dir.join("ab.txt"), "one\n").unwrap();
+        if !git_ok(&dir, &["add", "."]) || !git_ok(&dir, &["commit", "-q", "-m", "first"]) {
+            return;
+        }
+        // Make both files dirty, so a glob would stage both.
+        std::fs::write(dir.join("a[b].txt"), "resolved\n").unwrap();
+        std::fs::write(dir.join("ab.txt"), "changed\n").unwrap();
+
+        write_resolved(&dir, "a[b].txt", "resolved\n")
+            .await
+            .unwrap();
+
+        let staged = git_text(&dir, &["diff", "--cached", "--name-only"]);
+        assert!(
+            staged.contains("a[b].txt"),
+            "the resolved file must be staged: {staged}"
+        );
+        assert!(
+            !staged.contains("ab.txt"),
+            "only the resolved file may be staged: {staged}"
+        );
     }
 
     // --- the temporaries ------------------------------------------------
