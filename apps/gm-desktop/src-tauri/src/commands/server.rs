@@ -81,14 +81,11 @@ async fn spawn_embedded_server(
         enforce_exposure_policy, resolve_admin_credential, AdminCredentialStore,
     };
     use gitgit::server::http::{build_router, AppState};
-    use gitgit::server::vault::Vault;
 
     // Resolve the admin credential from the **desktop** vault — the one
-    // Settings writes `gitgit.password` into. Deliberately not from the
-    // `FileVault` built below: that one is rooted at the *server's*
-    // config, and the password a user typed in Settings lives in the
-    // desktop's vault, not in the server's. Reading the wrong vault here
-    // is precisely how the Settings page ends up lying again.
+    // Settings writes `gitgit.password` into. It is the same vault the
+    // server's state gets below, so the password the user typed and the
+    // keys the API serves come from one place.
     let resolved = resolve_admin_credential(vault.as_ref()).await?;
     // Same policy as the CLI: a non-loopback bind with a password nobody
     // chose is refused rather than served.
@@ -112,22 +109,16 @@ async fn spawn_embedded_server(
     let admin = Arc::new(AdminCredentialStore::from_shared(resolved.credential));
 
     let cfg = Config::new(bind.clone(), repos_dir, std::path::PathBuf::from("."));
-    // AppState wants `Arc<dyn Vault>`; we already have
-    // `Arc<dyn VersionedVault>`. The FileVault impl satisfies both via
-    // super-trait auto-deref, so we hand a fresh `FileVault` for the
-    // plain trait view (it points at the same on-disk root via the
-    // caller's vault). For V0.1 we accept this minor split because the
-    // current `build_router` signature is stable.
-    let _vault_for_state: Arc<dyn Vault> = vault.clone();
     let _bind_for_spawn = bind_for_spawn;
     let cfg_arc = std::sync::Arc::new(cfg.clone());
-    // AppState::new takes `Arc<dyn Vault>`; pass `vault` wrapped through
-    // a thin Arc<dyn Vault> cast. We do this by re-wrapping the
-    // FileVault via a fresh allocation that satisfies only `Vault`.
-    // For demo purposes we use the default vault shape that the
-    // gitgit CLI uses (FileVault rooted at config.vault_file_root).
-    let file_vault_for_state = gitgit::server::vault::FileVault::new(&cfg.vault_file_root);
-    let state = AppState::with_admin(cfg.clone(), Arc::new(file_vault_for_state), admin);
+    // The state's vault is **the desktop's vault** — the same instance the
+    // admin password was resolved from.
+    //
+    // It used to be a fresh `FileVault` rooted at the config's vault root,
+    // which was the process working directory: the Settings screen wrote
+    // keys into the app-data vault while `/api/vault/*` read and wrote a
+    // different one, and an API write landed in the working directory.
+    let state = AppState::with_admin(cfg.clone(), vault, admin);
 
     let router = build_router(state);
     let listener = tokio::net::TcpListener::bind(&cfg_arc.bind)
