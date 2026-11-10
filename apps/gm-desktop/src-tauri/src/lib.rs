@@ -20,10 +20,7 @@ mod state;
 mod embedded_server_tests;
 
 use std::path::PathBuf;
-use std::sync::Arc;
 
-use gitgit::config::Config;
-use gitgit::server::http::{build_router, AppState};
 use gitgit::server::vault::FileVault;
 use tauri::{
     image::Image,
@@ -33,7 +30,7 @@ use tauri::{
 };
 use tracing_subscriber::prelude::*;
 
-use crate::error::{AppError, AppResult};
+use crate::error::AppResult;
 use crate::state::{BufferLayer, DesktopState, DEFAULT_VAULT_DIR};
 
 /// Build the `tauri::Builder` and start the runtime. `main.rs` wraps
@@ -256,31 +253,19 @@ pub async fn run_embedded_router(
     vault_root: PathBuf,
     repos_dir: PathBuf,
 ) -> AppResult<(tokio::task::JoinHandle<()>, std::net::SocketAddr)> {
-    let cfg = Config::new(bind.clone(), repos_dir, vault_root.clone());
-    let file_vault = FileVault::new(&cfg.vault_file_root);
-    // `resolve_admin_credential` takes `&V where V: Vault`, and
-    // `FileVault::new` hands back an owned `FileVault` — not an `Arc` — so
-    // the argument is a plain borrow. The borrow ends before the vault is
-    // moved into the `Arc` on the next line.
-    let resolved = gitgit::server::auth::resolve_admin_credential(&file_vault).await?;
-    gitgit::server::auth::enforce_exposure_policy(&bind, resolved.source)?;
-    let admin = Arc::new(gitgit::server::auth::AdminCredentialStore::from_shared(
-        resolved.credential,
-    ));
-    let state = AppState::with_admin(cfg.clone(), Arc::new(file_vault), admin);
-    let router = build_router(state);
-    let listener = tokio::net::TcpListener::bind(&cfg.bind)
-        .await
-        .map_err(|e| AppError::Bind(format!("bind {bind}: {e}")))?;
-    let addr = listener
-        .local_addr()
-        .map_err(|e| AppError::Bind(format!("local_addr {bind}: {e}")))?;
-    let handle = tokio::spawn(async move {
-        if let Err(e) = axum::serve(listener, router).await {
-            tracing::error!(error = %e, "embedded router exited");
-        }
-    });
-    Ok((handle, addr))
+    let file_vault = FileVault::new(&vault_root);
+    // The **production** path — the same function the Tauri command
+    // uses — so a test of the wiring proves something about the wiring.
+    // Building the state here instead would have hidden exactly the bug
+    // this lane fixes: the production path used to hand the server a
+    // *second* vault, rooted at the working directory.
+    crate::commands::server::spawn_embedded_server(
+        bind.clone(),
+        std::sync::Arc::new(file_vault),
+        repos_dir,
+        bind,
+    )
+    .await
 }
 
 // Add LogBuffer re-export for tests.

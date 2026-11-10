@@ -191,3 +191,74 @@ async fn the_embedded_server_answers_a_smart_http_upload_pack_request() {
     // port and the thread for the rest of the process's life.
     handle.abort();
 }
+
+/// `[FACT]` The embedded server's `/api/vault/*` must serve **the
+/// desktop's own vault** — the app-data one the Settings screen writes
+/// to.
+///
+/// It used to build a *second* `FileVault` rooted at the process working
+/// directory, so the API showed an empty key list while the Settings
+/// screen had keys, and an API write landed in the working directory
+/// instead of the app-data vault.
+///
+/// The gate is fed the failing input: before the fix the API answered
+/// with a list that does not contain the key this test wrote.
+#[tokio::test]
+async fn the_api_serves_the_desktops_own_vault() {
+    let repos_dir = unique_temp("repos");
+    let vault_root = unique_temp("vault");
+
+    // Write into the desktop's vault, the way the Settings screen does.
+    let vault = gitgit::server::vault::FileVault::new(&vault_root);
+    gitgit::server::vault::Vault::set(&vault, "openai", "sk-desktop-vault")
+        .await
+        .unwrap();
+    gitgit::server::vault::Vault::set(
+        &vault,
+        gitgit::config::ADMIN_PASSWORD_VAULT_KEY,
+        "desktop-test-password",
+    )
+    .await
+    .unwrap();
+
+    let (handle, addr) =
+        crate::run_embedded_router("127.0.0.1:0".to_string(), vault_root.clone(), repos_dir)
+            .await
+            .unwrap();
+
+    // The server resolves the admin credential from the environment first
+    // and from the vault second — and it ignores a **blank** environment
+    // value. Mirror that exactly, or the test authenticates with a
+    // password the server never took.
+    let password = std::env::var(gitgit::config::ADMIN_PASS_ENV)
+        .ok()
+        .filter(|v| !v.trim().is_empty())
+        .unwrap_or_else(|| "desktop-test-password".to_string());
+    let user = std::env::var(gitgit::config::ADMIN_USER_ENV)
+        .ok()
+        .filter(|v| !v.trim().is_empty())
+        .unwrap_or_else(|| gitgit::config::DEFAULT_ADMIN_USER.to_string());
+
+    let url = format!("http://{addr}/api/vault/keys");
+    let response = reqwest::Client::new()
+        .get(&url)
+        .basic_auth(user, Some(password))
+        .send()
+        .await
+        .unwrap_or_else(|e| panic!("the embedded server did not answer {url}: {e}"));
+    assert_eq!(
+        response.status(),
+        200,
+        "the vault listing must answer 200 for an authenticated caller"
+    );
+    let body = response
+        .text()
+        .await
+        .unwrap_or_else(|e| panic!("the vault listing body could not be read: {e}"));
+    assert!(
+        body.contains("openai"),
+        "the API must serve the desktop's own vault; got: {body}"
+    );
+
+    handle.abort();
+}
