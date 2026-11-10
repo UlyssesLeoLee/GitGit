@@ -221,6 +221,73 @@ pub trait Vault: Send + Sync {
     async fn rotate(&self, key: &str) -> Result<()>;
 }
 
+// ─── the versioned vault's own names ──────────────────────────────────────
+//
+// The versioned vault (ADR-0022) keeps its bookkeeping next to the user
+// keys: two directories under a `FileVault` root, and two object shapes
+// under an `S3Vault` prefix. They are not keys, and a listing that
+// offers them makes `gitgit key ls` and `/api/vault/keys` show phantom
+// entries — and operating on a phantom key can damage the version
+// history. The names live here, next to the listings that have to
+// filter them, so the two cannot drift apart silently.
+
+/// The directory the versioned vault keeps its sidecars in, under a
+/// `FileVault` root.
+///
+/// `[FACT]` `vault_versioned::filevault_sidecar_path` writes
+/// `<root>/_versions/<key>.versions.json`.
+pub(crate) const VERSIONS_DIR: &str = "_versions";
+
+/// The directory the versioned vault keeps its attachment slots in, under
+/// a `FileVault` root.
+///
+/// `[FACT]` `vault_versioned::filevault_attachment_path` writes
+/// `<root>/_attachments/<encoded>/v<N>.bin`.
+pub(crate) const ATTACHMENTS_DIR: &str = "_attachments";
+
+/// The suffix of the versioned vault's sidecar object, under an `S3Vault`
+/// prefix.
+///
+/// `[FACT]` `vault_versioned::s3_sidecar_object_key` writes
+/// `<prefix><key>.versions.json`.
+pub(crate) const VERSIONS_SUFFIX: &str = ".versions.json";
+
+/// The suffix of the versioned vault's attachment slot object, under an
+/// `S3Vault` prefix.
+///
+/// `[FACT]` `vault_versioned::s3_attachment_object_key` writes
+/// `<prefix><key>.v<N>.bin`.
+pub(crate) const ATTACHMENT_SUFFIX: &str = ".bin";
+
+/// True when an object name in the bucket is one of the versioned vault's
+/// own bookkeeping objects rather than a user key.
+///
+/// `[FACT]` The versioned vault writes two kinds of internal object under
+/// the same prefix as the user keys: the sidecar `<key>.versions.json`
+/// and the attachment slot `<key>.v<N>.bin`.
+///
+/// `[INFERENCE]` The match is on the **shape** of those names rather than
+/// on a reserved prefix, because the existing layout has to keep
+/// working: a deployment that already has sidecars at
+/// `<prefix><key>.versions.json` must not lose them. The price of that
+/// choice is that a user key literally named `something.versions.json` is
+/// indistinguishable from the sidecar of the key `something` — the same
+/// namespace, and therefore the same collision the sidecar layout
+/// already has.
+pub(crate) fn is_internal_object(name: &str) -> bool {
+    if name.ends_with(VERSIONS_SUFFIX) {
+        return true;
+    }
+    let Some(rest) = name.strip_suffix(ATTACHMENT_SUFFIX) else {
+        return false;
+    };
+    let Some(idx) = rest.rfind(".v") else {
+        return false;
+    };
+    let version = &rest[idx + 2..];
+    !version.is_empty() && version.bytes().all(|b| b.is_ascii_digit())
+}
+
 /// Configuration for constructing a [`S3Vault`].
 ///
 /// Plain-data struct so it can be deserialized from a future TOML file
@@ -509,6 +576,14 @@ impl Vault for S3Vault {
                     .strip_prefix(&self.key_prefix)
                     .map(str::to_string)
                     .unwrap_or(key);
+                // The versioned vault writes its sidecars and attachment
+                // slots under the same prefix as the user keys. They are
+                // not keys: listing them makes `gitgit key ls` and
+                // `/api/vault/keys` show phantom entries, and operating
+                // on a phantom key can damage the version history.
+                if is_internal_object(&stripped) {
+                    continue;
+                }
                 out.push(stripped);
             }
         }
@@ -650,15 +725,124 @@ impl FileVault {
 
     async fn ensure_root(&self) -> std::io::Result<()> {
         if !self.root.exists() {
-            tokio::fs::create_dir_all(&self.root).await?;
+            create_private_dir_all(&self.root).await?;
+        } else {
+            // The root already exists — it may have been created by an
+            // older version, with the loose permissions that are exactly
+            // what this is about. Tighten it; if that is not possible, do
+            // not write secrets into a directory other local accounts can
+            // list.
+            make_private_dir(&self.root)?;
         }
         Ok(())
     }
+
+    /// Tighten an existing vault root, without creating one.
+    ///
+    /// `[FACT]` A vault written by an older version holds files with
+    /// loose permissions, and they stay loose until something rewrites
+    /// them. So the root is hardened on **every** path that touches the
+    /// vault — reads included — not only on writes: a read-only
+    /// deployment (one that only resolves the admin password) would
+    /// otherwise keep serving credentials that other local accounts can
+    /// read, indefinitely.
+    async fn harden_root(&self) -> std::io::Result<()> {
+        if !self.root.exists() {
+            return Ok(());
+        }
+        make_private_dir(&self.root)
+    }
+}
+
+/// Create a directory (and its parents) that only its owner can enter.
+///
+/// `[FACT]` The default `create_dir_all` leaves directories at 0755 under
+/// the common `umask 022`, which lets any other local account list the
+/// credential directory. The mode is set at creation, because that is the
+/// only moment the directory is certainly ours.
+async fn create_private_dir_all(dir: &Path) -> std::io::Result<()> {
+    let mut builder = tokio::fs::DirBuilder::new();
+    builder.recursive(true);
+    #[cfg(unix)]
+    {
+        builder.mode(0o700);
+    }
+    builder.create(dir).await
+}
+
+/// Make an existing directory private (`0700`).
+///
+/// `[FACT]` `chmod` is what changes the mode of a directory that already
+/// exists; `mkdir` only sets the mode when it creates the directory. A
+/// failure here is **not** ignored: writing a secret into a directory
+/// other local accounts can list would undo the point of the file mode.
+#[cfg(unix)]
+fn make_private_dir(dir: &Path) -> std::io::Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+    // `[FACT]` `set_permissions` follows a symlink, so tightening a
+    // symlinked root would change the permissions of whatever it points
+    // at — possibly a directory shared with other things, where a chmod
+    // would take access away from something that needs it. A symlinked
+    // root is therefore left alone. The files inside it are still
+    // created 0600, and that is what protects the secret.
+    let is_symlink = std::fs::symlink_metadata(dir)
+        .map(|m| m.file_type().is_symlink())
+        .unwrap_or(false);
+    if is_symlink {
+        return Ok(());
+    }
+    let current = std::fs::metadata(dir)?.permissions().mode() & 0o777;
+    if current == 0o700 {
+        return Ok(());
+    }
+    std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700)).map_err(|e| {
+        std::io::Error::new(
+            e.kind(),
+            format!(
+                "the vault root {} must be private (0700) and could not be made so: {e}",
+                dir.display()
+            ),
+        )
+    })
+}
+
+/// On Windows the ACLs are not mode bits, so there is nothing to tighten.
+#[cfg(not(unix))]
+fn make_private_dir(_dir: &Path) -> std::io::Result<()> {
+    Ok(())
+}
+
+/// Create a file that only its owner can read and write.
+///
+/// `[FACT]` `File::create` uses 0666 masked by the umask — 0644 under the
+/// common `umask 022` — and renaming a file over the target does not
+/// change its mode, so the mode has to be right at creation. The mode is
+/// also set explicitly afterwards, because `open(2)` masks the requested
+/// mode with the umask and an unusual umask could otherwise take bits
+/// away.
+async fn create_private_file(path: &Path) -> std::io::Result<tokio::fs::File> {
+    let mut options = tokio::fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        options.mode(0o600);
+    }
+    let file = options.open(path).await?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
+    }
+    Ok(file)
 }
 
 #[async_trait]
 impl Vault for FileVault {
     async fn get(&self, key: &str) -> Result<Option<String>> {
+        // The vault is hardened on the way in, not only on the way out:
+        // a read-only deployment must not keep serving credentials that
+        // other local accounts can read.
+        self.harden_root().await?;
         let Some(p) = self.path_for(key) else {
             // A bad key can never have been set, so the answer is
             // always "not present". The caller (e.g. `gitai key get`)
@@ -680,7 +864,10 @@ impl Vault for FileVault {
         };
         self.ensure_root().await?;
         if let Some(parent) = p.parent() {
-            tokio::fs::create_dir_all(parent).await?;
+            create_private_dir_all(parent).await?;
+            // The parent may have been created by an older version, with
+            // the loose permissions this is about.
+            make_private_dir(parent)?;
         }
         // Write to a temp file in the same directory, then rename over
         // the target. This is the canonical atomic-replace pattern on
@@ -690,7 +877,7 @@ impl Vault for FileVault {
         let mut tmp = p.clone();
         let tmp_name = format!(".tmp.{}", uuid::Uuid::new_v4().simple());
         tmp.set_file_name(tmp_name);
-        let mut f = tokio::fs::File::create(&tmp).await?;
+        let mut f = create_private_file(&tmp).await?;
         f.write_all(value.as_bytes()).await?;
         f.sync_all().await?;
         drop(f);
@@ -716,6 +903,8 @@ impl Vault for FileVault {
     }
 
     async fn list(&self) -> Result<Vec<String>> {
+        // Hardened on the way in, like `get`.
+        self.harden_root().await?;
         // We only enumerate immediate children (no recursion). That
         // matches the `S3Vault` contract, which uses a flat
         // (prefix, no delimiter) listing on its own key namespace.
@@ -730,6 +919,11 @@ impl Vault for FileVault {
             // not show up as phantom keys.
             if let Some(s) = name.to_str() {
                 if s.starts_with(".tmp.") {
+                    continue;
+                }
+                // The versioned vault keeps its sidecars and attachment
+                // slots in two directories of its own. They are not keys.
+                if s == VERSIONS_DIR || s == ATTACHMENTS_DIR {
                     continue;
                 }
             }
@@ -877,6 +1071,180 @@ mod tests {
         assert_eq!(got.as_deref(), Some("sk-test-123"));
     }
 
+    /// `[FACT]` The credential file must be readable only by its owner.
+    ///
+    /// The mode bits are a Unix concept; on Windows the access control is
+    /// the ACL, not a mode. The two halves live in **one** test on purpose:
+    /// the committed test-count contract has a single number, so a test
+    /// that only exists on one platform would make the count differ
+    /// between the Windows box and the Linux runner.
+    ///
+    /// What is tested on both platforms is the same: the file gets its
+    /// private mode **at creation**, before the rename — a rename does
+    /// not change a file's mode.
+    #[tokio::test]
+    async fn a_written_credential_is_private_to_its_owner() {
+        let dir = fresh_dir("private-payload");
+        let root = dir.join("vault");
+        let v = FileVault::new(&root);
+        v.set("openai", "sk-test-123").await.unwrap();
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let payload = std::fs::metadata(root.join("openai")).unwrap();
+            assert_eq!(
+                payload.permissions().mode() & 0o777,
+                0o600,
+                "the credential file must be 0600"
+            );
+            let root_meta = std::fs::metadata(&root).unwrap();
+            assert_eq!(
+                root_meta.permissions().mode() & 0o777,
+                0o700,
+                "the vault root must be 0700"
+            );
+        }
+        #[cfg(not(unix))]
+        {
+            // Windows has no mode bits — the ACL comes from the directory
+            // the file is created in. What can be asserted here is that
+            // the file is there and holds the value; the mode half of the
+            // claim is the Unix block above.
+            assert!(root.join("openai").exists());
+            assert_eq!(
+                v.get("openai").await.unwrap().as_deref(),
+                Some("sk-test-123")
+            );
+        }
+    }
+
+    /// `[FACT]` A vault root that already existed with loose permissions —
+    /// created by an older version — is tightened before anything is
+    /// written into it.
+    #[tokio::test]
+    async fn an_existing_loose_vault_root_is_tightened() {
+        let dir = fresh_dir("loose-root");
+        let root = dir.join("vault");
+        std::fs::create_dir_all(&root).unwrap();
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&root, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+
+        let v = FileVault::new(&root);
+        v.set("openai", "sk-test-123").await.unwrap();
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let meta = std::fs::metadata(&root).unwrap();
+            assert_eq!(
+                meta.permissions().mode() & 0o777,
+                0o700,
+                "the pre-existing vault root must be tightened to 0700"
+            );
+            let payload = std::fs::metadata(root.join("openai")).unwrap();
+            assert_eq!(payload.permissions().mode() & 0o777, 0o600);
+        }
+        #[cfg(not(unix))]
+        {
+            // Windows has no mode bits; the pre-existing root must still
+            // work, and the credential must still land in it.
+            assert_eq!(
+                v.get("openai").await.unwrap().as_deref(),
+                Some("sk-test-123")
+            );
+        }
+    }
+
+    /// `[FACT]` The vault is hardened on the way **in**, not only on the
+    /// way out: a deployment that only reads (the server resolving the
+    /// admin password) must not keep serving credentials that other local
+    /// accounts can read.
+    ///
+    /// The second half is about symlinks: `set_permissions` follows one,
+    /// so tightening a symlinked root would change the permissions of
+    /// whatever it points at — possibly a directory shared with other
+    /// things, where a chmod takes access away from something that needs
+    /// it.
+    #[tokio::test]
+    async fn reading_the_vault_hardens_it_without_following_a_symlink() {
+        let dir = fresh_dir("harden-on-read");
+        let root = dir.join("vault");
+        std::fs::create_dir_all(&root).unwrap();
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&root, std::fs::Permissions::from_mode(0o755)).unwrap();
+            // A credential in the old layout, written by an older version.
+            std::fs::write(root.join("openai"), "sk-legacy").unwrap();
+            std::fs::set_permissions(root.join("openai"), std::fs::Permissions::from_mode(0o644))
+                .unwrap();
+
+            let v = FileVault::new(&root);
+            // The read is what hardens it.
+            let got = v.get("openai").await.unwrap();
+            assert_eq!(got.as_deref(), Some("sk-legacy"));
+            let meta = std::fs::metadata(&root).unwrap();
+            assert_eq!(
+                meta.permissions().mode() & 0o777,
+                0o700,
+                "a read must harden the vault root"
+            );
+
+            // A symlinked root must not be chmod-ed.
+            let target = dir.join("shared-target");
+            std::fs::create_dir_all(&target).unwrap();
+            std::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o755)).unwrap();
+            let link = dir.join("vault-link");
+            std::os::unix::fs::symlink(&target, &link).unwrap();
+            let linked = FileVault::new(&link);
+            let _ = linked.get("openai").await;
+            let target_meta = std::fs::metadata(&target).unwrap();
+            assert_eq!(
+                target_meta.permissions().mode() & 0o777,
+                0o755,
+                "a symlinked root's target must not be chmod-ed"
+            );
+        }
+        #[cfg(not(unix))]
+        {
+            // Windows has no mode bits: the ACL is what protects the
+            // file, and there is nothing to harden here. The read still
+            // has to work.
+            std::fs::write(root.join("openai"), "sk-legacy").unwrap();
+            let v = FileVault::new(&root);
+            let got = v.get("openai").await.unwrap();
+            assert_eq!(got.as_deref(), Some("sk-legacy"));
+        }
+    }
+
+    #[tokio::test]
+    async fn a_nested_key_gets_its_own_private_directory() {
+        let dir = fresh_dir("nested");
+        let root = dir.join("vault");
+        let v = FileVault::new(&root);
+        v.set("openai/api_key", "sk-test-123").await.unwrap();
+        assert_eq!(
+            v.get("openai/api_key").await.unwrap().as_deref(),
+            Some("sk-test-123")
+        );
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let meta = std::fs::metadata(root.join("openai")).unwrap();
+            assert_eq!(
+                meta.permissions().mode() & 0o777,
+                0o700,
+                "the directory holding a credential must be 0700"
+            );
+        }
+    }
+
     #[tokio::test]
     async fn file_vault_get_missing_key_returns_none() {
         let dir = fresh_dir("missing");
@@ -915,6 +1283,46 @@ mod tests {
         let mut keys = v.list().await.unwrap();
         keys.sort();
         assert_eq!(keys, vec!["alpha", "mu", "zeta"]);
+    }
+
+    /// The versioned vault keeps its sidecars and attachment slots in two
+    /// directories of its own. They are not keys, so the listing must not
+    /// offer them — a phantom key can be operated on, and operating on one
+    /// damages the version history.
+    #[tokio::test]
+    async fn file_vault_list_does_not_offer_the_versioned_vault_s_directories() {
+        let dir = fresh_dir("list-internal-dirs");
+        let v = FileVault::new(&dir);
+        v.set("openai", "sk-test-123").await.unwrap();
+        // Stand in for what the versioned vault writes.
+        std::fs::create_dir_all(dir.join(VERSIONS_DIR)).unwrap();
+        std::fs::create_dir_all(dir.join(ATTACHMENTS_DIR).join("openai")).unwrap();
+        std::fs::write(dir.join(VERSIONS_DIR).join("openai.versions.json"), "{}").unwrap();
+
+        let keys = v.list().await.unwrap();
+        assert_eq!(
+            keys,
+            vec!["openai".to_string()],
+            "the versioned vault's own directories must not be listed as keys"
+        );
+    }
+
+    /// The S3 backend keeps its bookkeeping in the same prefix as the user
+    /// keys, so the listing has to recognise the two internal object
+    /// shapes — and nothing else.
+    #[test]
+    fn the_versioned_vault_s_object_names_are_recognised() {
+        // The sidecar of a key, and an attachment slot.
+        assert!(is_internal_object("openai.versions.json"));
+        assert!(is_internal_object("openai.v1.bin"));
+        assert!(is_internal_object("openai.v42.bin"));
+        // A user key that merely looks similar is not internal.
+        assert!(!is_internal_object("openai"));
+        assert!(!is_internal_object("openai.api_key"));
+        assert!(!is_internal_object("my.bin"));
+        assert!(!is_internal_object("notes.v.txt"));
+        assert!(!is_internal_object("v1.bin"));
+        assert!(!is_internal_object("openai.vx.bin"));
     }
 
     #[tokio::test]
