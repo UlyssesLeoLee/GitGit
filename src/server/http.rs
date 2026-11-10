@@ -351,22 +351,32 @@ async fn serve_rpc(
         let _ = exit_tx.send(result);
     });
 
-    tokio::select! {
+    // The exit status becomes the answer when git produced no output:
+    // a success is an empty body, a failure is an error status.
+    let no_output =
+        |result: Result<Result<(), GitGitError>, tokio::sync::oneshot::error::RecvError>| {
+            match result {
+                Ok(Ok(())) => rpc_response(content_type, Body::from(Vec::new())),
+                Ok(Err(e)) => internal_error(e),
+                Err(_) => rpc_response(content_type, Body::from(Vec::new())),
+            }
+        };
+
+    let started = tokio::select! {
         // git is producing output: stream it.
-        _ = &mut started_rx => {}
+        started = &mut started_rx => started,
         // git finished before saying anything.
         result = &mut exit_rx => {
-            return match result {
-                // git succeeded and wrote nothing: an empty body is the
-                // honest answer.
-                Ok(Ok(())) => rpc_response(content_type, Body::from(Vec::new())),
-                // git failed before writing anything: the error is still
-                // reportable as a status code.
-                Ok(Err(e)) => internal_error(e),
-                // the watcher itself died: nothing to report.
-                Err(_) => rpc_response(content_type, Body::from(Vec::new())),
-            };
+            return no_output(result);
         }
+    };
+    if started.is_err() {
+        // The pump ended without a chunk — git closed its stdout without
+        // saying anything (it may have rejected the RPC input first).
+        // **Only** a successful start signal means "git is talking"; a
+        // dropped one means the opposite, so the exit status decides.
+        let result = exit_rx.await;
+        return no_output(result);
     }
 
     let stream = futures_util::stream::unfold(rx, |mut rx| async move {
@@ -683,6 +693,49 @@ mod tests {
     /// This is the test that fails if the handler goes back to buffering:
     /// a reader that drains the source first delivers nothing until the
     /// source is closed, and the receive below would time out.
+    /// `[FACT]` A reader that ends without producing a chunk drops the
+    /// start signal — it does **not** signal "output". The handler tells
+    /// the two apart, and only a successful signal means git is talking.
+    #[tokio::test]
+    async fn an_empty_reader_drops_the_start_signal_instead_of_signalling_output() {
+        let (tx, _rx) = tokio::sync::mpsc::channel::<Result<Bytes, std::io::Error>>(4);
+        let (started_tx, started_rx) = tokio::sync::oneshot::channel::<()>();
+        let _pump = tokio::spawn(pump_chunks(
+            std::io::Cursor::new(Vec::<u8>::new()),
+            tx,
+            Some(started_tx),
+        ));
+        let started = started_rx.await;
+        assert!(
+            started.is_err(),
+            "an empty source must not signal output — the exit status is the answer"
+        );
+    }
+
+    /// `[FACT]` A git that rejects the request before producing any
+    /// output is still an error, not an empty 200. The buffered handler
+    /// answered with git's exit status; the streaming one has to keep
+    /// that, even though it cannot change the status once a body has
+    /// started.
+    #[tokio::test]
+    async fn a_git_that_produces_no_output_is_reported_as_an_error() {
+        let (state, _repos) = app_with_repo("nooutput", "demo").await;
+        let app = build_router(state);
+        // A body that is not a pkt-line at all: git rejects it before
+        // writing anything.
+        let req = HttpRequest::builder()
+            .method("POST")
+            .uri("/repos/demo.git/git-upload-pack")
+            .body(Body::from("not a pkt-line at all"))
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_ne!(
+            resp.status(),
+            AxStatusCode::OK,
+            "a git that produced nothing must not be answered with an empty 200"
+        );
+    }
+
     #[tokio::test]
     async fn the_response_chunks_arrive_before_the_source_is_drained() {
         use tokio::io::AsyncWriteExt;
