@@ -401,10 +401,38 @@ fn legacy_encode_key_for_filename(key: &str) -> String {
     key.replace(['/', '\\'], "__")
 }
 
+/// The maximum length of an encoded file name, suffix included.
+///
+/// `[FACT]` A single path component is limited to 255 bytes on ext4 and
+/// NTFS, and the encoding can triple the length of a key (a `__` pair
+/// becomes `%5F%5F`). A key whose plain name fits can therefore still
+/// produce a name that does not — and then the sidecar write fails
+/// *after* the value was written, leaving a changed value with no
+/// version history.
+const MAX_ENCODED_NAME: usize = 200;
+
+/// The file name of a key, bounded so that it always fits a path
+/// component.
+///
+/// `[PROPOSAL]` A name that fits keeps the readable encoding. A name that
+/// does not keeps a readable prefix and gains the key's digest, which
+/// keeps it unique (a digest collision is not a thing one can rely on
+/// happening, but it is not a thing one can rely on *not* happening
+/// either — which is why the prefix is kept for the human).
+fn encoded_file_name(key: &str, suffix: &str) -> String {
+    let encoded = encode_key_for_filename(key);
+    if encoded.len() + suffix.len() <= MAX_ENCODED_NAME {
+        return format!("{encoded}{suffix}");
+    }
+    let digest = sha256_hex(key.as_bytes());
+    let prefix: String = encoded.chars().take(64).collect();
+    format!("{prefix}~{digest}{suffix}")
+}
+
 /// The sidecar path of a key under the current (injective) encoding.
 fn filevault_sidecar_path(root: &Path, key: &str) -> PathBuf {
     root.join("_versions")
-        .join(format!("{}.versions.json", encode_key_for_filename(key)))
+        .join(encoded_file_name(key, ".versions.json"))
 }
 
 /// The sidecar path of a key as the old encoding wrote it, when the two
@@ -437,7 +465,7 @@ fn filevault_timeline_path(vault: &FileVault, key: &str) -> PathBuf {
 /// This sidesteps the rust-s3 0.37 `versionId` lookup gap for V0.
 fn filevault_attachment_path(root: &Path, key: &str, version: i32) -> PathBuf {
     root.join("_attachments")
-        .join(encode_key_for_filename(key))
+        .join(encoded_file_name(key, ""))
         .join(format!("v{version}.bin"))
 }
 
@@ -467,6 +495,12 @@ async fn filevault_write_attachment(
         // and the file get the same private modes as the vault's own
         // (0700 / 0600), or another local account could read them.
         crate::server::vault::create_private_dir_all(parent).await?;
+        // The directory may have existed with loose permissions, and the
+        // historical slots in it may be loose too — a vault written by an
+        // older version keeps its old modes, because the mode is only
+        // set when a file is created.
+        crate::server::vault::make_private_dir(parent)?;
+        harden_attachment_slots(parent)?;
     }
     let mut tmp = path.clone();
     let tmp_name = format!(".tmp.{}", uuid::Uuid::new_v4().simple());
@@ -479,6 +513,22 @@ async fn filevault_write_attachment(
     if let Err(e) = tokio::fs::rename(&tmp, &path).await {
         let _ = tokio::fs::remove_file(&tmp).await;
         return Err(VersionedVaultError::from(e).into());
+    }
+    Ok(())
+}
+
+/// Tighten the slots that are already in an attachment directory.
+///
+/// `[FACT]` The mode of a file is only set when the file is created, so
+/// the slots an older version wrote are still readable by other local
+/// accounts. Creating new ones privately does not close that, so the
+/// existing ones are tightened too.
+fn harden_attachment_slots(dir: &Path) -> Result<()> {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return Ok(());
+    };
+    for entry in entries.flatten() {
+        crate::server::vault::harden_private_file(&entry.path())?;
     }
     Ok(())
 }
@@ -1122,6 +1172,24 @@ mod tests {
         assert_eq!(loaded.versions[0].version, 1);
     }
 
+    /// `[FACT]` The encoding can triple a key's length, so a key whose
+    /// plain name fits can still produce a name that does not — and then
+    /// the sidecar write fails *after* the value was written, leaving a
+    /// changed value with no version history. The file name is therefore
+    /// bounded, and still unique.
+    #[test]
+    fn a_very_long_key_still_gets_a_name_that_fits_and_is_unique() {
+        let key = "__".repeat(100);
+        let name = encoded_file_name(&key, ".versions.json");
+        assert!(
+            name.len() <= MAX_ENCODED_NAME,
+            "the name must fit a path component: {} bytes",
+            name.len()
+        );
+        let other = encoded_file_name(&format!("{key}x"), ".versions.json");
+        assert_ne!(name, other, "two long keys must not share a name");
+    }
+
     /// `[FACT]` The attachment slot holds a credential's bytes, so it is
     /// written with the vault's own private modes.
     ///
@@ -1152,6 +1220,21 @@ mod tests {
                 dir_meta.permissions().mode() & 0o777,
                 0o700,
                 "the attachment directory must be 0700"
+            );
+
+            // A slot that existed before — with the loose permissions an
+            // older version wrote — must be tightened too: the mode is
+            // only set when a file is created, so creating new ones
+            // privately does not close that.
+            let old_slot = dir.join("_attachments").join("openai").join("v0.bin");
+            std::fs::write(&old_slot, b"old").unwrap();
+            std::fs::set_permissions(&old_slot, std::fs::Permissions::from_mode(0o644)).unwrap();
+            v.set_with_version("openai", "sk-secret-2").await.unwrap();
+            let old_meta = std::fs::metadata(&old_slot).unwrap();
+            assert_eq!(
+                old_meta.permissions().mode() & 0o777,
+                0o600,
+                "an existing slot must be tightened, not just the new ones"
             );
         }
         #[cfg(not(unix))]

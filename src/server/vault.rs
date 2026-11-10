@@ -812,6 +812,45 @@ pub(crate) fn make_private_dir(_dir: &Path) -> std::io::Result<()> {
     Ok(())
 }
 
+/// Tighten an existing file to 0600.
+///
+/// `[FACT]` A file that already existed keeps its old mode: the mode is
+/// only set when the file is **created**. So a vault written by an older
+/// version holds credentials that are still readable by other local
+/// accounts, and creating new files privately does not close that.
+#[cfg(unix)]
+pub(crate) fn harden_private_file(path: &Path) -> std::io::Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+    let Ok(meta) = std::fs::symlink_metadata(path) else {
+        // It does not exist: nothing to tighten.
+        return Ok(());
+    };
+    if meta.file_type().is_symlink() {
+        // `set_permissions` would follow the link and change the target's
+        // mode — the same trap `make_private_dir` avoids.
+        return Ok(());
+    }
+    let current = meta.permissions().mode() & 0o777;
+    if current == 0o600 {
+        return Ok(());
+    }
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600)).map_err(|e| {
+        std::io::Error::new(
+            e.kind(),
+            format!(
+                "{} must be private (0600) and could not be made so: {e}",
+                path.display()
+            ),
+        )
+    })
+}
+
+/// On Windows the ACLs are not mode bits, so there is nothing to tighten.
+#[cfg(not(unix))]
+pub(crate) fn harden_private_file(_path: &Path) -> std::io::Result<()> {
+    Ok(())
+}
+
 /// Create a file that only its owner can read and write.
 ///
 /// `[FACT]` `File::create` uses 0666 masked by the umask — 0644 under the
