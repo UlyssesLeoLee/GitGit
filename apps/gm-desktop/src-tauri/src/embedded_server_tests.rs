@@ -227,12 +227,17 @@ async fn the_api_serves_the_desktops_own_vault() {
             .unwrap();
 
     // The server resolves the admin credential from the environment first
-    // and from the vault second — so authenticate with whichever it will
-    // use.
+    // and from the vault second — and it ignores a **blank** environment
+    // value. Mirror that exactly, or the test authenticates with a
+    // password the server never took.
     let password = std::env::var(gitgit::config::ADMIN_PASS_ENV)
-        .unwrap_or_else(|_| "desktop-test-password".to_string());
+        .ok()
+        .filter(|v| !v.trim().is_empty())
+        .unwrap_or_else(|| "desktop-test-password".to_string());
     let user = std::env::var(gitgit::config::ADMIN_USER_ENV)
-        .unwrap_or_else(|_| gitgit::config::DEFAULT_ADMIN_USER.to_string());
+        .ok()
+        .filter(|v| !v.trim().is_empty())
+        .unwrap_or_else(|| gitgit::config::DEFAULT_ADMIN_USER.to_string());
 
     let url = format!("http://{addr}/api/vault/keys");
     let response = reqwest::Client::new()

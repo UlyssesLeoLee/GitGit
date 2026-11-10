@@ -39,7 +39,9 @@ pub async fn start_server(
     state
         .server
         .start_with(bind, move |b| async move {
-            spawn_embedded_server(b, vault, repos_dir, bind_for_spawn).await
+            spawn_embedded_server(b, vault, repos_dir, bind_for_spawn)
+                .await
+                .map(|(handle, _addr)| handle)
         })
         .await
 }
@@ -67,13 +69,22 @@ pub fn clear_logs(state: State<'_, DesktopState>) -> AppResult<()> {
 }
 
 /// Spawn the axum router on `bind`. Returns a tokio `JoinHandle`; the
-/// caller (ServerManager) holds the handle and aborts on stop.
-async fn spawn_embedded_server(
+/// caller (ServerManager) holds the handle and aborts on stop, plus the
+/// address the listener actually got.
+///
+/// `[FACT]` The address is returned because a caller that binds port 0 —
+/// the right thing for a test, which must never take the product's own
+/// port — otherwise has no way to know which port the OS handed out.
+///
+/// `pub(crate)` because the test helper goes through this function: the
+/// production path and the test path have to be the same path, or a
+/// test of the wiring proves nothing about the wiring.
+pub(crate) async fn spawn_embedded_server(
     bind: String,
     vault: Arc<dyn gitgit::server::vault_versioned::VersionedVault>,
     repos_dir: std::path::PathBuf,
     bind_for_spawn: String,
-) -> AppResult<tokio::task::JoinHandle<()>> {
+) -> AppResult<(tokio::task::JoinHandle<()>, std::net::SocketAddr)> {
     // Build the gitgit router via `gitgit::server::http` — same code
     // path the CLI uses, zero duplication.
     use gitgit::config::Config;
@@ -124,6 +135,9 @@ async fn spawn_embedded_server(
     let listener = tokio::net::TcpListener::bind(&cfg_arc.bind)
         .await
         .map_err(|e| AppError::Bind(format!("bind {bind}: {e}")))?;
+    let addr = listener
+        .local_addr()
+        .map_err(|e| AppError::Bind(format!("local_addr {bind}: {e}")))?;
     tracing::info!(bind = %cfg_arc.bind, "embedded gitgit server listening");
 
     let handle = tokio::spawn(async move {
@@ -131,5 +145,5 @@ async fn spawn_embedded_server(
             tracing::error!(error = %e, "embedded server exited");
         }
     });
-    Ok(handle)
+    Ok((handle, addr))
 }
