@@ -362,12 +362,66 @@ fn build_diff(
 
 // ─── FileVault implementation ────────────────────────────────────────────
 
+/// The file-name encoding of a key.
+///
+/// `[FACT]` The old encoding flattened `/` and `\` to `__`, which is not
+/// injective: `openai/api_key` and `openai__api_key` both became
+/// `openai__api_key`, so the two keys shared one sidecar file and one
+/// attachment directory. Once one of them had a timeline, the other
+/// failed the sidecar's key check, and their attachment paths aliased
+/// too.
+///
+/// `[PROPOSAL]` Percent-encoding the special characters is injective:
+/// `%` -> `%25`, `/` -> `%2F`, `\` -> `%5C`, and the double underscore
+/// `__` -> `%5F%5F` (a single `_` is left alone — it is the *pair* that
+/// a flattened separator could produce). Every escape starts with `%`
+/// and `%` itself is escaped, so the encoding can be undone without
+/// ambiguity, and the encoded name never contains `__` — so it cannot
+/// collide with a name written by the old encoding either.
+fn encode_key_for_filename(key: &str) -> String {
+    let mut out = String::with_capacity(key.len());
+    let mut chars = key.chars().peekable();
+    while let Some(ch) = chars.next() {
+        match ch {
+            '%' => out.push_str("%25"),
+            '/' => out.push_str("%2F"),
+            '\\' => out.push_str("%5C"),
+            '_' if chars.peek() == Some(&'_') => {
+                out.push_str("%5F%5F");
+                chars.next();
+            }
+            _ => out.push(ch),
+        }
+    }
+    out
+}
+
+/// The old, non-injective encoding: `/` and `\` flattened to `__`.
+fn legacy_encode_key_for_filename(key: &str) -> String {
+    key.replace(['/', '\\'], "__")
+}
+
+/// The sidecar path of a key under the current (injective) encoding.
 fn filevault_sidecar_path(root: &Path, key: &str) -> PathBuf {
-    // `/` and `\` in key are translated to `__` so multi-segment keys
-    // (per `Vault::set` convention) flatten into a single sidecar file.
-    let encoded = key.replace(['/', '\\'], "__");
     root.join("_versions")
-        .join(format!("{encoded}.versions.json"))
+        .join(format!("{}.versions.json", encode_key_for_filename(key)))
+}
+
+/// The sidecar path of a key as the old encoding wrote it, when the two
+/// encodings disagree.
+///
+/// `[FACT]` The two encodings agree for every key without a separator and
+/// without a double underscore, so those sidecars keep their name and
+/// their contents — nothing is moved.
+fn filevault_legacy_sidecar_path(root: &Path, key: &str) -> Option<PathBuf> {
+    let legacy = legacy_encode_key_for_filename(key);
+    if legacy == encode_key_for_filename(key) {
+        return None;
+    }
+    Some(
+        root.join("_versions")
+            .join(format!("{legacy}.versions.json")),
+    )
 }
 
 fn filevault_timeline_path(vault: &FileVault, key: &str) -> PathBuf {
@@ -382,10 +436,23 @@ fn filevault_timeline_path(vault: &FileVault, key: &str) -> PathBuf {
 /// re-points the main object at it; `get_at_version` does the same.
 /// This sidesteps the rust-s3 0.37 `versionId` lookup gap for V0.
 fn filevault_attachment_path(root: &Path, key: &str, version: i32) -> PathBuf {
-    let encoded = key.replace(['/', '\\'], "__");
     root.join("_attachments")
-        .join(encoded)
+        .join(encode_key_for_filename(key))
         .join(format!("v{version}.bin"))
+}
+
+/// The attachment path as the old encoding wrote it, when the two
+/// encodings disagree.
+fn filevault_legacy_attachment_path(root: &Path, key: &str, version: i32) -> Option<PathBuf> {
+    let legacy = legacy_encode_key_for_filename(key);
+    if legacy == encode_key_for_filename(key) {
+        return None;
+    }
+    Some(
+        root.join("_attachments")
+            .join(legacy)
+            .join(format!("v{version}.bin")),
+    )
 }
 
 async fn filevault_write_attachment(
@@ -396,12 +463,19 @@ async fn filevault_write_attachment(
 ) -> Result<()> {
     let path = filevault_attachment_path(vault.root(), key, version);
     if let Some(parent) = path.parent() {
-        tokio::fs::create_dir_all(parent).await?;
+        // `[FACT]` An attachment is a credential's bytes: the directory
+        // and the file get the same private modes as the vault's own
+        // (0700 / 0600), or another local account could read them.
+        crate::server::vault::create_private_dir_all(parent).await?;
     }
     let mut tmp = path.clone();
     let tmp_name = format!(".tmp.{}", uuid::Uuid::new_v4().simple());
     tmp.set_file_name(tmp_name);
-    tokio::fs::write(&tmp, bytes).await?;
+    let mut f = crate::server::vault::create_private_file(&tmp).await?;
+    use tokio::io::AsyncWriteExt;
+    f.write_all(bytes).await?;
+    f.sync_all().await?;
+    drop(f);
     if let Err(e) = tokio::fs::rename(&tmp, &path).await {
         let _ = tokio::fs::remove_file(&tmp).await;
         return Err(VersionedVaultError::from(e).into());
@@ -411,49 +485,81 @@ async fn filevault_write_attachment(
 
 async fn filevault_read_attachment(vault: &FileVault, key: &str, version: i32) -> Result<Vec<u8>> {
     let path = filevault_attachment_path(vault.root(), key, version);
-    let bytes = tokio::fs::read(&path)
-        .await
-        .map_err(VersionedVaultError::from)?;
-    Ok(bytes)
+    match tokio::fs::read(&path).await {
+        Ok(bytes) => Ok(bytes),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            // Fall back to the name the old encoding wrote.
+            match filevault_legacy_attachment_path(vault.root(), key, version) {
+                Some(legacy) => {
+                    let bytes = tokio::fs::read(&legacy)
+                        .await
+                        .map_err(VersionedVaultError::from)?;
+                    Ok(bytes)
+                }
+                None => Err(VersionedVaultError::from(e).into()),
+            }
+        }
+        Err(e) => Err(VersionedVaultError::from(e).into()),
+    }
 }
 
 async fn filevault_load_timeline(vault: &FileVault, key: &str) -> Result<VersionedTimeline> {
     let path = filevault_timeline_path(vault, key);
-    match tokio::fs::read(&path).await {
-        Ok(bytes) => {
-            let tl: VersionedTimeline =
-                serde_json::from_slice(&bytes).map_err(VersionedVaultError::from)?;
-            if tl.key != key {
-                let msg = format!(
-                    "sidecar for {key:?} stored a different logical key: {:?}",
-                    tl.key
-                );
-                return Err(VersionedVaultError::Serde(msg).into());
+    let bytes = match tokio::fs::read(&path).await {
+        Ok(bytes) => Some(bytes),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            // `[FACT]` A key whose old and new names differ keeps its
+            // sidecar where the old encoding wrote it; nothing is moved.
+            match filevault_legacy_sidecar_path(vault.root(), key) {
+                Some(legacy) => match tokio::fs::read(&legacy).await {
+                    Ok(bytes) => Some(bytes),
+                    Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
+                    Err(e) => return Err(VersionedVaultError::from(e).into()),
+                },
+                None => None,
             }
-            Ok(tl)
         }
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(VersionedTimeline {
+        Err(e) => return Err(VersionedVaultError::from(e).into()),
+    };
+    let Some(bytes) = bytes else {
+        return Ok(VersionedTimeline {
             key: key.to_string(),
             versions: Vec::new(),
-        }),
-        Err(e) => Err(VersionedVaultError::from(e).into()),
+        });
+    };
+    let tl: VersionedTimeline =
+        serde_json::from_slice(&bytes).map_err(VersionedVaultError::from)?;
+    if tl.key != key {
+        let msg = format!(
+            "sidecar for {key:?} stored a different logical key: {:?}",
+            tl.key
+        );
+        return Err(VersionedVaultError::Serde(msg).into());
     }
+    Ok(tl)
 }
 
 async fn filevault_store_timeline(vault: &FileVault, tl: &VersionedTimeline) -> Result<()> {
     let path = filevault_timeline_path(vault, &tl.key);
     if let Some(parent) = path.parent() {
-        tokio::fs::create_dir_all(parent).await?;
+        // `[FACT]` The sidecar names the key and carries its hashes: it
+        // is part of the credential's footprint, so it gets the same
+        // private modes as the vault's own files.
+        crate::server::vault::create_private_dir_all(parent).await?;
     }
     let bytes = serde_json::to_vec_pretty(tl).map_err(VersionedVaultError::from)?;
     // Atomic write: write to a temp file in the same directory, then
-    // rename over the target. Mirrors FileVault::set's write-to-tmp +
+    // rename over the target. Mirrors FileVault::set's write-to-temp +
     // rename pattern so a crash mid-write cannot leave a half-written
     // JSON file visible.
     let mut tmp = path.clone();
     let tmp_name = format!(".tmp.{}", uuid::Uuid::new_v4().simple());
     tmp.set_file_name(tmp_name);
-    tokio::fs::write(&tmp, &bytes).await?;
+    let mut f = crate::server::vault::create_private_file(&tmp).await?;
+    use tokio::io::AsyncWriteExt;
+    f.write_all(&bytes).await?;
+    f.sync_all().await?;
+    drop(f);
     if let Err(e) = tokio::fs::rename(&tmp, &path).await {
         let _ = tokio::fs::remove_file(&tmp).await;
         return Err(VersionedVaultError::from(e).into());
@@ -931,6 +1037,132 @@ mod tests {
     }
 
     // ─── FileVault end-to-end ────────────────────────────────────────
+
+    /// `[FACT]` The two keys that used to share one sidecar file get
+    /// their own now: `openai/api_key` and `openai__api_key` are two
+    /// different keys, and the flattening (`/` and `\` to `__`) mapped
+    /// both of them onto `openai__api_key`.
+    ///
+    /// The same has to hold for the attachment slots.
+    #[test]
+    fn the_keys_that_used_to_collide_get_different_files() {
+        let root = PathBuf::from("/tmp/gitgit-vault-collision");
+        let a = filevault_sidecar_path(&root, "openai/api_key");
+        let b = filevault_sidecar_path(&root, "openai__api_key");
+        assert_ne!(
+            a, b,
+            "the two keys must not share one sidecar file: {a:?} vs {b:?}"
+        );
+        let a = filevault_attachment_path(&root, "openai/api_key", 1);
+        let b = filevault_attachment_path(&root, "openai__api_key", 1);
+        assert_ne!(
+            a, b,
+            "the two keys must not share one attachment directory: {a:?} vs {b:?}"
+        );
+    }
+
+    /// `[FACT]` The encoding is injective: different keys get different
+    /// names, and a key whose name contains the escaped characters does
+    /// not land on the name of another key.
+    #[test]
+    fn the_key_encoding_is_injective() {
+        let names = [
+            "openai",
+            "openai/api_key",
+            "openai__api_key",
+            "openai%2Fapi_key",
+            "openai/api_key/extra",
+            "a_b",
+            "a__b",
+            r"a\b",
+            "%",
+        ];
+        let mut seen = std::collections::BTreeMap::new();
+        for key in names {
+            let encoded = encode_key_for_filename(key);
+            assert!(
+                !encoded.contains("__"),
+                "{key:?} encodes to {encoded:?}, which still contains the pair that a flattened separator could produce"
+            );
+            if let Some(other) = seen.get(&encoded) {
+                panic!("{key:?} and {other:?} both encode to {encoded:?}");
+            }
+            seen.insert(encoded, key);
+        }
+    }
+
+    /// `[FACT]` A sidecar written by the old encoding is still found: the
+    /// change of the encoding does not move existing data.
+    #[tokio::test]
+    async fn a_sidecar_written_by_the_old_encoding_is_still_found() {
+        let (v, dir) = fresh_vault("legacy-sidecar");
+        // What the old encoding wrote for `openai/api_key`.
+        let legacy = dir.join("_versions").join("openai__api_key.versions.json");
+        std::fs::create_dir_all(legacy.parent().unwrap()).unwrap();
+        let tl = VersionedTimeline {
+            key: "openai/api_key".to_string(),
+            versions: vec![VaultVersionSummary {
+                version: 1,
+                bytes_sha256: "abc".to_string(),
+                byte_len: 3,
+                created_at_unix_ms: 0,
+                change_note: None,
+                version_id: None,
+            }],
+        };
+        std::fs::write(
+            &legacy,
+            serde_json::to_vec_pretty(&tl).expect("the timeline serialises"),
+        )
+        .unwrap();
+
+        let loaded = filevault_load_timeline(&v, "openai/api_key").await.unwrap();
+        assert_eq!(loaded.key, "openai/api_key");
+        assert_eq!(loaded.versions.len(), 1);
+        assert_eq!(loaded.versions[0].version, 1);
+    }
+
+    /// `[FACT]` The attachment slot holds a credential's bytes, so it is
+    /// written with the vault's own private modes.
+    ///
+    /// The mode bits are a Unix concept; on Windows the ACL is what
+    /// protects the file, so the assertion does not apply there. Both
+    /// halves live in one test because the committed test-count contract
+    /// has a single number, and a test that only exists on one platform
+    /// would make the count differ between this box and the Linux
+    /// runner.
+    #[tokio::test]
+    async fn an_attachment_slot_is_private_to_its_owner() {
+        let (v, dir) = fresh_vault("private-attachment");
+        v.set_with_version("openai", "sk-secret").await.unwrap();
+        let slot = dir.join("_attachments").join("openai").join("v1.bin");
+        assert!(slot.exists(), "the attachment slot must exist: {slot:?}");
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let meta = std::fs::metadata(&slot).unwrap();
+            assert_eq!(
+                meta.permissions().mode() & 0o777,
+                0o600,
+                "the attachment must be 0600"
+            );
+            let dir_meta = std::fs::metadata(slot.parent().unwrap()).unwrap();
+            assert_eq!(
+                dir_meta.permissions().mode() & 0o777,
+                0o700,
+                "the attachment directory must be 0700"
+            );
+        }
+        #[cfg(not(unix))]
+        {
+            // Windows has no mode bits; the ACL comes from the directory
+            // the file is created in. What can be asserted here is that
+            // the bytes are the credential's.
+            let bytes = std::fs::read(&slot).unwrap();
+            assert_eq!(bytes, b"sk-secret");
+        }
+    }
 
     fn fresh_vault(label: &str) -> (FileVault, PathBuf) {
         let pid = std::process::id();
