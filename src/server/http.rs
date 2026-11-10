@@ -18,6 +18,7 @@ use axum::http::{header, HeaderValue, Response, StatusCode};
 use axum::response::IntoResponse;
 use axum::routing::get;
 use axum::Router;
+use bytes::{Bytes, BytesMut};
 use futures_util::StreamExt;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use url::form_urlencoded;
@@ -28,6 +29,17 @@ use crate::server::auth::{require_basic, AdminCredentialStore};
 use crate::server::smart::announce_frame;
 use crate::server::subprocess::{await_success, git_stateless_rpc};
 use crate::server::vault_versioned::VersionedVault;
+
+/// The size of one chunk read from the child's stdout.
+const RPC_CHUNK_BYTES: usize = 64 * 1024;
+
+/// How many chunks may be in flight between git and the client.
+///
+/// `[INFERENCE]` 16 chunks of 64 KiB is 1 MiB of buffer per request. The
+/// point of the number is that it is a **bound**: the old code held the
+/// whole pack in memory, so the memory a fetch cost grew with the
+/// repository. This one does not.
+const RPC_CHUNK_QUEUE: usize = 16;
 
 /// Shared application state.
 #[derive(Clone)]
@@ -287,7 +299,10 @@ async fn serve_rpc(
     // for `git push` payloads in MVP.
     let body = request.into_body();
     let stdin = child.stdin;
-    let copy_in = tokio::spawn(async move {
+    // The task owns the request body for as long as the client keeps
+    // sending; it is not awaited here — the response may start before
+    // the request is finished.
+    let _copy_in = tokio::spawn(async move {
         use http_body_util::BodyExt;
         let mut sink = stdin;
         let mut src = BodyExt::into_data_stream(body);
@@ -304,29 +319,120 @@ async fn serve_rpc(
         let _ = sink.shutdown().await;
     });
 
-    // Spawn a task that drains stdout into a shared buffer.
+    // The response body is git's stdout, **streamed**.
+    //
+    // `[FACT]` The old implementation read the whole thing into a
+    // `Vec<u8>` before answering, so every concurrent fetch cost the
+    // server the size of its pack — a repository with a large pack could
+    // take the server down. The chunks now travel through a bounded
+    // queue, so what the server holds is the queue's size, not the
+    // pack's.
+    let (tx, rx) = tokio::sync::mpsc::channel::<Result<Bytes, std::io::Error>>(RPC_CHUNK_QUEUE);
+    // Signalled once git has produced its first chunk. It is what tells
+    // the handler that git is alive and talking, as opposed to having
+    // failed before saying anything.
+    let (started_tx, mut started_rx) = tokio::sync::oneshot::channel::<()>();
     let stdout = child.stdout;
-    let copy_out = tokio::spawn(async move {
-        let mut src = stdout;
-        let mut buf = Vec::with_capacity(8192);
-        let _ = src.read_to_end(&mut buf).await;
-        buf
+    let _pump = tokio::spawn(pump_chunks(stdout, tx, Some(started_tx)));
+
+    // The child's exit status can no longer change the HTTP status code
+    // once the body has started, so it is watched two ways: the first
+    // chunk races the exit, and a failure after the response started is
+    // logged and ends the body early (a truncated pack, which the git
+    // client reports as an error).
+    let (exit_tx, mut exit_rx) = tokio::sync::oneshot::channel::<Result<(), GitGitError>>();
+    let child_process = child.child;
+    let cmd = format!("git {subcmd} --stateless-rpc");
+    let _watcher = tokio::spawn(async move {
+        let result = await_success(child_process, &cmd).await;
+        if let Err(e) = &result {
+            tracing::error!(error = %e, "git rpc failed after the response had started");
+        }
+        let _ = exit_tx.send(result);
     });
 
-    // Wait for both tasks to finish.
-    let (in_result, out_buf) = tokio::join!(copy_in, copy_out);
-    let _ = in_result;
-    let out_buf = out_buf.unwrap_or_default();
+    // The exit status becomes the answer when git produced no output:
+    // a success is an empty body, a failure is an error status.
+    let no_output =
+        |result: Result<Result<(), GitGitError>, tokio::sync::oneshot::error::RecvError>| {
+            match result {
+                Ok(Ok(())) => rpc_response(content_type, Body::from(Vec::new())),
+                Ok(Err(e)) => internal_error(e),
+                Err(_) => rpc_response(content_type, Body::from(Vec::new())),
+            }
+        };
 
-    // Now wait for the git child to exit.
-    if let Err(e) = await_success(child.child, &format!("git {subcmd} --stateless-rpc")).await {
-        return internal_error(e);
+    let started = tokio::select! {
+        // git is producing output: stream it.
+        started = &mut started_rx => started,
+        // git finished before saying anything.
+        result = &mut exit_rx => {
+            return no_output(result);
+        }
+    };
+    if started.is_err() {
+        // The pump ended without a chunk — git closed its stdout without
+        // saying anything (it may have rejected the RPC input first).
+        // **Only** a successful start signal means "git is talking"; a
+        // dropped one means the opposite, so the exit status decides.
+        let result = exit_rx.await;
+        return no_output(result);
     }
 
-    let mut resp = match Response::builder()
-        .status(StatusCode::OK)
-        .body(Body::from(out_buf))
-    {
+    let stream = futures_util::stream::unfold(rx, |mut rx| async move {
+        rx.recv().await.map(|item| (item, rx))
+    });
+
+    rpc_response(content_type, Body::from_stream(stream))
+}
+
+/// Read from `reader` and hand the chunks to `tx`.
+///
+/// `started` is signalled as soon as the **first** chunk has been handed
+/// over. That is what tells the handler "git is talking", as opposed to
+/// "git failed before saying anything" — the two cases want different
+/// answers and the difference has to be observable before the response
+/// starts.
+///
+/// `[FACT]` The chunk is pushed to the queue **before** the reader is
+/// drained, so a consumer sees the first bytes while git is still
+/// writing. Reading the source to the end first would be the buffered
+/// behaviour this replaced.
+async fn pump_chunks<R>(
+    mut reader: R,
+    tx: tokio::sync::mpsc::Sender<Result<Bytes, std::io::Error>>,
+    started: Option<tokio::sync::oneshot::Sender<()>>,
+) where
+    R: tokio::io::AsyncRead + Unpin,
+{
+    let mut buf = BytesMut::with_capacity(RPC_CHUNK_BYTES);
+    let mut started = started;
+    loop {
+        buf.resize(RPC_CHUNK_BYTES, 0);
+        match reader.read(&mut buf).await {
+            Ok(0) => break,
+            Ok(n) => {
+                buf.truncate(n);
+                let chunk = buf.split().freeze();
+                if tx.send(Ok(chunk)).await.is_err() {
+                    break;
+                }
+                if let Some(signal) = started.take() {
+                    let _ = signal.send(());
+                }
+            }
+            Err(e) => {
+                let _ = tx.send(Err(e)).await;
+                break;
+            }
+        }
+    }
+}
+
+/// A response with git's content type and the no-cache header git's
+/// smart-HTTP protocol expects.
+fn rpc_response(content_type: &'static str, body: Body) -> Response<Body> {
+    let mut resp = match Response::builder().status(StatusCode::OK).body(body) {
         Ok(r) => r,
         Err(e) => return internal_error(GitGitError::Http(format!("response build: {e}"))),
     };
@@ -578,5 +684,101 @@ mod tests {
         let line = std::str::from_utf8(&body[4..total]).unwrap();
         assert_eq!(line, "# service=git-upload-pack\n");
         assert_eq!(&body[total..total + 4], b"0000");
+    }
+
+    /// `[FACT]` The response body must reach the client **while git is
+    /// still writing**, not after the whole pack has been read into
+    /// memory.
+    ///
+    /// This is the test that fails if the handler goes back to buffering:
+    /// a reader that drains the source first delivers nothing until the
+    /// source is closed, and the receive below would time out.
+    /// `[FACT]` A reader that ends without producing a chunk drops the
+    /// start signal — it does **not** signal "output". The handler tells
+    /// the two apart, and only a successful signal means git is talking.
+    #[tokio::test]
+    async fn an_empty_reader_drops_the_start_signal_instead_of_signalling_output() {
+        let (tx, _rx) = tokio::sync::mpsc::channel::<Result<Bytes, std::io::Error>>(4);
+        let (started_tx, started_rx) = tokio::sync::oneshot::channel::<()>();
+        let _pump = tokio::spawn(pump_chunks(
+            std::io::Cursor::new(Vec::<u8>::new()),
+            tx,
+            Some(started_tx),
+        ));
+        let started = started_rx.await;
+        assert!(
+            started.is_err(),
+            "an empty source must not signal output — the exit status is the answer"
+        );
+    }
+
+    /// `[FACT]` A git that rejects the request before producing any
+    /// output is still an error, not an empty 200. The buffered handler
+    /// answered with git's exit status; the streaming one has to keep
+    /// that, even though it cannot change the status once a body has
+    /// started.
+    #[tokio::test]
+    async fn a_git_that_produces_no_output_is_reported_as_an_error() {
+        let (state, _repos) = app_with_repo("nooutput", "demo").await;
+        let app = build_router(state);
+        // A body that is not a pkt-line at all: git rejects it before
+        // writing anything.
+        let req = HttpRequest::builder()
+            .method("POST")
+            .uri("/repos/demo.git/git-upload-pack")
+            .body(Body::from("not a pkt-line at all"))
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_ne!(
+            resp.status(),
+            AxStatusCode::OK,
+            "a git that produced nothing must not be answered with an empty 200"
+        );
+    }
+
+    #[tokio::test]
+    async fn the_response_chunks_arrive_before_the_source_is_drained() {
+        use tokio::io::AsyncWriteExt;
+        let (mut client, source) = tokio::io::duplex(64);
+        let (tx, mut rx) = tokio::sync::mpsc::channel::<Result<Bytes, std::io::Error>>(4);
+        let (started_tx, started_rx) = tokio::sync::oneshot::channel::<()>();
+        let _pump = tokio::spawn(pump_chunks(source, tx, Some(started_tx)));
+
+        client.write_all(b"first").await.unwrap();
+
+        let chunk = tokio::time::timeout(std::time::Duration::from_secs(10), rx.recv())
+            .await
+            .expect("the chunk must arrive before the source is closed")
+            .expect("the queue must not be closed")
+            .expect("the chunk must not be an error");
+        assert_eq!(&chunk[..], b"first");
+        // The source is still open — that is the whole point.
+        started_rx
+            .await
+            .expect("the started signal must fire with the first chunk");
+    }
+
+    /// `[FACT]` A read error on the child's stdout has to reach the
+    /// client as a failed body, not as a silently truncated one.
+    #[tokio::test]
+    async fn a_read_error_ends_the_body_with_the_error() {
+        struct Failing;
+        impl tokio::io::AsyncRead for Failing {
+            fn poll_read(
+                self: std::pin::Pin<&mut Self>,
+                _cx: &mut std::task::Context<'_>,
+                _buf: &mut tokio::io::ReadBuf<'_>,
+            ) -> std::task::Poll<std::io::Result<()>> {
+                std::task::Poll::Ready(Err(std::io::Error::other("boom")))
+            }
+        }
+        let (tx, mut rx) = tokio::sync::mpsc::channel::<Result<Bytes, std::io::Error>>(4);
+        let _pump = tokio::spawn(pump_chunks(Failing, tx, None));
+        let item = tokio::time::timeout(std::time::Duration::from_secs(10), rx.recv())
+            .await
+            .expect("the error must arrive")
+            .expect("the queue must not be closed");
+        let err = item.expect_err("the read error must be reported as an error");
+        assert!(err.to_string().contains("boom"), "got: {err}");
     }
 }
