@@ -251,7 +251,17 @@ pub enum KeyCommand {
         /// Logical key (e.g. `openai`).
         key: String,
         /// Value to store.
-        value: String,
+        ///
+        /// A secret on the command line is in the process argument list
+        /// (visible in `ps` to every user on the machine) and in the shell
+        /// history. Prefer `--stdin`.
+        value: Option<String>,
+        /// Read the value from standard input instead of the command line.
+        ///
+        /// This is the safe path: the value never reaches the argument
+        /// list and never reaches the shell history.
+        #[arg(long, conflicts_with = "value")]
+        stdin: bool,
     },
 
     /// Read the current (latest) value for `key`. Uses the super-trait
@@ -275,7 +285,13 @@ pub enum KeyCommand {
         /// Logical key.
         key: String,
         /// New value.
-        value: String,
+        ///
+        /// A secret on the command line is in the process argument list
+        /// and in the shell history. Prefer `--stdin`.
+        value: Option<String>,
+        /// Read the value from standard input instead of the command line.
+        #[arg(long, conflicts_with = "value")]
+        stdin: bool,
     },
 
     /// List every recorded version for `key` (oldest-first).
@@ -313,6 +329,54 @@ pub enum KeyCommand {
     /// List known keys (per super-trait `Vault::list`).
     #[command(name = "list-keys")]
     ListKeys,
+}
+
+/// The value to store, from wherever the user put it.
+///
+/// `[FACT]` A credential passed on the command line is in the process
+/// argument list — visible in `ps` to every user on the machine — and in
+/// the shell history. The S3 credentials already have no command-line
+/// flag for exactly that reason (`Cli::s3_access_key`), and the AI key
+/// is held to the same rule (`ai::tests::api_key_is_an_env_var_not_a_flag`).
+/// So the value is read from **standard input** when `--stdin` is given.
+///
+/// The positional form still works: turning it into an error would break
+/// the scripts that use it today, and the help text says what it costs.
+/// What must never happen is the secret coming back out — the error
+/// paths below carry the key and the reason, never the value.
+///
+/// One trailing newline is stripped, because the shell adds one and the
+/// newline is not part of the secret.
+pub async fn read_secret_value(value: Option<String>, from_stdin: bool) -> anyhow::Result<String> {
+    if from_stdin {
+        use tokio::io::AsyncReadExt;
+        let mut buf = String::new();
+        tokio::io::stdin().read_to_string(&mut buf).await?;
+        return resolve_secret_value(value, Some(buf));
+    }
+    resolve_secret_value(value, None)
+}
+
+/// The value resolution, with the standard input already read (or not read
+/// at all — `None` means the value did not come from there).
+fn resolve_secret_value(
+    value: Option<String>,
+    stdin_text: Option<String>,
+) -> anyhow::Result<String> {
+    if let Some(text) = stdin_text {
+        let trimmed = text.strip_suffix('\n').unwrap_or(&text);
+        let trimmed = trimmed.strip_suffix('\r').unwrap_or(trimmed);
+        if trimmed.is_empty() {
+            anyhow::bail!("no value on standard input");
+        }
+        return Ok(trimmed.to_string());
+    }
+    match value {
+        Some(v) => Ok(v),
+        None => anyhow::bail!(
+            "no value: pass it on standard input (--stdin) or as a positional argument"
+        ),
+    }
 }
 
 #[cfg(test)]
@@ -392,5 +456,97 @@ mod tests {
                 "{name} must look like an environment variable name"
             );
         }
+    }
+
+    /// `[FACT]` The vault value must not have to travel on the command
+    /// line: a credential in the argument list is in `ps` output and in
+    /// the shell history. The command therefore accepts it on standard
+    /// input, and the help text says so.
+    #[test]
+    fn the_vault_value_can_come_from_standard_input() {
+        let cli = Cli::try_parse_from(["gitgit", "key", "set", "openai", "--stdin"]).unwrap();
+        match cli.command {
+            Command::Key(KeyCommand::Set { key, value, stdin }) => {
+                assert_eq!(key, "openai");
+                assert!(value.is_none(), "the value must not be on the command line");
+                assert!(stdin, "the safe path must be the one that was asked for");
+            }
+            other => panic!("expected `key set`, got {other:?}"),
+        }
+        // The help text offers the safe path. It has to be the help of
+        // the `key set` sub-command — the top-level help only lists the
+        // sub-commands.
+        let mut cmd = Cli::command();
+        let key_cmd = cmd.find_subcommand_mut("key").expect("the key sub-command");
+        let set_cmd = key_cmd
+            .find_subcommand_mut("set")
+            .expect("the key set sub-command");
+        let help = set_cmd.render_long_help().to_string();
+        assert!(
+            help.contains("--stdin"),
+            "the safe path must be offered in the help text: {help}"
+        );
+    }
+
+    /// The two ways of passing the value are mutually exclusive: a
+    /// command that accepted both would silently prefer one of them.
+    #[test]
+    fn the_value_cannot_come_from_both_places_at_once() {
+        assert!(
+            Cli::try_parse_from(["gitgit", "key", "set", "openai", "sk-x", "--stdin"]).is_err(),
+            "a value on the command line and on standard input must not both be accepted"
+        );
+        assert!(
+            Cli::try_parse_from(["gitgit", "key", "rotate", "openai", "sk-x", "--stdin"]).is_err(),
+            "a value on the command line and on standard input must not both be accepted"
+        );
+    }
+
+    /// `[FACT]` A value that arrives on standard input is the value that
+    /// gets stored — minus the newline the shell added, which is not part
+    /// of the secret.
+    #[tokio::test]
+    async fn the_value_read_from_standard_input_is_the_value_that_is_stored() {
+        let resolved = resolve_secret_value(None, Some("sk-from-stdin\n".to_string())).unwrap();
+        assert_eq!(resolved, "sk-from-stdin");
+
+        let dir = std::env::temp_dir().join(format!(
+            "gitgit-cli-secret-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let vault = crate::server::vault::FileVault::new(&dir);
+        crate::server::vault_versioned::VersionedVault::set_with_version(
+            &vault, "openai", &resolved,
+        )
+        .await
+        .unwrap();
+        let stored = crate::server::vault::Vault::get(&vault, "openai")
+            .await
+            .unwrap();
+        assert_eq!(stored.as_deref(), Some("sk-from-stdin"));
+    }
+
+    /// `[FACT]` No value at all is an error, and the error names the safe
+    /// way to pass one — it never carries a value.
+    #[tokio::test]
+    async fn a_missing_value_is_an_error_that_names_the_safe_way() {
+        let err = resolve_secret_value(None, None).unwrap_err();
+        let text = format!("{err}");
+        assert!(
+            text.contains("--stdin"),
+            "the error must name the safe path: {text}"
+        );
+        assert!(
+            !text.contains("sk-"),
+            "the error must never carry a value: {text}"
+        );
+        // An empty standard input is the same kind of error.
+        let err = resolve_secret_value(None, Some("\n".to_string())).unwrap_err();
+        assert!(format!("{err}").contains("no value"), "got: {err}");
     }
 }
