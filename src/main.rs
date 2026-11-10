@@ -13,7 +13,9 @@ use clap::Parser;
 use std::path::{Path, PathBuf};
 
 use gitgit::ai::{diff::DiffRequest, Invocation, Task, API_KEY_ENV};
-use gitgit::cli::{Cli, Command, GitaiCommand, GitaiTaskArgs, GitremoteCommand, KeyCommand};
+use gitgit::cli::{
+    read_secret_value, Cli, Command, GitaiCommand, GitaiTaskArgs, GitremoteCommand, KeyCommand,
+};
 use gitgit::config::{
     Config, VaultBackend, DEFAULT_S3_BUCKET, DEFAULT_S3_ENDPOINT, DEFAULT_S3_REGION,
     DEFAULT_VAULT_FILE_ROOT, S3_ACCESS_KEY_ENV, S3_BUCKET_ENV, S3_ENDPOINT_ENV, S3_KEY_PREFIX_ENV,
@@ -272,7 +274,12 @@ async fn run_key(config: &Config, sub: KeyCommand) -> anyhow::Result<()> {
     config.ensure_vault_root()?;
     let vault = build_vault(config)?;
     let result: anyhow::Result<()> = match sub {
-        KeyCommand::Set { key, value } => {
+        KeyCommand::Set { key, value, stdin } => {
+            // The value comes from standard input when `--stdin` is
+            // given, so it never reaches the process argument list or the
+            // shell history. The error path carries the key, never the
+            // value.
+            let value = read_secret_value(value, stdin).await?;
             let new_v = vault.set_with_version(&key, &value).await?;
             println!("set {key} -> v{new_v}");
             Ok(())
@@ -290,11 +297,12 @@ async fn run_key(config: &Config, sub: KeyCommand) -> anyhow::Result<()> {
             println!("deleted {key}");
             Ok(())
         }
-        KeyCommand::Rotate { key, value } => {
+        KeyCommand::Rotate { key, value, stdin } => {
             // `vault.rotate(&key)` is super-trait (no payload); the
             // CLI sub-command's intent is "bump with a new payload", so
             // we exercise the versioned write path explicitly and emit
             // the resulting version number.
+            let value = read_secret_value(value, stdin).await?;
             let new_v = vault.set_with_version(&key, &value).await?;
             println!("rotated {key} -> v{new_v}");
             Ok(())
