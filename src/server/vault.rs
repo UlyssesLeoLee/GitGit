@@ -736,6 +736,22 @@ impl FileVault {
         }
         Ok(())
     }
+
+    /// Tighten an existing vault root, without creating one.
+    ///
+    /// `[FACT]` A vault written by an older version holds files with
+    /// loose permissions, and they stay loose until something rewrites
+    /// them. So the root is hardened on **every** path that touches the
+    /// vault — reads included — not only on writes: a read-only
+    /// deployment (one that only resolves the admin password) would
+    /// otherwise keep serving credentials that other local accounts can
+    /// read, indefinitely.
+    async fn harden_root(&self) -> std::io::Result<()> {
+        if !self.root.exists() {
+            return Ok(());
+        }
+        make_private_dir(&self.root)
+    }
 }
 
 /// Create a directory (and its parents) that only its owner can enter.
@@ -763,6 +779,18 @@ async fn create_private_dir_all(dir: &Path) -> std::io::Result<()> {
 #[cfg(unix)]
 fn make_private_dir(dir: &Path) -> std::io::Result<()> {
     use std::os::unix::fs::PermissionsExt;
+    // `[FACT]` `set_permissions` follows a symlink, so tightening a
+    // symlinked root would change the permissions of whatever it points
+    // at — possibly a directory shared with other things, where a chmod
+    // would take access away from something that needs it. A symlinked
+    // root is therefore left alone. The files inside it are still
+    // created 0600, and that is what protects the secret.
+    let is_symlink = std::fs::symlink_metadata(dir)
+        .map(|m| m.file_type().is_symlink())
+        .unwrap_or(false);
+    if is_symlink {
+        return Ok(());
+    }
     let current = std::fs::metadata(dir)?.permissions().mode() & 0o777;
     if current == 0o700 {
         return Ok(());
@@ -811,6 +839,10 @@ async fn create_private_file(path: &Path) -> std::io::Result<tokio::fs::File> {
 #[async_trait]
 impl Vault for FileVault {
     async fn get(&self, key: &str) -> Result<Option<String>> {
+        // The vault is hardened on the way in, not only on the way out:
+        // a read-only deployment must not keep serving credentials that
+        // other local accounts can read.
+        self.harden_root().await?;
         let Some(p) = self.path_for(key) else {
             // A bad key can never have been set, so the answer is
             // always "not present". The caller (e.g. `gitai key get`)
@@ -871,6 +903,8 @@ impl Vault for FileVault {
     }
 
     async fn list(&self) -> Result<Vec<String>> {
+        // Hardened on the way in, like `get`.
+        self.harden_root().await?;
         // We only enumerate immediate children (no recursion). That
         // matches the `S3Vault` contract, which uses a flat
         // (prefix, no delimiter) listing on its own key namespace.
@@ -1123,6 +1157,69 @@ mod tests {
                 v.get("openai").await.unwrap().as_deref(),
                 Some("sk-test-123")
             );
+        }
+    }
+
+    /// `[FACT]` The vault is hardened on the way **in**, not only on the
+    /// way out: a deployment that only reads (the server resolving the
+    /// admin password) must not keep serving credentials that other local
+    /// accounts can read.
+    ///
+    /// The second half is about symlinks: `set_permissions` follows one,
+    /// so tightening a symlinked root would change the permissions of
+    /// whatever it points at — possibly a directory shared with other
+    /// things, where a chmod takes access away from something that needs
+    /// it.
+    #[tokio::test]
+    async fn reading_the_vault_hardens_it_without_following_a_symlink() {
+        let dir = fresh_dir("harden-on-read");
+        let root = dir.join("vault");
+        std::fs::create_dir_all(&root).unwrap();
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&root, std::fs::Permissions::from_mode(0o755)).unwrap();
+            // A credential in the old layout, written by an older version.
+            std::fs::write(root.join("openai"), "sk-legacy").unwrap();
+            std::fs::set_permissions(root.join("openai"), std::fs::Permissions::from_mode(0o644))
+                .unwrap();
+
+            let v = FileVault::new(&root);
+            // The read is what hardens it.
+            let got = v.get("openai").await.unwrap();
+            assert_eq!(got.as_deref(), Some("sk-legacy"));
+            let meta = std::fs::metadata(&root).unwrap();
+            assert_eq!(
+                meta.permissions().mode() & 0o777,
+                0o700,
+                "a read must harden the vault root"
+            );
+
+            // A symlinked root must not be chmod-ed.
+            let target = dir.join("shared-target");
+            std::fs::create_dir_all(&target).unwrap();
+            std::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o755)).unwrap();
+            let link = dir.join("vault-link");
+            std::os::unix::fs::symlink(&target, &link).unwrap();
+            let linked = FileVault::new(&link);
+            let _ = linked.get("openai").await;
+            let target_meta = std::fs::metadata(&target).unwrap();
+            assert_eq!(
+                target_meta.permissions().mode() & 0o777,
+                0o755,
+                "a symlinked root's target must not be chmod-ed"
+            );
+        }
+        #[cfg(not(unix))]
+        {
+            // Windows has no mode bits: the ACL is what protects the
+            // file, and there is nothing to harden here. The read still
+            // has to work.
+            std::fs::write(root.join("openai"), "sk-legacy").unwrap();
+            let v = FileVault::new(&root);
+            let got = v.get("openai").await.unwrap();
+            assert_eq!(got.as_deref(), Some("sk-legacy"));
         }
     }
 
