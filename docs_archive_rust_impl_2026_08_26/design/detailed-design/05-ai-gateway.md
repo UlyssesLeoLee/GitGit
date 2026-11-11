@@ -2,7 +2,7 @@
 
 ## 5.1 目标 / Purpose
 
-实现 [基本设计 §3.3 AI 网关子系统](../basic-design/03-functional-design.md#33-ai-网关子系统-ai-gateway-subsystem) 的提供商抽象、提示词清洗、密钥过滤、响应结构化日志。MVP 单一默认提供商；V1 扩展为多提供商路由与计费。
+实现 [基本设计 §3.3 AI 网关子系统](../basic-design/03-functional-design.md#33-ai-网关子系统--ai-gateway-subsystem) 的提供商抽象、提示词清洗、密钥过滤、响应结构化日志。MVP 单一默认提供商；V1 扩展为多提供商路由与计费。
 
 ## 5.2 模块结构
 

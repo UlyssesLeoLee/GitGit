@@ -12,7 +12,7 @@
 
 实施阶段如果各模块独立决定,会出现:
 1. 同一类操作在不同模块用不同实现,行为不一致(如:一个 `git log` 走 gix,另一个走 shell)
-2. 写路径误用纯 Rust 库替代,违反 [phase10-architecture §6 第 2 项](../../requirements/phase10-architecture.md) 的强约束
+2. 写路径误用纯 Rust 库替代,违反 [phase10-architecture §6 第 2 项](../../../docs/requirements/phase10-architecture.md) 的强约束
 3. 性能与安全边界模糊,难做 code review
 
 ## Decision Drivers
@@ -79,7 +79,7 @@
 ## References
 
 - [技术选型 §7 Git 生态](../tech-selection.md#7-git-生态-gix--shell-git-强约束)
-- [phase10-architecture §6 第 2 项](../../requirements/phase10-architecture.md) — 强约束"禁止为 Rust 原则重复实现成熟高风险 Git 基础设施"
+- [phase10-architecture §6 第 2 项](../../../docs/requirements/phase10-architecture.md) — 强约束"禁止为 Rust 原则重复实现成熟高风险 Git 基础设施"
 - [详细设计 §06 Git 服务器](../../design/detailed-design/06-git-server.md)
 - [specs/test-specification.md §06 Git 服务器测试](../../specs/test-specification.md#6-git-服务器)
 

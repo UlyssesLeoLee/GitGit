@@ -6,7 +6,7 @@
 
 ## 0.2 顶层模块划分
 
-**[PROPOSAL]** 本平台采用**单仓 monorepo + 内部模块化**结构，与基本设计 [§2.1 逻辑架构](../basic-design/02-architecture.md#21-逻辑架构-logical-architecture) 的 8 个子系统一一对应。
+**[PROPOSAL]** 本平台采用**单仓 monorepo + 内部模块化**结构，与基本设计 [§2.1 逻辑架构](../basic-design/02-architecture.md#21-逻辑架构--logical-architecture) 的 8 个子系统一一对应。
 
 ```
 platform/
@@ -120,7 +120,7 @@ platform/
 | gRPC | Tonic | 0.12+ |
 | PostgreSQL | sqlx | 0.8+（编译期 SQL 校验）|
 | Git 读路径 | gix (gitoxide) | 0.66+（纯 Rust）|
-| Git 写路径 | shell `git` 进程 | 强约束：禁止为"纯 Rust"重写（[phase10-architecture.md §6](../../requirements/phase10-architecture.md)）|
+| Git 写路径 | shell `git` 进程 | 强约束：禁止为"纯 Rust"重写（[phase10-architecture.md §6](../../../docs/requirements/phase10-architecture.md)）|
 | 认证 | jsonwebtoken + argon2 | 9.x / 0.5+ |
 | 加密 | RustCrypto 套件 | aes-gcm / sha2 / hmac |
 | 可观测性 | tracing + OpenTelemetry | 0.1+ / 0.24+ |
@@ -139,7 +139,7 @@ platform/
 3. **二进制小 + 启动快** — 满足 Local-First 单进程部署
 4. **类型系统表达力** — `Result<T, E>` 强制错误处理 + `?` 传播符合 AISEC-REQ 集合对"错误不吞"的隐含要求
 
-完整对比与拒绝方案见 [技术选型文档 §2](../../architecture/tech-selection.md#2-主语言决策rust-language-decision)。
+完整对比与拒绝方案见 [技术选型文档 §2](../../architecture/tech-selection.md#2-主语言决策rust--language-decision)。
 
 ### 0.3.2 运行时要求
 
@@ -172,7 +172,7 @@ type PlatformError interface {
 
 ## 0.5 日志约定 / Logging Convention
 
-**[PROPOSAL]** 全平台统一使用**结构化 JSON 日志**（基本设计 [§8.4](../basic-design/08-operations-design.md#84-日志-logging)）。
+**[PROPOSAL]** 全平台统一使用**结构化 JSON 日志**（基本设计 [§8.4](../basic-design/08-operations-design.md#84-日志--logging)）。
 
 ```json
 {
@@ -245,7 +245,7 @@ type Config struct {
 
 ## 0.9 性能预算 / Performance Budget
 
-[PROPOSAL] 来自基本设计 [§6.2 性能与扩展性](../basic-design/06-non-functional-design.md#62-性能与扩展性performance-scalability-ipa-grade-②) 的具体目标：
+[PROPOSAL] 来自基本设计 [§6.2 性能与扩展性](../basic-design/06-non-functional-design.md#62-性能与扩展性performance--scalability-ipa-grade-②) 的具体目标：
 
 | 操作 | 95p 目标 | 99p 目标 | 备注 |
 |---|---|---|---|
@@ -261,7 +261,7 @@ type Config struct {
 
 ## 0.10 关键依赖 / Key Dependencies
 
-**[ACCEPTED]** 核心依赖库选型（依据 [技术选型文档 §0](../../architecture/tech-selection.md#0-决策摘要-decision-summary) 已拍板）：
+**[ACCEPTED]** 核心依赖库选型（依据 [技术选型文档 §0](../../architecture/tech-selection.md#0-决策摘要--decision-summary) 已拍板）：
 
 | 类别 | 库 / Crate | 用途 |
 |---|---|---|

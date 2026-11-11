@@ -21,7 +21,7 @@
 
 ## 0.1 目的 / Purpose
 
-本文档定义 AI-Native Engineering Platform（以下简称"本平台"或"Platform"）的**基本设计（外部设计）**。基本设计将需求定义书（[`docs/requirements/00-requirements-definition.md`](../../requirements/00-requirements-definition.md)）中达成的共识，固化为**实现启动前必须确定**的方案、功能、数据、接口、非功能、运维、安全等各项设计判断，作为详细设计（内部设计）的输入。
+本文档定义 AI-Native Engineering Platform（以下简称"本平台"或"Platform"）的**基本设计（外部设计）**。基本设计将需求定义书（[`docs/requirements/00-requirements-definition.md`](../../../docs/requirements/00-requirements-definition.md)）中达成的共识，固化为**实现启动前必须确定**的方案、功能、数据、接口、非功能、运维、安全等各项设计判断，作为详细设计（内部设计）的输入。
 
 > **IPA 共通框架 2013 对应过程：** `系统方式设计过程` 的 `A4 编写系统方式设计书`
 > **对应任务 (Corresponding Task)：**
@@ -66,14 +66,14 @@
 
 | 类别 | 文档 | 本书主要引用位置 |
 |---|---|---|
-| 需求定义 | [`docs/requirements/00-requirements-definition.md`](../../requirements/00-requirements-definition.md) | §3, §7, §13-15, §17-47, §48-49, §52-54 |
-| 产品原语 | [`docs/requirements/phase6-primitives.md`](../../requirements/phase6-primitives.md) | §2, §5, §7（原语定义）|
-| MVP 缩减 | [`docs/requirements/phase9-mvp-reduction.md`](../../requirements/phase9-mvp-reduction.md) | §3, §5, §6（MVP 确定）|
-| 方案设计 | [`docs/requirements/phase10-architecture.md`](../../requirements/phase10-architecture.md) | §3, §4, §5, §6, §7（本书输入）|
-| IPA 标准差距 | [`docs/requirements/phase14-ipa-compliance-review.md`](../../requirements/phase14-ipa-compliance-review.md) | [06](06-non-functional-design.md), [07](07-security-design.md), [08](08-operations-design.md)（NFR 反映依据）|
-| 红队评审 | [`docs/requirements/phase11-red-team.md`](../../requirements/phase11-red-team.md) | [06](06-non-functional-design.md), [07](07-security-design.md)（安全设计强化依据）|
-| UX 评审 | [`docs/requirements/phase12-ux-review.md`](../../requirements/phase12-ux-review.md) | [03](03-functional-design.md), [05](05-interface-design.md)（UX 设计）|
-| 终审 | [`docs/requirements/phase15-final-audit.md`](../../requirements/phase15-final-audit.md) | 贯穿（一致性核查）|
+| 需求定义 | [`docs/requirements/00-requirements-definition.md`](../../../docs/requirements/00-requirements-definition.md) | §3, §7, §13-15, §17-47, §48-49, §52-54 |
+| 产品原语 | [`docs/requirements/phase6-primitives.md`](../../../docs/requirements/phase6-primitives.md) | §2, §5, §7（原语定义）|
+| MVP 缩减 | [`docs/requirements/phase9-mvp-reduction.md`](../../../docs/requirements/phase9-mvp-reduction.md) | §3, §5, §6（MVP 确定）|
+| 方案设计 | [`docs/requirements/phase10-architecture.md`](../../../docs/requirements/phase10-architecture.md) | §3, §4, §5, §6, §7（本书输入）|
+| IPA 标准差距 | [`docs/requirements/phase14-ipa-compliance-review.md`](../../../docs/requirements/phase14-ipa-compliance-review.md) | [06](06-non-functional-design.md), [07](07-security-design.md), [08](08-operations-design.md)（NFR 反映依据）|
+| 红队评审 | [`docs/requirements/phase11-red-team.md`](../../../docs/requirements/phase11-red-team.md) | [06](06-non-functional-design.md), [07](07-security-design.md)（安全设计强化依据）|
+| UX 评审 | [`docs/requirements/phase12-ux-review.md`](../../../docs/requirements/phase12-ux-review.md) | [03](03-functional-design.md), [05](05-interface-design.md)（UX 设计）|
+| 终审 | [`docs/requirements/phase15-final-audit.md`](../../../docs/requirements/phase15-final-audit.md) | 贯穿（一致性核查）|
 | **IPA 共通框架 2013**（外部）| [IPA 官网](https://www.ipa.go.jp/sec/publish/tn12-005.html) | 全文依据 |
 | **非功能要求等级 2018 改订版**（外部）| [IPA 官网](https://www.ipa.go.jp/sec/softwareengine/rellib/）| [06](06-non-functional-design.md) |
 | **詳細设计书（本书姊妹文档）**| [`../detailed-design/`](../detailed-design/) | 全部详细实现规格 |

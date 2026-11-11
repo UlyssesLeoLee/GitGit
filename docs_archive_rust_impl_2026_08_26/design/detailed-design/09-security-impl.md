@@ -520,7 +520,7 @@ type CreateRepoRequest struct {
 
 **反 SQL 注入：** 所有 DB 查询用参数化（pgx 默认）；存储过程名走白名单（`c.registry.Get`）。
 
-**反 NoSQL 注入：** JSONB 属性在写入前用 JSON Schema 校验（[02 图谱引擎 §2.4](02-graph-engine.md#24-类型注册表-type-registry)）。
+**反 NoSQL 注入：** JSONB 属性在写入前用 JSON Schema 校验（[02 图谱引擎 §2.4](02-graph-engine.md#24-类型注册表--type-registry)）。
 
 ## 9.11 错误定义
 

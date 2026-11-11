@@ -8,9 +8,9 @@
 
 ## Context and Problem Statement
 
-[基本设计 §7.5 密钥管理](../../design/basic-design/07-security-design.md#75-密钥管理-secrets-managementsec-req-005-sec-req-010) 提到 SEC-REQ-005~010 要求 KEK (Key Encryption Key) 与 DEK (Data Encryption Key) 分层管理。
+[基本设计 §7.5 密钥管理](../../design/basic-design/07-security-design.md#75-密钥管理--secrets-managementsec-req-005-sec-req-010) 提到 SEC-REQ-005~010 要求 KEK (Key Encryption Key) 与 DEK (Data Encryption Key) 分层管理。
 
-[ADR-0007 密钥管理](../../architecture/decisions/0007-密钥管理-Vault-KMS替代-DB-直接存储方案.md) 选 Vault / KMS 作为 V1+ Cloud 的密钥管理方案,但**MVP 阶段具体怎么落**未明确:
+[ADR-0007 密钥管理](0007-密钥管理用-Vault---KMS（不在-DB-直接存明文）.md) 选 Vault / KMS 作为 V1+ Cloud 的密钥管理方案,但**MVP 阶段具体怎么落**未明确:
 
 - KEK 存哪里?(本地文件 / KMS / Vault)
 - DEK 怎么派生?(envelope encryption)
@@ -130,9 +130,9 @@ MVP 本地 KEK → V1+ Vault:
 
 ## References
 
-- [ADR-0007: 密钥管理 Vault / KMS 替代 DB 直接存储](../../architecture/decisions/0007-密钥管理-Vault-KMS替代-DB-直接存储方案.md)
+- [ADR-0007: 密钥管理 Vault / KMS 替代 DB 直接存储](0007-密钥管理用-Vault---KMS（不在-DB-直接存明文）.md)
 - [ADR-0014: WebAuthn 凭证库选型](#)
-- [基本设计 §7.5 密钥管理](../../design/basic-design/07-security-design.md#75-密钥管理-secrets-managementsec-req-005-sec-req-010)
+- [基本设计 §7.5 密钥管理](../../design/basic-design/07-security-design.md#75-密钥管理--secrets-managementsec-req-005-sec-req-010)
 - [详细设计 §09 安全实现](../../design/detailed-design/09-security-impl.md)
 - [Vault KV v2 — Secrets Engine](https://developer.hashicorp.com/vault/docs/secrets/kv/kv-v2)
 - [NIST SP 800-57 — Key Management](https://csrc.nist.gov/publications/detail/sp/800-57-part-1/rev-5/final)

@@ -16,7 +16,7 @@
 
 - RBAC：角色（admin、maintainer、developer、reporter、guest 等）
 - ABAC：跨 Node / Edge / Policy 的属性基础评估
-- 评估由 [§3.7 安全与访问控制子系统](03-functional-design.md#37-安全与访问控制子系统-security-access-control-subsystem) 统一处理
+- 评估由 [§3.7 安全与访问控制子系统](03-functional-design.md#37-安全与访问控制子系统--security--access-control-subsystem) 统一处理
 - 评估结果作为 Event 记录到 `events` 表
 
 **Agent 的待遇（O8/O9）：**

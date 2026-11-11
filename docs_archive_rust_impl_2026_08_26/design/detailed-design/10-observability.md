@@ -2,7 +2,7 @@
 
 ## 10.1 目标 / Purpose
 
-实现 [基本设计 §8.3 监控 / §8.4 日志](../basic-design/08-operations-design.md#83-监控-monitoringobs-req-v1) 的可观测性栈。覆盖：OpenTelemetry 仪表化、指标目录、结构化日志、分布式追踪、健康检查。
+实现 [基本设计 §8.3 监控 / §8.4 日志](../basic-design/08-operations-design.md#83-监控--monitoringobs-req-v1) 的可观测性栈。覆盖：OpenTelemetry 仪表化、指标目录、结构化日志、分布式追踪、健康检查。
 
 ## 10.2 模块结构
 

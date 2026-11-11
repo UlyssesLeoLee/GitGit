@@ -12,7 +12,7 @@
 | 阶段 | 超上流 — 系统化构想 |
 | 主要交付物 | 系统化构想书 |
 | 责任人 | 业务顾问 + 架构师 |
-| 关联设计文档 | [`../requirements/phase6-primitives.md`](../../../requirements/phase6-primitives.md) (产品原语发现) |
+| 关联设计文档 | [`../requirements/phase6-primitives.md`](../../../../docs/requirements/phase6-primitives.md) (产品原语发现) |
 | 模板版本 | v1.0 (2026-08-20) |
 | 依据 | IPA 共通框架 2013 |
 

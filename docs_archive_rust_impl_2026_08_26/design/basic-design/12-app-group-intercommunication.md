@@ -9,7 +9,7 @@
 
 ### 12.1.1 现状约束
 
-本平台采用 **monolith-first** 设计（参见 [§2.2 部署单位](02-architecture.md#22-部署单位-deployable-units来自-phase-10-4)），单个 Platform Process 内 8 个子系统通过**函数调用**通信，不存在跨进程协调需求。但以下三类场景在 V1 / Cloud 阶段必然出现：
+本平台采用 **monolith-first** 设计（参见 [§2.2 部署单位](02-architecture.md#22-部署单位--deployable-units来自-phase-10-4)），单个 Platform Process 内 8 个子系统通过**函数调用**通信，不存在跨进程协调需求。但以下三类场景在 V1 / Cloud 阶段必然出现：
 
 | 场景 | 例子 |
 |---|---|
