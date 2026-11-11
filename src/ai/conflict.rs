@@ -347,9 +347,7 @@ impl SuggestionRejection {
             SuggestionRejection::MissingRegionId => {
                 "the answer did not carry the region id, so it cannot be bound to this region"
             }
-            SuggestionRejection::RegionMismatch => {
-                "the answer was bound to another region"
-            }
+            SuggestionRejection::RegionMismatch => "the answer was bound to another region",
         }
     }
 }
@@ -380,7 +378,10 @@ fn conflict_marker(text: &str) -> Option<&'static str> {
 /// `[FACT]` A region id is the first 16 bytes of a SHA-256 digest, hex
 /// encoded (ADR §3.7.2), so it is 32 lower-case hexadecimal characters.
 fn looks_like_region_id(text: &str) -> bool {
-    text.len() == 32 && text.chars().all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase())
+    text.len() == 32
+        && text
+            .chars()
+            .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase())
 }
 
 /// Split the answer into the claimed region id and the suggestion text.
@@ -513,7 +514,9 @@ mod tests {
         assert_eq!(r.id(), expected, "the id must be Lane A's hash");
         assert_eq!(r.id().len(), 32, "16 bytes of hex");
         assert!(
-            r.id().chars().all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()),
+            r.id()
+                .chars()
+                .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()),
             "the id must be lower-case hex: {}",
             r.id()
         );
@@ -684,7 +687,8 @@ mod tests {
             "let a = 2;\n"
         );
         assert_eq!(
-            r.resolve(DialogChoice::Manual, Some("let a = 3;\n")).unwrap(),
+            r.resolve(DialogChoice::Manual, Some("let a = 3;\n"))
+                .unwrap(),
             "let a = 3;\n"
         );
     }
@@ -695,11 +699,13 @@ mod tests {
         // suggestion". The manual path goes through the shared checks.
         let r = region();
         assert_eq!(
-            r.resolve(DialogChoice::Manual, Some("<<<<<<< OURS\n")).unwrap_err(),
+            r.resolve(DialogChoice::Manual, Some("<<<<<<< OURS\n"))
+                .unwrap_err(),
             SuggestionRejection::ConflictMarker
         );
         assert_eq!(
-            r.resolve(DialogChoice::Manual, Some("let a = 0;\n")).unwrap_err(),
+            r.resolve(DialogChoice::Manual, Some("let a = 0;\n"))
+                .unwrap_err(),
             SuggestionRejection::ContainsBaseSection
         );
     }

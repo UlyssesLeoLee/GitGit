@@ -147,7 +147,9 @@ fn conflict_user_content(region: &ConflictRegion) -> String {
 /// were replaced") describes the request that actually left the machine
 /// rather than a re-run of the scrubber over an approximation of it.
 pub fn conflict_redactions(region: &ConflictRegion) -> usize {
-    crate::ai::sanitize::scrub(&conflict_user_content(region)).1.len()
+    crate::ai::sanitize::scrub(&conflict_user_content(region))
+        .1
+        .len()
 }
 
 /// Keep the last [`MAX_CONTEXT_LINES`] lines of the context before a region.
