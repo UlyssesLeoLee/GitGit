@@ -61,7 +61,7 @@
 | 07 | **超上流** — 现行系统调查 (As-Is) | 07 | 现行系统调查报告 | [`templates/upstream/07-as-is-system.md`](templates/upstream/07-as-is-system.md) | — |
 | 08 | **超上流** — 课题分析 | 08 | 课题分析书 | [`templates/upstream/08-issue-analysis.md`](templates/upstream/08-issue-analysis.md) | — |
 | 09 | **超上流** — 新业务设计 (To-Be) | 09 | 新业务设计书 | [`templates/upstream/09-to-be-design.md`](templates/upstream/09-to-be-design.md) | — |
-| 10 | **要件定义** — 用户要求定义 (UR) | 10 | 用户要求书 | [00-requirements-definition.md §0-§2](../../requirements/00-requirements-definition.md) | QA-007（37 项覆盖度）|
+| 10 | **要件定义** — 用户要求定义 (UR) | 10 | 用户要求书 | [00-requirements-definition.md §0-§2](../../docs/requirements/00-requirements-definition.md) | QA-007（37 项覆盖度）|
 | 11 | **要件定义** — 业务要件定义 (BR) | 11 | 业务要件书 | 同上 §3-§4 | QA-007 |
 | 12 | **要件定义** — 系统要件定义 (SR) | 12 | 系统要件书 | 同上 §5-§9 | QA-007 |
 | 13 | **要件定义** — 功能要件定义 (FR) | 13 | 功能要件书 | 同上 §10-§24 | QA-007 |
@@ -71,7 +71,7 @@
 | 17 | **要件定义** — 安全要件定义 | 17 | 安全要件书 | 同上 §35（SEC-REQ 集合）| QA-002 / QA-012 |
 | 18 | **要件定义** — 运用要件定义 | 18 | 运用要件书 | 同上（OPS-REQ 集合）| QA-009 |
 | 19 | **要件定义** — 迁移要件定义 | 19 | 迁移要件书 | 同上 | — |
-| 20 | **要件定义** — 要件评审 (RD Review) | 20 | 评审记录 | [`phase15-final-audit.md`](../../requirements/phase15-final-audit.md) | QA-001（签核）||
+| 20 | **要件定义** — 要件评审 (RD Review) | 20 | 评审记录 | [`phase15-final-audit.md`](../../docs/requirements/phase15-final-audit.md) | QA-001（签核）||
 | 21 | **要件定义** — 要件批准 + Baseline | 21 | Baseline 标记 | 同上 | QA-001 / QA-007 |
 | 22 | **基本设计** — 系统方式设计 (SA) | 22 | 系统方式设计书 | [基本设计 §13](../design/basic-design/13-app-cluster-and-plugins.md) | QA-002 / QA-003 / QA-004 / QA-005 |
 | 23 | **基本设计** — 软件方式设计 | 23 | 软件方式设计书 | [基本设计 §12](../design/basic-design/12-app-group-intercommunication.md) | QA-004 / QA-005 |
@@ -288,7 +288,7 @@
 
 | 阶段 | 现有文档 | 备注 |
 |---|---|---|
-| 10-21 需求 | [`00-requirements-definition.md`](../../requirements/00-requirements-definition.md) + 15 个 phase*.md + [`templates/requirements/`](templates/requirements/) (1 模板) | 全部需求在这里 |
+| 10-21 需求 | [`00-requirements-definition.md`](../../docs/requirements/00-requirements-definition.md) + 15 个 phase*.md + [`templates/requirements/`](templates/requirements/) (1 模板) | 全部需求在这里 |
 | 22-41 基本设计 | [基本设计 README](../design/basic-design/README.md) (18 文件) + [`templates/design/`](templates/design/) (5 模板) | 18 文件齐全 |
 | 42-52 详细设计 | [详细设计 README](../design/detailed-design/README.md) (14 文件) | 14 文件齐全 |
 | 53-58 实现 | [`templates/implementation/`](templates/implementation/) (6 模板) | Cargo workspace + 编码规范 + CR + CI |

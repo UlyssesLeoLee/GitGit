@@ -58,6 +58,6 @@ AI 辅助（MiniMax Mavis）完成，**没有真实人类产品 owner / 业务�
 
 ## 关联
 
-- Phase 14 评审：[../requirements/phase14-ipa-compliance-review.md](../requirements/phase14-ipa-compliance-review.md) F14-7
+- Phase 14 评审：[../requirements/phase14-ipa-compliance-review.md](../../docs/requirements/phase14-ipa-compliance-review.md) F14-7
 - 实施前 QA：[rchitecture/qa-checklist.md](../architecture/qa-checklist.md) QA-001
 - 流程文档：[process/glossary.md](../process/glossary.md) 角色定义

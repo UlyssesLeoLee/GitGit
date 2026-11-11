@@ -120,7 +120,7 @@ platform/
 | gRPC | Tonic | 0.12+ |
 | PostgreSQL | sqlx | 0.8+（编译期 SQL 校验）|
 | Git 读路径 | gix (gitoxide) | 0.66+（纯 Rust）|
-| Git 写路径 | shell `git` 进程 | 强约束：禁止为"纯 Rust"重写（[phase10-architecture.md §6](../../requirements/phase10-architecture.md)）|
+| Git 写路径 | shell `git` 进程 | 强约束：禁止为"纯 Rust"重写（[phase10-architecture.md §6](../../../docs/requirements/phase10-architecture.md)）|
 | 认证 | jsonwebtoken + argon2 | 9.x / 0.5+ |
 | 加密 | RustCrypto 套件 | aes-gcm / sha2 / hmac |
 | 可观测性 | tracing + OpenTelemetry | 0.1+ / 0.24+ |

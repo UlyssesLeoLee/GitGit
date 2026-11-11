@@ -12,7 +12,7 @@
 | 阶段 | 超上流 — 现行业务调查 |
 | 主要交付物 | 现行业务调查报告 |
 | 责任人 | BA + 业务顾问 |
-| 关联设计文档 | [`../requirements/phase1-5-research.md`](../../../requirements/phase1-5-research.md) §1 (研究计划) |
+| 关联设计文档 | [`../requirements/phase1-5-research.md`](../../../../docs/requirements/phase1-5-research.md) §1 (研究计划) |
 | 模板版本 | v1.0 (2026-08-20) |
 | 依据 | IPA 共通框架 2013 |
 

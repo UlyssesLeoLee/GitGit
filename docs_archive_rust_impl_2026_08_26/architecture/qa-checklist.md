@@ -7,7 +7,7 @@
 > - [基本设计 §10 受入测试方针](../design/basic-design/10-acceptance-test-policy.md) — MVP DoD
 > - [基本设计 §0.2.2 不包含](../design/basic-design/00-introduction.md#022-不包含-out-of-scope) — F14-7 缺口
 > - [Appendix B 残留 TBD](../design/basic-design/appendix-b-tbd.md) — 未决议题
-> - [phase14-ipa-compliance-review.md §F14-1〜F14-9](../requirements/phase14-ipa-compliance-review.md) — IPA 差距分析
+> - [phase14-ipa-compliance-review.md §F14-1〜F14-9](../../docs/requirements/phase14-ipa-compliance-review.md) — IPA 差距分析
 
 ---
 
@@ -36,12 +36,12 @@
 | 字段 | 内容 |
 |---|---|
 | **影响范围** | 整个 Phase 16 启动的合法性；需求 → 设计 → 实现的"无人类签核"问题 |
-| **当前状态** | §0.2.2 不包含内容明文标注此缺口；[00-requirements-definition.md §53 第 11 项](../requirements/00-requirements-definition.md) 也未补 |
+| **当前状态** | §0.2.2 不包含内容明文标注此缺口；[00-requirements-definition.md §53 第 11 项](../../docs/requirements/00-requirements-definition.md) 也未补 |
 | **后果（不解决）** | 平台以"AI 自治生成"为完整流程，无人对最终方案负责；遇监管 / 客户审查时无签核证据 |
 | **缓解措施** | (1) 由产品 owner + 工程负责人 + 安全审计三方会议签核 v1.0；(2) 在 README 与设计封面记录"签核日期 + 签核人 + 签核范围"；(3) Phase 16 启动前必须完成 |
 | **建议决策人** | 产品 owner + 工程负责人 + 安全审计 三方 |
 | **状态** | 🟡 待启动 |
-| **关联** | [phase14-ipa-compliance-review.md F14-7](../requirements/phase14-ipa-compliance-review.md) |
+| **关联** | [phase14-ipa-compliance-review.md F14-7](../../docs/requirements/phase14-ipa-compliance-review.md) |
 
 ### QA-002 — AISEC-REQ-009(a) DB role 分离的 DDL 完整度
 
@@ -119,7 +119,7 @@
 | 字段 | 内容 |
 |---|---|
 | **影响范围** | MVP DoD 与实现范围的一致性 |
-| **当前状态** | 用户已在对话层确认"升级"为 MVP 必填；但 [`phase9-mvp-reduction.md`](../requirements/phase9-mvp-reduction.md) 与 [`phase10-architecture.md`](../requirements/phase10-architecture.md) 文档**未同步**反映"插件热插拔 + 集群管理 + Admin UI"为 MVP 必填 |
+| **当前状态** | 用户已在对话层确认"升级"为 MVP 必填；但 [`phase9-mvp-reduction.md`](../../docs/requirements/phase9-mvp-reduction.md) 与 [`phase10-architecture.md`](../../docs/requirements/phase10-architecture.md) 文档**未同步**反映"插件热插拔 + 集群管理 + Admin UI"为 MVP 必填 |
 | **后果（不解决）** | 实施时按"原 37 项 + 临时加"散乱进行；DoD 校验与文档不一致 |
 | **缓解措施** | (1) Phase 16 启动前**先重审** `phase9-mvp-reduction.md` 把 §13/§14 的 11+5+4+3=23 条新 REQ 列入 MVP 必填；(2) `phase10-architecture.md` §2 §6 §7 也同步更新 |
 | **建议决策人** | 产品 owner + 工程负责人 |
@@ -382,11 +382,11 @@
 - [技术选型文档](tech-selection.md) — 主语言 + 库选型
 - [基本设计](../design/basic-design/) — 18 个文件（00-14 + 4 附录）
 - [详细设计](../design/detailed-design/) — 14 个文件
-- [需求定义书](../requirements/00-requirements-definition.md) — 37 项 MVP 需求
-- [需求 phase14 IPA 差距](../requirements/phase14-ipa-compliance-review.md) — F14-1〜F14-9
-- [需求 phase15 终审](../requirements/phase15-final-audit.md) — 一致性核查
+- [需求定义书](../../docs/requirements/00-requirements-definition.md) — 37 项 MVP 需求
+- [需求 phase14 IPA 差距](../../docs/requirements/phase14-ipa-compliance-review.md) — F14-1〜F14-9
+- [需求 phase15 终审](../../docs/requirements/phase15-final-audit.md) — 一致性核查
 
 ---
 
 **导航 / Navigation:**
-[← 技术选型文档](tech-selection.md) · [需求定义书](../requirements/00-requirements-definition.md) · [基本设计 README](../design/basic-design/README.md)
+[← 技术选型文档](tech-selection.md) · [需求定义书](../../docs/requirements/00-requirements-definition.md) · [基本设计 README](../design/basic-design/README.md)

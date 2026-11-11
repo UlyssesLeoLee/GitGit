@@ -12,7 +12,7 @@
 | 阶段 | 超上流 — 课题分析 |
 | 主要交付物 | 课题分析书 |
 | 责任人 | BA + 架构师 |
-| 关联设计文档 | [`../requirements/phase11-red-team.md`](../../../requirements/phase11-red-team.md) (红队评审可作后续攻击面参考) |
+| 关联设计文档 | [`../requirements/phase11-red-team.md`](../../../../docs/requirements/phase11-red-team.md) (红队评审可作后续攻击面参考) |
 | 模板版本 | v1.0 (2026-08-20) |
 | 依据 | IPA 共通框架 2013 |
 

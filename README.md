@@ -641,9 +641,12 @@ checkout，release 正文与并发组也都指向它。修法与证据见该 com
 
 | 目录 | 内容 |
 | --- | --- |
-| [`docs_archive_rust_impl_2026_08_26/requirements/`](docs_archive_rust_impl_2026_08_26/requirements/) | 15 阶段需求定义过程产物，含 Phase 11 红队评审、Phase 12 UX 红队评审、Phase 15 终审验收 |
 | [`docs_archive_rust_impl_2026_08_26/design/`](docs_archive_rust_impl_2026_08_26/design/) | 基本设计书与详细设计书，严格按日本 IPA 共通框架 2013 编写 |
 | [`docs_archive_rust_impl_2026_08_26/process/workflow.md`](docs_archive_rust_impl_2026_08_26/process/workflow.md) | 150 个任务 × 13 阶段的工程过程模型 |
+
+需求定义过程产物**不在归档里**：它们是活文档，在 [`docs/requirements/`](docs/requirements/)
+（见上文「文档索引」）。归档曾经留着一份同样的拷贝，两份内容逐字节相同——现在只留活的那一份，
+免得有人改了归档那份还以为改到了产品。
 
 该档案自身记录了一个当时成立、现在已不成立的判断，即「尚未有一个真正跑起来的 MVP 验证过」。
 以本文上文的实测数据为准。

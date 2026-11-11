@@ -4,7 +4,7 @@
 >
 > **决策人:** 工程负责人（对应需求定义书 §53 ADR 列表项 11）
 >
-> **替代文档:** 本文档替代了 [00-requirements-definition.md §53 第 11 项](../requirements/00-requirements-definition.md) 标记的开放项"Implementation language/framework choice (Rust/Tokio/Axum vs. alternatives)"，并对应 [phase10-architecture.md §2 §6 §7](../requirements/phase10-architecture.md) 标记为 `[TBD]` 的语言/框架决策。
+> **替代文档:** 本文档替代了 [00-requirements-definition.md §53 第 11 项](../../docs/requirements/00-requirements-definition.md) 标记的开放项"Implementation language/framework choice (Rust/Tokio/Axum vs. alternatives)"，并对应 [phase10-architecture.md §2 §6 §7](../../docs/requirements/phase10-architecture.md) 标记为 `[TBD]` 的语言/框架决策。
 >
 > **本选型与 IPA 框架的关系:** 本决策不改变 IPA 共通框架 2013 的过程结构（仍 P3-P9），仅是 P6 软件构建过程的实现选择。
 
@@ -22,7 +22,7 @@
 | **PostgreSQL 连接池** | sqlx 自带 / deadpool-postgres | bb8 / deadpool | sqlx 自带足够 |
 | **图遍历查询** | **原生 sqlx + 递归 CTE**（PostgreSQL 处理）| Memgraph 独立部署 | 拒绝（违反"能 PG 解决不增加"原则）|
 | **Git 协议库** | **gix (gitoxide) 0.66+**（Rust 原生）| libgit2 绑定 / shell git CLI | 已选定（Rust 原生 + 性能优势）|
-| **Git CLI 调用** | 写路径（pack/negotiation）继续 shell `git` 进程 | 全部走 gix | 强约束：禁止为"纯 Rust"重写高风险 Git 设施（[phase10-architecture.md §6 第 2 项](../requirements/phase10-architecture.md)）|
+| **Git CLI 调用** | 写路径（pack/negotiation）继续 shell `git` 进程 | 全部走 gix | 强约束：禁止为"纯 Rust"重写高风险 Git 设施（[phase10-architecture.md §6 第 2 项](../../docs/requirements/phase10-architecture.md)）|
 | **本地 Git 进程** | tokio::process::Command 异步 spawn | std::process::Command | 已选定（Tokio 集成）|
 | **认证 / 凭证** | **jsonwebtoken 9.x**（JWT 签发/验证）| josekit | 已选定 |
 | **密码哈希** | **argon2 0.5+**（Argon2id，OWASP 推荐）| bcrypt | 已选定（更安全 + OWASP 2023 推荐）|
@@ -51,7 +51,7 @@
 
 **关键拒绝项：**
 
-1. **Memgraph 独立部署** — 拒绝。理由：与"能 PostgreSQL 解决不增加"原则冲突；图遍历用 PG 递归 CTE 已足够（[phase10-architecture.md §6 决策矩阵](../requirements/phase10-architecture.md)）
+1. **Memgraph 独立部署** — 拒绝。理由：与"能 PostgreSQL 解决不增加"原则冲突；图遍历用 PG 递归 CTE 已足够（[phase10-architecture.md §6 决策矩阵](../../docs/requirements/phase10-architecture.md)）
 2. **NATS JetStream** — 拒绝。理由：中心事件总线用 PG Outbox + LISTEN/NOTIFY 即可（[§13.4](../design/basic-design/13-app-cluster-and-plugins.md#134-中心事件总线-central-event-bus)）；不引入新组件
 3. **MinIO / S3** — 拒绝（暂缓到 V1+）。理由：MVP 本地文件系统足够；V1+ Cloud 才评估 S3 兼容对象存储
 4. **Valkey / Redis** — 拒绝。理由：决策缓存用 in-process LRU（[§2.9](../design/detailed-design/02-graph-engine.md#29-缓存-caching)）；不引入独立缓存服务
@@ -64,16 +64,16 @@
 
 ### 1.1 需求侧（不可违背）
 
-来自 [`00-requirements-definition.md`](../requirements/00-requirements-definition.md)：
+来自 [`00-requirements-definition.md`](../../docs/requirements/00-requirements-definition.md)：
 
 - **[FACT]** 平台 37 项 MVP 需求**无一项**对实现语言有强约束（§53 第 11 项明文："no MVP requirement is language-load-bearing"）
 - **[PROPOSAL]** AISEC-REQ 集合要求进程处理不可信 Agent 输入时具备**强内存安全保证**（避免 RCE 类漏洞）
-- **[PROPOSAL]** 单一进程承载 Policy 评估、凭证签发、沙箱 spawn、审计 Event 写入（[phase10-architecture.md §4.1](../requirements/phase10-architecture.md)），这 4 个能力被 AISEC-REQ-001〜008 共同假设"可信"
+- **[PROPOSAL]** 单一进程承载 Policy 评估、凭证签发、沙箱 spawn、审计 Event 写入（[phase10-architecture.md §4.1](../../docs/requirements/phase10-architecture.md)），这 4 个能力被 AISEC-REQ-001〜008 共同假设"可信"
 - **[FACT]** Phase 10 §6 候选栈为 `Rust/Tokio/Axum/gRPC/PostgreSQL/pgvector/Memgraph/MinIO-S3/Valkey/NATS JetStream/K3s-Kubernetes/OpenTelemetry`
 
 ### 1.2 架构侧（强约束）
 
-来自 [`phase10-architecture.md`](../requirements/phase10-architecture.md)：
+来自 [`phase10-architecture.md`](../../docs/requirements/phase10-architecture.md)：
 
 - **架构输入 §2 §6 §7** — Rust/Tokio/Axum 标记为 `[TBD]`，需 ADR 决策
 - **架构输入 §6 第 2 项** — 明确禁止"为 Rust 原则重复实现成熟高风险 Git 基础设施" → 写路径必须用 shell `git`，不能用纯 Rust 库替代
@@ -543,8 +543,8 @@ POST /mcp/v1/rpc
 本文档被接受需满足：
 
 - [x] **AC-1** Rust 选型理由覆盖 AISEC-REQ 的内存安全诉求
-- [x] **AC-2** 库选型清单与现有 [00-requirements-definition.md §0-§54](../requirements/00-requirements-definition.md) 无冲突
-- [x] **AC-3** 库选型与现有 [phase10-architecture.md §2 §6 §7](../requirements/phase10-architecture.md) 的强约束一致
+- [x] **AC-2** 库选型清单与现有 [00-requirements-definition.md §0-§54](../../docs/requirements/00-requirements-definition.md) 无冲突
+- [x] **AC-3** 库选型与现有 [phase10-architecture.md §2 §6 §7](../../docs/requirements/phase10-architecture.md) 的强约束一致
 - [x] **AC-4** 库选型与现有 [basic-design/00-introduction.md §0.5](../design/basic-design/00-introduction.md) 设计原则一致
 - [x] **AC-5** 强约束（REQ-TS-001〜019）覆盖性能 / 安全 / 架构 / 文档
 - [x] **AC-6** 关键风险与缓解措施列出
@@ -593,4 +593,4 @@ POST /mcp/v1/rpc
 ---
 
 **导航 / Navigation:**
-[← 详细设计 §13. Admin API & Ops UI](../design/detailed-design/13-admin-api-and-ops-ui.md) · [需求定义书 §53 ADR 列表项 11](../requirements/00-requirements-definition.md) · [phase10-architecture.md §2 §6 §7](../requirements/phase10-architecture.md)
+[← 详细设计 §13. Admin API & Ops UI](../design/detailed-design/13-admin-api-and-ops-ui.md) · [需求定义书 §53 ADR 列表项 11](../../docs/requirements/00-requirements-definition.md) · [phase10-architecture.md §2 §6 §7](../../docs/requirements/phase10-architecture.md)

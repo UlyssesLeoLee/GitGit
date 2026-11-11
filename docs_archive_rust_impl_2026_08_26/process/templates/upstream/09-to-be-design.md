@@ -12,7 +12,7 @@
 | 阶段 | 超上流 — 新业务设计 |
 | 主要交付物 | 新业务设计书 |
 | 责任人 | BA + 业务负责人 |
-| 关联设计文档 | [`../requirements/phase6-primitives.md`](../../../requirements/phase6-primitives.md) (产品原语) |
+| 关联设计文档 | [`../requirements/phase6-primitives.md`](../../../../docs/requirements/phase6-primitives.md) (产品原语) |
 | 模板版本 | v1.0 (2026-08-20) |
 | 依据 | IPA 共通框架 2013 |
 
