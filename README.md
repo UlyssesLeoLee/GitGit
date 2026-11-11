@@ -407,6 +407,16 @@ base64 而非加密，**无 TLS**；桌面端生成的密码只出现在日志�
 在配置之前，**打 tag 会让 release 在预检后的 `msi` job 变红**，这是设计意图
 而不是故障。
 
+`[FACT]` 证书**怎么进 CI**——secret 名、谁设置、什么时候可用、PR 与 fork 上的
+差别——记在 [`.github/CI.md`](.github/CI.md) 的「Secrets 配置」一节，那是唯一一处
+完整说明。
+
+`[FACT]` 2026-11-11 起，`release.yml` 的 `msi` job **在构建之前**先断言证书在不在
+（`Assert the signing material is configured` 步，跑
+`apps/gm-desktop/scripts/assert-signing-config.ps1 -Required`）。缺证书时**第一分钟
+就红**，而不是构建十几分钟后才红；消息里说清缺的是哪个变量、证书怎么投递、以及
+**不产出任何 release**。
+
 ### ~~P1 — 覆盖率门禁是声明而非门禁~~ 已关闭
 
 `apps/gm-desktop` 的覆盖率阈值曾经**没有任何 CI job 求值**：`Unit tests` 步骤

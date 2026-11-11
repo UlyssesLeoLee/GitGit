@@ -771,9 +771,9 @@ GitHub repo → Settings → Branches → Add rule for `dev`:
 > （两个 check 永远不绿）。待 Lane A / Lane B 修复合入 `dev`、且这两个 check
 > 至少各绿过一次之后，再启用本节的 status check 强制项。
 
-## Secrets 配置 (当前不需要)
+## Secrets 配置
 
-两个 workflow 都不需要 secret:
+两个 workflow (`gm-console` / `rust-backend`) 都不需要 secret:
 - `pnpm install` 走 npmjs.org 公网,无需 token
 - `cargo test` 走 crates.io 公网,无需 token
 - 不调任何需要 auth 的私有 registry
@@ -784,6 +784,37 @@ GitHub repo → Settings → Branches → Add rule for `dev`:
 - 触发 Tauri updater server 的 GH_PAT
 
 这些等本地 app 二期合并时再加。
+
+### MSI 代码签名证书：怎么进 CI（2026-11-11）
+
+> `[FACT]` **证书还在采购中。** 签名链路本身已就位、并在发布路径强制
+> （`sign-msi.ps1 -Required`），但仓内**没有**任何证书，所以下面这两个 secret
+> **目前是未设置状态**。这不是缺陷，是采购未完成。
+
+| 环节 | 内容 |
+| --- | --- |
+| Repository secret | `MSI_SIGN_PFX_BASE64` = `signing.pfx` **文件本身**的 base64（不是 `.cer`）；`MSI_SIGN_PFX_PASSWORD` = 导出该 pfx 用的密码 |
+| 谁来设置 | **仓库管理员**：Settings → Secrets and variables → Actions → Repository secrets |
+| 在 workflow 里怎么变成环境变量 | `secrets.MSI_SIGN_PFX_BASE64` → `GITGIT_MSI_PFX_BASE64`；`secrets.MSI_SIGN_PFX_PASSWORD` → `GITGIT_MSI_PFX_PASSWORD` |
+| 什么时候可用 | **只在有这些 secret 的上下文里**：`release.yml`（打 `v*` tag 或 `workflow_dispatch`） |
+| 什么时候不可用 | **fork 的 PR 上没有**：GitHub 不向 fork 的 PR 下发 repository secrets。`[INFERENCE]` 同仓分支的 PR 是拿得到的——所以 `gm-desktop.yml` 的日常 `msi` job 读同一个 secret，但**不带** `-Required`，有就签、没有就跳过 |
+| 缺了会怎样 | `release.yml` 的 `msi` job **红**，**不产出任何 release**：`draft-release` job 被跳过，草稿 release 根本不会创建 |
+
+`[FACT]` 秘密**只以环境变量**的形式投递：workflow 里是 `env:` 映射，不是命令行参数，
+所以口令既不会进命令行，也不会进日志行。
+
+`[FACT]` `release.yml` 的 `msi` job 在**构建之前**先跑
+`apps/gm-desktop/scripts/assert-signing-config.ps1 -Required`
+（`Assert the signing material is configured` 步）：**先断言证书在不在**，再花十几分钟
+构建。缺证书时第一分钟就红，而不是构建完才红。
+
+`[FACT]` 断言脚本的失败消息说清三件事：缺的是哪个变量（以及是没设、还是只有空白）、
+证书怎么投递（secret 名、环境变量名、谁设、什么时候有）、以及后果（**不产出任何
+release**）。它**从不打印证书内容或口令**。
+
+`[FACT]` 这道断言的测试是
+`apps/gm-desktop/scripts/test-assert-signing-config.ps1`，在 `gate` workflow 里
+**每个 PR 都跑**，喂的是**假哨兵值**，仓内不存在真证书。
 
 ## 已知限制 (V0.1 baseline)
 
