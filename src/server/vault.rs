@@ -760,7 +760,7 @@ impl FileVault {
 /// the common `umask 022`, which lets any other local account list the
 /// credential directory. The mode is set at creation, because that is the
 /// only moment the directory is certainly ours.
-async fn create_private_dir_all(dir: &Path) -> std::io::Result<()> {
+pub(crate) async fn create_private_dir_all(dir: &Path) -> std::io::Result<()> {
     let mut builder = tokio::fs::DirBuilder::new();
     builder.recursive(true);
     #[cfg(unix)]
@@ -777,7 +777,7 @@ async fn create_private_dir_all(dir: &Path) -> std::io::Result<()> {
 /// failure here is **not** ignored: writing a secret into a directory
 /// other local accounts can list would undo the point of the file mode.
 #[cfg(unix)]
-fn make_private_dir(dir: &Path) -> std::io::Result<()> {
+pub(crate) fn make_private_dir(dir: &Path) -> std::io::Result<()> {
     use std::os::unix::fs::PermissionsExt;
     // `[FACT]` `set_permissions` follows a symlink, so tightening a
     // symlinked root would change the permissions of whatever it points
@@ -808,7 +808,46 @@ fn make_private_dir(dir: &Path) -> std::io::Result<()> {
 
 /// On Windows the ACLs are not mode bits, so there is nothing to tighten.
 #[cfg(not(unix))]
-fn make_private_dir(_dir: &Path) -> std::io::Result<()> {
+pub(crate) fn make_private_dir(_dir: &Path) -> std::io::Result<()> {
+    Ok(())
+}
+
+/// Tighten an existing file to 0600.
+///
+/// `[FACT]` A file that already existed keeps its old mode: the mode is
+/// only set when the file is **created**. So a vault written by an older
+/// version holds credentials that are still readable by other local
+/// accounts, and creating new files privately does not close that.
+#[cfg(unix)]
+pub(crate) fn harden_private_file(path: &Path) -> std::io::Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+    let Ok(meta) = std::fs::symlink_metadata(path) else {
+        // It does not exist: nothing to tighten.
+        return Ok(());
+    };
+    if meta.file_type().is_symlink() {
+        // `set_permissions` would follow the link and change the target's
+        // mode — the same trap `make_private_dir` avoids.
+        return Ok(());
+    }
+    let current = meta.permissions().mode() & 0o777;
+    if current == 0o600 {
+        return Ok(());
+    }
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600)).map_err(|e| {
+        std::io::Error::new(
+            e.kind(),
+            format!(
+                "{} must be private (0600) and could not be made so: {e}",
+                path.display()
+            ),
+        )
+    })
+}
+
+/// On Windows the ACLs are not mode bits, so there is nothing to tighten.
+#[cfg(not(unix))]
+pub(crate) fn harden_private_file(_path: &Path) -> std::io::Result<()> {
     Ok(())
 }
 
@@ -820,7 +859,7 @@ fn make_private_dir(_dir: &Path) -> std::io::Result<()> {
 /// also set explicitly afterwards, because `open(2)` masks the requested
 /// mode with the umask and an unusual umask could otherwise take bits
 /// away.
-async fn create_private_file(path: &Path) -> std::io::Result<tokio::fs::File> {
+pub(crate) async fn create_private_file(path: &Path) -> std::io::Result<tokio::fs::File> {
     let mut options = tokio::fs::OpenOptions::new();
     options.write(true).create_new(true);
     #[cfg(unix)]
