@@ -54,7 +54,7 @@ Establish a factual, dated, source-cited baseline of the competitive landscape b
 
 ### Research methodology
 1. Prioritize official documentation, official product/engineering blogs, and public source repositories over third-party summaries; third-party 2026 "guide" sites are used only where official sources are silent, and are flagged as lower-confidence.
-2. Every factual claim used in Phases 2–5 is dated and cited inline as `[FACT] <claim>. Source: [Title](URL), accessed 2026-08-18.`
+2. Every factual claim used in Phases 2–5 is dated and cited inline as `[FACT] <claim>. Source: <Title>(<URL>), accessed 2026-08-18.`
 3. Claims not independently verified via live search in this pass are marked `[TBD]` rather than stated as fact, even if they match prior training knowledge.
 4. Own design ideas for the Target Platform are marked `[PROPOSAL]` and never attributed to a competitor.
 5. At least 15–20 live WebSearch queries were run across the categories above, weighted toward GitHub, GitLab, and the AI coding agents per the spec's "deepest treatment" instruction. Search queries and result titles are traceable via the citations below.

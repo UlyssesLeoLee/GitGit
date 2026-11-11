@@ -1,0 +1,272 @@
+//! Tauri builder, tray icon, plugin wiring, and command registration.
+//!
+//! This is the integration point where the Svelte frontend meets the
+//! embedded gitgit library. Per ADR-0020 §2.2 we embed `axum` in the
+//! same process; the start/stop semantics are provided by
+//! `crate::state::ServerManager`.
+
+mod commands;
+mod error;
+mod graph;
+mod state;
+
+/// The embedded server, asked for a smart-HTTP path over a real socket.
+///
+/// `[FACT]` This is a test-only module: it is compiled under `cfg(test)`
+/// and never reaches the shipped binary. It lives in the lib target
+/// because the desktop's CI runs `cargo test --locked --lib` — a test in
+/// `tests/` would not be run by that command at all.
+#[cfg(test)]
+mod embedded_server_tests;
+
+use std::path::PathBuf;
+
+use gitgit::server::vault::FileVault;
+use tauri::{
+    image::Image,
+    menu::{Menu, MenuItem},
+    tray::TrayIconBuilder,
+    AppHandle, Manager, RunEvent, WindowEvent,
+};
+use tracing_subscriber::prelude::*;
+
+use crate::error::AppResult;
+use crate::state::{BufferLayer, DesktopState, DEFAULT_VAULT_DIR};
+
+/// Build the `tauri::Builder` and start the runtime. `main.rs` wraps
+/// this in a single `gm_desktop_lib::run()` call so the integration
+/// tests can mount a bare command surface without spawning a window.
+///
+/// Returns the builder's error instead of unwrapping it: a shell that
+/// cannot build its own context has nothing to fall back to, but the
+/// caller still needs to decide how to report that (and whether to
+/// exit) rather than having the decision taken by a panic.
+pub fn run() -> Result<(), Box<dyn std::error::Error>> {
+    let app = tauri::Builder::default()
+        // Log level and targets are configured here rather than under
+        // `plugins.log` in tauri.conf.json, because tauri-plugin-log
+        // 2.9.1 registers itself as `plugin::Builder::new("log")` with no
+        // config type. A `plugins.log` object in the config file is
+        // therefore deserialized into `()`, and the app dies on startup
+        // with "invalid type: map, expected unit" before it ever draws a
+        // window. The same block used to sit in tauri.conf.json looking
+        // authoritative and did nothing except crash.
+        .plugin(
+            tauri_plugin_log::Builder::new()
+                // `Builder::level` takes `log::LevelFilter`, and the
+                // plugin's own `LogLevel` only converts to `log::Level`.
+                // The plugin re-exports `log`, so this avoids taking a
+                // direct dependency on it just for one enum variant.
+                .level(tauri_plugin_log::log::LevelFilter::Info)
+                .targets([
+                    tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::Stdout),
+                    tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::LogDir {
+                        file_name: None,
+                    }),
+                ])
+                .max_file_size(1024 * 1024)
+                .build(),
+        )
+        // Only the plugins the frontend actually calls are registered.
+        //
+        // `[FACT]` The frontend imports exactly one Tauri plugin package:
+        // `@tauri-apps/plugin-dialog`, used by `src/lib/stores/worktreeRoot.ts`
+        // for the working-tree root picker. Measured over every `.ts` /
+        // `.svelte` file under `src/`, the other six plugin packages
+        // (`fs`, `shell`, `opener`, `clipboard-manager`, `notification`,
+        // `log`) are imported zero times, and the only raw
+        // `plugin:<name>|<command>` invocations in `src/` are the four
+        // `plugin:dialog|*` cases in the test mock.
+        //
+        // Registering a plugin the webview cannot call links it into the
+        // shipped binary for nothing. `tests/unit/capability-surface-gate.test.ts`
+        // asserts that the set of plugins registered here and the set
+        // granted in `capabilities/default.json` cannot drift apart, with
+        // `log` as the single documented exception: the backend writes its
+        // own log lines through `tauri-plugin-log`, which is a Rust-side
+        // facility and needs no webview capability.
+        .plugin(tauri_plugin_dialog::init())
+        .setup(|app| setup_app(app))
+        .invoke_handler(tauri::generate_handler![
+            commands::server::server_status,
+            commands::server::start_server,
+            commands::server::stop_server,
+            commands::server::server_logs,
+            commands::server::clear_logs,
+            commands::repos::list_repos,
+            commands::repos::repo_detail,
+            commands::repos::repo_status,
+            commands::repos::repo_diff,
+            commands::repos::clone_url,
+            commands::repos::open_repo_in_shell,
+            commands::vault::vault_list,
+            commands::vault::vault_get,
+            commands::vault::vault_set,
+            commands::vault::vault_rotate,
+            commands::vault::vault_versions,
+            commands::vault::vault_diff,
+            commands::vault::vault_restore,
+            commands::vault::vault_delete,
+            commands::auth::get_admin_password_status,
+            commands::auth::set_admin_password,
+            commands::auth::clear_admin_password,
+            commands::system::app_info,
+            commands::system::set_clipboard_text,
+            commands::system::vault_diagnostics,
+            commands::uiboot::report_ui_boot,
+            commands::graph::graph_load,
+            commands::graph::graph_list_nodes,
+            commands::graph::graph_list_edges,
+            commands::graph::graph_get_node,
+            commands::graph::graph_stats,
+            commands::graph::docs_list,
+            commands::graph::docs_read,
+            commands::ai::ai_review_start,
+            commands::ai::ai_review_cancel,
+        ])
+        .on_window_event(handle_window_event)
+        .build(tauri::generate_context!())?;
+    app.run(handle_run_event);
+    Ok(())
+}
+
+/// Build a `DesktopState` for unit testing — returned to integration
+/// tests so they can invoke commands against an in-memory router.
+#[cfg(any(test, feature = "test-support"))]
+pub async fn build_test_state(
+    app_data_dir: PathBuf,
+    repos_dir: PathBuf,
+) -> AppResult<DesktopState> {
+    DesktopState::new(
+        app_data_dir.join(crate::state::DEFAULT_VAULT_DIR),
+        repos_dir,
+        app_data_dir,
+    )
+}
+
+fn setup_app(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
+    let app_handle = app.handle();
+    let app_data_dir: PathBuf = app
+        .path()
+        .app_data_dir()
+        .unwrap_or_else(|_| std::env::temp_dir().join("gitgit-desktop"));
+    let vault_dir = app_data_dir.join(DEFAULT_VAULT_DIR);
+    let repos_dir = app_data_dir.join("repos");
+
+    let desktop_state = DesktopState::new(vault_dir, repos_dir, app_data_dir.clone())?;
+
+    // Mirror the desktop state's log buffer into the global tracing
+    // subscriber so the UI's log-fetch endpoint sees all events,
+    // including those raised by the embedded axum server task.
+    let buffer_layer = BufferLayer {
+        buffer: desktop_state.logs.clone(),
+    };
+    let _ = tracing_subscriber::registry()
+        .with(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
+        )
+        .with(buffer_layer)
+        .try_init();
+
+    // Tray icon. The tray menu has three actions: Show Window / Hide
+    // Window / Quit. Clicking "Show" brings the main window to the
+    // front; "Hide" hides the window without quitting the app.
+    let tray_menu = build_tray_menu(app_handle)?;
+    let tray_icon_bytes = include_bytes!("../icons/tray.png");
+    let tray_image = Image::from_bytes(tray_icon_bytes)?;
+
+    let _tray = TrayIconBuilder::with_id("main-tray")
+        .tooltip("gitgit Desktop")
+        .icon(tray_image)
+        .menu(&tray_menu)
+        .on_menu_event(|app, event| match event.id().as_ref() {
+            "show" => {
+                if let Some(win) = app.get_webview_window("main") {
+                    let _ = win.show();
+                    let _ = win.set_focus();
+                }
+            }
+            "hide" => {
+                if let Some(win) = app.get_webview_window("main") {
+                    let _ = win.hide();
+                }
+            }
+            "quit" => {
+                app.exit(0);
+            }
+            _ => {}
+        })
+        .build(app)?;
+
+    app.manage(desktop_state);
+    Ok(())
+}
+
+fn handle_window_event(window: &tauri::Window, event: &WindowEvent) {
+    // Brief requirement: "关闭按钮最小化到托盘". Prevent
+    // the default close and hide the window instead.
+    if let WindowEvent::CloseRequested { api, .. } = event {
+        api.prevent_close();
+        let _ = window.hide();
+    }
+}
+
+fn handle_run_event(app: &AppHandle, event: RunEvent) {
+    if let RunEvent::ExitRequested { api, .. } = event {
+        // We never auto-exit; the user must explicitly choose Quit
+        // from the tray menu.
+        api.prevent_exit();
+        let _ = app;
+    }
+}
+
+fn build_tray_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
+    let show = MenuItem::with_id(app, "show", "Show Window", true, None::<&str>)?;
+    let hide = MenuItem::with_id(app, "hide", "Hide Window", true, None::<&str>)?;
+    let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
+    Menu::with_items(app, &[&show, &hide, &quit])
+}
+
+/// Public re-export so integration tests can build a `gitgit`
+/// `Config` / `FileVault` / `AppState` directly without depending on
+/// the internal layout of the gitgit library.
+pub use gitgit as gitgit_lib;
+
+/// Convenience: spawn the embedded axum server. Used by integration
+/// tests; the production `start_server` command shells through the
+/// [`crate::state::ServerManager`].
+///
+/// Resolves the admin credential from the same `vault_root` the caller
+/// passes, so this path enforces `/api` auth exactly as production does.
+/// Resolving it anywhere else would hand a test a server whose auth
+/// surface differs from the shipped one, which is the whole class of bug
+/// this change is about.
+///
+/// `[FACT]` The bound address comes back with the handle. A caller that
+/// binds port 0 — the right thing for a test, which must never take the
+/// product's own port — otherwise has no way to know which port the OS
+/// handed out, and the only alternative is to guess a free port and hope
+/// nobody takes it in between.
+pub async fn run_embedded_router(
+    bind: String,
+    vault_root: PathBuf,
+    repos_dir: PathBuf,
+) -> AppResult<(tokio::task::JoinHandle<()>, std::net::SocketAddr)> {
+    let file_vault = FileVault::new(&vault_root);
+    // The **production** path — the same function the Tauri command
+    // uses — so a test of the wiring proves something about the wiring.
+    // Building the state here instead would have hidden exactly the bug
+    // this lane fixes: the production path used to hand the server a
+    // *second* vault, rooted at the working directory.
+    crate::commands::server::spawn_embedded_server(
+        bind.clone(),
+        std::sync::Arc::new(file_vault),
+        repos_dir,
+        bind,
+    )
+    .await
+}
+
+// Add LogBuffer re-export for tests.
+pub use crate::state::LogBuffer as LogBufferPublic;

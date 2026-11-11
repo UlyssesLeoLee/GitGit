@@ -1,0 +1,111 @@
+# gitgit — single-crate MVP for a local Git HTTP server.
+# See README.md for the design context.
+# This is intentionally a single crate, NOT a workspace. The previous 14-crate
+# design is archived in docs_archive_rust_impl_2026_08_26/.
+
+[package]
+name = "gitgit"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.75"
+license = "AGPL-3.0"
+publish = false
+
+[[bin]]
+name = "gitgit"
+path = "src/main.rs"
+
+# The self-hosted, S3-compatible object store (per ADR-0021's shape, with
+# the server side owned by this repository instead of minIO). It is a
+# second bin target of the same crate, so it shares the library's store,
+# SigV4 and HTTP code rather than duplicating it.
+[[bin]]
+name = "gitgit-objectstore"
+path = "src/bin/gitgit-objectstore.rs"
+
+# Exposed as a library so that the V0 desktop shell
+# (`apps/gm-desktop/src-tauri/`) can reuse the credential vault,
+# config, repos, and subprocess helpers without duplicating any
+# business logic. Behaviour of the binary is unchanged: `cargo run`
+# still drives the same `cli::Command` dispatch in `main.rs`.
+# Per the worker brief constraint: "不动 gitgit-server 的 vault /
+# auth / http 主体逻辑" — the only change here is to add a `[lib]`
+# target; the `pub` surface of every existing module is unchanged.
+[lib]
+name = "gitgit"
+path = "src/lib.rs"
+
+[dependencies]
+tokio = { version = "1.40", features = ["full"] }
+axum = "0.7"
+tower = "0.5"
+url = "2"
+tower-http = { version = "0.6", features = ["trace"] }
+hyper = "1.4"
+clap = { version = "4.5", features = ["derive"] }
+thiserror = "1.0"
+anyhow = "1.0"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+base64 = "0.22"
+bytes = "1.7"
+http = "1.1"
+http-body-util = "0.1"
+futures-util = "0.3"
+# V0 Credential Vault (per ADR-0021): rust-s3 is the S3-compatible client
+# (originally published as `s3`; renamed to `rust-s3` on crates.io after
+# the `s3` namespace was reclaimed by an unrelated lean client).
+# Import path is still `use s3::...` per the crate's lib.rs.
+# Feature: `tokio-rustls-tls` is pure-Rust TLS via reqwest+rustls,
+# matching the brief's "no native deps" intent.
+rust-s3 = { version = "0.38", default-features = false, features = ["tokio-rustls-tls"] }
+async-trait = "0.1"
+uuid = { version = "1", features = ["v4"] }
+# V0 Credential Vault version-management API (per ADR-0022): the
+# sidecar metadata hashes each version's bytes; sha2 + hex are the
+# minimal pair of crates to produce 64-char lowercase digests without
+# pulling in a crypto framework.
+sha2 = "0.10"
+hex = "0.4"
+# V0.2 Credential Vault version-management API (per ADR-0022 v0.2):
+# `rust-s3` 0.37 does not expose `versionId` on `Bucket::get_object`
+# (see https://docs.rs/rust-s3/0.37.2/s3/bucket/struct.Bucket.html —
+# `Command::GetObject` has no versionId field). We work around this by
+# asking rust-s3 to build a presigned GET URL with `versionId` as a
+# custom query param (SigV4 canonical string includes custom queries,
+# so the signature covers versionId), and then firing that URL with
+# reqwest — the SigV4 signature in the query string authorizes the
+# request, no `Authorization` header is added (adding one would cause
+# `SignatureDoesNotMatch`). reqwest is therefore a direct dependency
+# even though rust-s3 pulls it transitively.
+#
+# The `stream` feature is what exposes `Response::bytes_stream()`, which
+# `src/ai/stream.rs` uses to read an SSE body incrementally. It is an
+# additional feature on an existing dependency (not a new crate) and
+# pulls in `futures-util` + `tokio-util`, both of which the crate
+# already depends on directly. Without it a chat completion can only be
+# read as one complete `text()` blob, which is what makes token
+# streaming impossible.
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "stream"] }
+
+[lints.rust]
+unsafe_code = "forbid"
+unused_must_use = "deny"
+
+[lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+todo = "warn"
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+strip = "symbols"
+
+[profile.dev]
+opt-level = 0
+debug = true

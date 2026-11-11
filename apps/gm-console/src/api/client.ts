@@ -1,0 +1,122 @@
+import axios, { type AxiosError, type AxiosInstance, type AxiosRequestConfig } from 'axios';
+import { ApiError, NetworkError } from './errors';
+import type { ApiErrorBody } from './types';
+import { currentAuthHeader, useCredentialsStore } from '@/stores/credentials';
+
+/**
+ * Build the absolute base URL the axios client should hit.
+ *
+ * - Production / preview: `import.meta.env.VITE_API_BASE_URL` (same
+ *   origin when empty → relative URLs, useful behind a reverse proxy).
+ * - Dev (Vite): rely on the proxy → `/api` (the proxy forwards to
+ *   `VITE_API_PROXY_TARGET`).
+ *
+ * The caller is responsible for ensuring the trailing `/api` segment.
+ */
+export function resolveApiBaseUrl(): string {
+  const explicit = import.meta.env.VITE_API_BASE_URL;
+  if (explicit && explicit.length > 0) return trimTrailingSlash(explicit);
+  return '/api';
+}
+
+function trimTrailingSlash(value: string): string {
+  return value.endsWith('/') ? value.slice(0, -1) : value;
+}
+
+/**
+ * Extract a typed `ApiError` from any thrown axios/network error.
+ *
+ * Behaviour:
+ * - 2xx with malformed JSON → `ApiError(500, …)`.
+ * - non-2xx with `{error, code}` body → `ApiError(status, message, code)`.
+ * - non-2xx with HTML / empty body → `ApiError(status, "<status> <statusText>")`.
+ * - no response (network/DNS/CORS) → `NetworkError`.
+ */
+export function toApiError(err: unknown): ApiError | NetworkError {
+  if (err instanceof ApiError) return err;
+  if (err instanceof NetworkError) return err;
+  if (axios.isAxiosError(err)) {
+    const ax = err as AxiosError<unknown>;
+    if (!ax.response) {
+      return new NetworkError(ax.message || 'network error', err);
+    }
+    const status = ax.response.status;
+    const data = ax.response.data as unknown;
+    if (data && typeof data === 'object' && 'error' in (data as Record<string, unknown>)) {
+      const body = data as ApiErrorBody;
+      const code = typeof body.code === 'string' ? body.code : null;
+      return new ApiError(status, body.error || ax.message, code, body);
+    }
+    return new ApiError(status, `${status} ${ax.response.statusText || 'request failed'}`);
+  }
+  if (err instanceof Error) return new NetworkError(err.message, err);
+  return new NetworkError('unknown error', err);
+}
+
+let instance: AxiosInstance | null = null;
+
+/**
+ * Lazily-built singleton axios client. The first call wires up the
+ * base URL + interceptors; subsequent calls return the same instance.
+ */
+export function getClient(): AxiosInstance {
+  if (instance) return instance;
+  instance = axios.create({
+    baseURL: resolveApiBaseUrl(),
+    timeout: 15000,
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    // `[FACT]` `validateStatus: () => true` used to sit here, with the
+    // comment "don't auto-throw on non-2xx". It meant the opposite of
+    // what it said: every non-2xx arrived on the *fulfilled* path, and
+    // the twelve `return resp.data` statements in `api/*.ts` handed the
+    // error envelope back to the caller **as if it were the payload**.
+    // `listRepos()` on a 401 resolved to `{error, code}` typed as
+    // `RepoSummary[]`, and `ApiError.isUnauthenticated` — which
+    // `ErrorState` branches on to say "please sign in" — could never
+    // fire, because nothing ever threw. Leaving the default in place
+    // routes non-2xx to the rejected arm below, where `toApiError`
+    // builds the typed envelope every caller already expects.
+  });
+  // The credential is read from the store on *every* request rather than
+  // captured once, so `signIn` / `signOut` take effect on the next call
+  // without rebuilding the client.
+  instance.interceptors.request.use((config) => {
+    const header = currentAuthHeader();
+    if (header) {
+      config.headers.set('Authorization', header);
+    }
+    return config;
+  });
+  instance.interceptors.response.use(
+    (resp) => resp,
+    (err) => {
+      const apiErr = toApiError(err);
+      // A rejected credential is a *state* change, not just a failed
+      // call: keeping it means every subsequent request repeats the 401
+      // and the UI shows the same error on every screen. Dropping it
+      // brings the login gate back on the next render, so a password
+      // rotated on the server does not leave a console full of dead
+      // screens with no way back to the form.
+      if (apiErr instanceof ApiError && apiErr.isUnauthenticated) {
+        useCredentialsStore.getState().signOut();
+      }
+      return Promise.reject(apiErr);
+    },
+  );
+  return instance;
+}
+
+/**
+ * Apply a one-off config patch (mainly used by tests to inject an
+ * adapter). Returns the client so callers can chain.
+ */
+export function configureClient(config: AxiosRequestConfig): AxiosInstance {
+  const c = getClient();
+  Object.assign(c.defaults, config);
+  return c;
+}
+
+/** Reset the singleton; intended for tests. */
+export function __resetClientForTests(): void {
+  instance = null;
+}

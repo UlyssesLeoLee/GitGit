@@ -1,0 +1,552 @@
+//! Clap subcommands for the `gitgit` binary.
+
+use std::path::PathBuf;
+
+use clap::{Parser, Subcommand};
+
+use crate::config::{VaultBackend, DEFAULT_BIND, DEFAULT_REPOS_DIR, DEFAULT_VAULT_FILE_ROOT};
+
+/// `gitgit` — a tiny local Git HTTP server (MVP).
+#[derive(Debug, Parser)]
+#[command(
+    name = "gitgit",
+    version,
+    about = "A tiny local Git HTTP server (MVP)",
+    long_about = None
+)]
+pub struct Cli {
+    /// Bind address for `serve`. Default: 127.0.0.1:8080 (loopback only;
+    /// pass `--bind 0.0.0.0:8080` to expose it on the network)
+    #[arg(long, global = true, default_value = DEFAULT_BIND)]
+    pub bind: String,
+
+    /// Directory under which bare repos are stored. Default: ./repos
+    #[arg(long, global = true, default_value = DEFAULT_REPOS_DIR)]
+    pub repos_dir: PathBuf,
+
+    /// Root directory for the V0 Credential Vault (file backend).
+    /// Per ADR-0021 §1.2 + ADR-0022, default FileVault lives here.
+    ///
+    /// Env override: `GITGIT_VAULT_FILE_ROOT`, applied in `build_config`
+    /// rather than by a clap `env` key -- the `env` feature is not enabled
+    /// on the clap dependency, and the doc comment previously promised an
+    /// override that was never read.
+    #[arg(long, global = true, default_value = DEFAULT_VAULT_FILE_ROOT)]
+    pub vault_file_root: PathBuf,
+
+    /// Which credential-vault backend to use: `file` (default) or `s3`.
+    ///
+    /// Env override: `GITGIT_VAULT_BACKEND`, applied in `build_config`
+    /// for the same reason as the vault root: the `env` feature is not
+    /// enabled on the clap dependency, and the flag has to win over the
+    /// variable when both are given.
+    ///
+    /// An unrecognised value is an error, never a silent fallback to
+    /// the file vault.
+    ///
+    /// The `s3` backend takes the rest of its settings from the
+    /// environment: `GITGIT_S3_ENDPOINT`, `GITGIT_S3_BUCKET`,
+    /// `GITGIT_S3_REGION`, `GITGIT_S3_KEY_PREFIX`, `GITGIT_S3_ACCESS_KEY`
+    /// and `GITGIT_S3_SECRET_KEY`. The two credentials have no
+    /// command-line flag on purpose -- a credential on the command line
+    /// is in the process arguments (`ps`) and in the shell history.
+    /// The key prefix has no default either: the prefix is what
+    /// isolates two instances that share a bucket.
+    #[arg(long, global = true, value_name = "file|s3")]
+    pub vault_backend: Option<VaultBackend>,
+
+    /// S3-compatible endpoint for the `s3` vault backend.
+    /// Env override: `GITGIT_S3_ENDPOINT`.
+    #[arg(long, global = true, value_name = "URL")]
+    pub s3_endpoint: Option<String>,
+
+    /// Bucket name for the `s3` vault backend.
+    /// Env override: `GITGIT_S3_BUCKET`.
+    ///
+    /// It must not be empty: the bucket is the other half of where a
+    /// credential lives, and an empty one puts the objects at the
+    /// endpoint root -- a shared, unnamed namespace.
+    #[arg(long, global = true, value_name = "NAME")]
+    pub s3_bucket: Option<String>,
+
+    /// SigV4 region for the `s3` vault backend.
+    /// Env override: `GITGIT_S3_REGION`.
+    #[arg(long, global = true, value_name = "REGION")]
+    pub s3_region: Option<String>,
+
+    /// Key prefix applied to every object in the bucket.
+    /// Env override: `GITGIT_S3_KEY_PREFIX`.
+    ///
+    /// There is no default: the prefix is what isolates two instances
+    /// that share a bucket, and a shared default would put them on the
+    /// same object keys.
+    ///
+    /// It must end with `/`: the prefix is a path prefix, and a prefix
+    /// without the separator is a string prefix -- string prefixes
+    /// overlap, so two instances could land on the same object key
+    /// without either of them noticing.
+    ///
+    /// The namespace is the operator's to pick and must not be reused
+    /// by another instance.
+    #[arg(long, global = true, value_name = "PREFIX")]
+    pub s3_key_prefix: Option<String>,
+
+    // `[FACT]` There is deliberately no `--s3-access-key` and no
+    // `--s3-secret-key`; the credentials come from the environment
+    // only. The `--vault-backend` help text says so, because removing
+    // the flags must not remove the operator's way to find out.
+    //
+    // `cli::tests::the_s3_credentials_are_environment_variables_not_command_line_flags`
+    // holds this in place.
+    #[command(subcommand)]
+    pub command: Command,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum Command {
+    /// Start the smart-HTTP server.
+    Serve,
+
+    /// Create a new bare repository under `<repos_dir>/<name>.git/`.
+    InitRepo {
+        /// Repository name (used as the `<name>.git` directory name).
+        name: String,
+    },
+
+    /// List repositories that currently exist under `--repos-dir`.
+    List,
+
+    /// V0 Credential Vault operations (per ADR-0021 + ADR-0022).
+    #[command(subcommand)]
+    Key(KeyCommand),
+
+    /// AI-assisted Git workflows (commit message, explain, review).
+    ///
+    /// The API key is read from the `GITGIT_AI_API_KEY` environment
+    /// variable, never from a flag: an argument is visible in `ps` output
+    /// and lands in shell history.
+    ///
+    /// Repository content is sent to a third-party API after a
+    /// heuristic redaction pass. That pass catches known credential
+    /// shapes and is NOT a guarantee — the authoritative control is not
+    /// committing secrets in the first place.
+    #[command(subcommand)]
+    Gitai(GitaiCommand),
+
+    /// Named upstream remotes (add / list / fast-forward sync).
+    ///
+    /// Storage is a local JSON file under `.gitgit/`, not a database.
+    /// Per ADR-0022 §2.1 this crate does not take a sqlx / PG dependency,
+    /// and ADR-0022 already rejected wiring an external schema in.
+    #[command(subcommand)]
+    Gitremote(GitremoteCommand),
+}
+
+/// Sub-actions under `gitgit gitremote`.
+#[derive(Debug, Subcommand)]
+pub enum GitremoteCommand {
+    /// Register a named upstream, or point an existing name at a new URL.
+    Add {
+        /// Short name, e.g. `gitee`. Re-adding with a different URL
+        /// updates in place rather than failing.
+        name: String,
+        /// Upstream URL. Passed verbatim to `git fetch` / `git push`.
+        url: String,
+    },
+
+    /// List every registered remote.
+    Ls,
+
+    /// Remove a registered remote.
+    ///
+    /// Removes the registry entry only. It never touches the remote.
+    Rm {
+        /// Remote name to forget.
+        name: String,
+    },
+
+    /// Fast-forward sync a managed bare repo with a named remote.
+    Sync {
+        /// Remote name as registered by `gitremote add`.
+        name: String,
+        /// Bare repository to sync. Default: resolved from
+        /// `--repos-dir` + name, i.e. the repo `gitgit serve` manages.
+        #[arg(long)]
+        repo: Option<PathBuf>,
+        /// Branch to sync. Default: the remote's default branch.
+        #[arg(long)]
+        branch: Option<String>,
+    },
+}
+
+/// Sub-actions under `gitgit gitai`.
+#[derive(Debug, Subcommand)]
+pub enum GitaiCommand {
+    /// Write a commit message for a diff.
+    Commit(GitaiTaskArgs),
+
+    /// Explain what a change does.
+    Explain(GitaiTaskArgs),
+
+    /// Review a diff for correctness and security problems.
+    Review(GitaiTaskArgs),
+
+    /// List the registered provider presets and their endpoints.
+    ///
+    /// Performs no network call.
+    Providers,
+}
+
+/// Arguments shared by `gitai commit` / `explain` / `review`.
+#[derive(Debug, Clone, clap::Args)]
+pub struct GitaiTaskArgs {
+    /// Repository to read the diff from. Default: current directory.
+    #[arg(long, default_value = ".")]
+    pub repo: PathBuf,
+
+    /// Provider preset key. Run `gitgit gitai providers` for the list.
+    #[arg(long, default_value = "openai")]
+    pub provider: String,
+
+    /// Override the provider's base URL. Use for a proxy, a private
+    /// gateway, or an OpenAI-compatible host with no preset.
+    #[arg(long)]
+    pub ai_base_url: Option<String>,
+
+    /// Override the provider's default model.
+    #[arg(long)]
+    pub ai_model: Option<String>,
+
+    /// Include uncommitted working-tree changes in the diff.
+    #[arg(long)]
+    pub from_diff: bool,
+
+    /// Explicit revision range, e.g. `HEAD~1..HEAD`. Takes precedence over
+    /// `--from-diff` when both are given.
+    #[arg(long)]
+    pub range: Option<String>,
+
+    /// Limit the diff to these paths.
+    #[arg(long = "path")]
+    pub paths: Vec<String>,
+
+    /// Print the provider and model that would be used, then exit without
+    /// contacting the API.
+    #[arg(long)]
+    pub dry_run: bool,
+}
+
+/// Sub-actions against the V0 Credential Vault.
+///
+/// All actions delegate to the `VersionedVault` impl of the configured
+/// backend (FileVault by default; per ADR-0022 §1.2, `set` always
+/// records a sidecar entry — use `vault set` for "version-aware" writes
+/// and `vault raw-set` to write through the super-trait `Vault::set`
+/// without metadata).
+#[derive(Debug, Subcommand)]
+pub enum KeyCommand {
+    /// Write `value` under `key` and record a sidecar entry. The
+    /// returned number is the new 1-indexed version.
+    Set {
+        /// Logical key (e.g. `openai`).
+        key: String,
+        /// Value to store.
+        ///
+        /// A secret on the command line is in the process argument list
+        /// (visible in `ps` to every user on the machine) and in the shell
+        /// history. Prefer `--stdin`.
+        value: Option<String>,
+        /// Read the value from standard input instead of the command line.
+        ///
+        /// This is the safe path: the value never reaches the argument
+        /// list and never reaches the shell history.
+        #[arg(long, conflicts_with = "value")]
+        stdin: bool,
+    },
+
+    /// Read the current (latest) value for `key`. Uses the super-trait
+    /// `Vault::get` directly.
+    Get {
+        /// Logical key.
+        key: String,
+    },
+
+    /// Drop the current value (does **not** rewrite the version timeline;
+    /// historical entries remain visible in `versions`).
+    Delete {
+        /// Logical key.
+        key: String,
+    },
+
+    /// Rotate the value to `value`, recording a sidecar entry.
+    /// Equivalent to `vault set`; the dedicated subcommand makes the
+    /// intent explicit for ops scripts.
+    Rotate {
+        /// Logical key.
+        key: String,
+        /// New value.
+        ///
+        /// A secret on the command line is in the process argument list
+        /// and in the shell history. Prefer `--stdin`.
+        value: Option<String>,
+        /// Read the value from standard input instead of the command line.
+        #[arg(long, conflicts_with = "value")]
+        stdin: bool,
+    },
+
+    /// List every recorded version for `key` (oldest-first).
+    Versions {
+        /// Logical key.
+        key: String,
+    },
+
+    /// Compare two versions of `key`. Emits base / head sha256 + the
+    /// delta.
+    Diff {
+        /// Logical key.
+        key: String,
+        /// Base version (1-indexed).
+        #[arg(long)]
+        base: i32,
+        /// Head version (1-indexed).
+        #[arg(long)]
+        head: i32,
+    },
+
+    /// Restore `key`'s bytes to `target_version`. Returns the new
+    /// current version number (timeline is append-only, so this is
+    /// always > current). Per ADR-0022 V0 limitations, `FileVault`
+    /// marks the restored entry with `[restored-to-vN-…]` because
+    /// historical bytes are not recoverable from a flat file.
+    Restore {
+        /// Logical key.
+        key: String,
+        /// Version to restore.
+        #[arg(long)]
+        target_version: i32,
+    },
+
+    /// List known keys (per super-trait `Vault::list`).
+    #[command(name = "list-keys")]
+    ListKeys,
+}
+
+/// The value to store, from wherever the user put it.
+///
+/// `[FACT]` A credential passed on the command line is in the process
+/// argument list — visible in `ps` to every user on the machine — and in
+/// the shell history. The S3 credentials already have no command-line
+/// flag for exactly that reason (`Cli::s3_access_key`), and the AI key
+/// is held to the same rule (`ai::tests::api_key_is_an_env_var_not_a_flag`).
+/// So the value is read from **standard input** when `--stdin` is given.
+///
+/// The positional form still works: turning it into an error would break
+/// the scripts that use it today, and the help text says what it costs.
+/// What must never happen is the secret coming back out — the error
+/// paths below carry the key and the reason, never the value.
+///
+/// One trailing newline is stripped, because the shell adds one and the
+/// newline is not part of the secret.
+pub async fn read_secret_value(value: Option<String>, from_stdin: bool) -> anyhow::Result<String> {
+    if from_stdin {
+        use tokio::io::AsyncReadExt;
+        let mut buf = String::new();
+        tokio::io::stdin().read_to_string(&mut buf).await?;
+        return resolve_secret_value(value, Some(buf));
+    }
+    resolve_secret_value(value, None)
+}
+
+/// The value resolution, with the standard input already read (or not read
+/// at all — `None` means the value did not come from there).
+fn resolve_secret_value(
+    value: Option<String>,
+    stdin_text: Option<String>,
+) -> anyhow::Result<String> {
+    if let Some(text) = stdin_text {
+        let trimmed = text.strip_suffix('\n').unwrap_or(&text);
+        let trimmed = trimmed.strip_suffix('\r').unwrap_or(trimmed);
+        if trimmed.is_empty() {
+            anyhow::bail!("no value on standard input");
+        }
+        return Ok(trimmed.to_string());
+    }
+    match value {
+        Some(v) => Ok(v),
+        None => anyhow::bail!(
+            "no value: pass it on standard input (--stdin) or as a positional argument"
+        ),
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod tests {
+    use super::*;
+    use crate::config::{S3_ACCESS_KEY_ENV, S3_SECRET_KEY_ENV};
+    use clap::{CommandFactory, Parser};
+
+    /// `[FACT]` The default bind was `0.0.0.0:8080`, which put every
+    /// interface of every attached network on the wire for a server
+    /// whose `/api/*` has no authentication layer and whose
+    /// `GET /api/vault/keys/:key` returns stored credentials. This
+    /// parses the real command line rather than reading the constant, so
+    /// it pins what a user actually gets when they omit `--bind` — a
+    /// constant-only assertion would still pass if the clap
+    /// `default_value` were changed to something else.
+    #[test]
+    fn serve_defaults_to_loopback_rather_than_every_interface() {
+        let cli = Cli::try_parse_from(["gitgit", "serve"]).unwrap();
+        assert_eq!(
+            cli.bind, "127.0.0.1:8080",
+            "omitting --bind must not expose the server beyond this machine"
+        );
+        assert!(
+            !cli.bind.starts_with("0.0.0.0"),
+            "a wildcard bind is the condition this test exists to prevent"
+        );
+    }
+
+    /// `[FACT]` Hardening the default must not remove the capability.
+    /// Network exposure stays available, one explicit flag away — the
+    /// point is that it stops being what you get by accident.
+    #[test]
+    fn an_explicit_wildcard_bind_is_still_accepted() {
+        let cli = Cli::try_parse_from(["gitgit", "--bind", "0.0.0.0:8080", "serve"]).unwrap();
+        assert_eq!(cli.bind, "0.0.0.0:8080");
+    }
+
+    /// `[FACT]` Any loopback address the caller types is honoured, so the
+    /// default is a starting point rather than a fixed port contract.
+    #[test]
+    fn an_explicit_loopback_bind_is_honoured() {
+        let cli = Cli::try_parse_from(["gitgit", "--bind", "127.0.0.1:9999", "serve"]).unwrap();
+        assert_eq!(cli.bind, "127.0.0.1:9999");
+    }
+
+    /// `[FACT]` The S3 credentials are environment variables and must
+    /// stay that way: a credential on the command line is in the
+    /// process arguments (`ps`) and in the shell history, and the
+    /// object-store secret is long-lived. The AI API key is held to
+    /// the same rule (`ai::tests::api_key_is_an_env_var_not_a_flag`).
+    ///
+    /// The assertion is the *absence* of the flags, not the presence
+    /// of the variables: a future "just add a flag for convenience"
+    /// would otherwise slip in unnoticed. The parser refuses an
+    /// unknown flag, and the help text does not offer one.
+    #[test]
+    fn the_s3_credentials_are_environment_variables_not_command_line_flags() {
+        for flag in ["--s3-access-key", "--s3-secret-key"] {
+            assert!(
+                Cli::try_parse_from(["gitgit", flag, "a-value", "serve"]).is_err(),
+                "{flag} must not be accepted: a credential on the command line is in `ps` and in shell history"
+            );
+            assert!(
+                !Cli::command().render_long_help().to_string().contains(flag),
+                "{flag} must not be offered in the help text"
+            );
+        }
+        // The environment still carries them.
+        assert!(!S3_ACCESS_KEY_ENV.is_empty());
+        assert!(!S3_SECRET_KEY_ENV.is_empty());
+        for name in [S3_ACCESS_KEY_ENV, S3_SECRET_KEY_ENV] {
+            assert!(
+                name.chars()
+                    .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_'),
+                "{name} must look like an environment variable name"
+            );
+        }
+    }
+
+    /// `[FACT]` The vault value must not have to travel on the command
+    /// line: a credential in the argument list is in `ps` output and in
+    /// the shell history. The command therefore accepts it on standard
+    /// input, and the help text says so.
+    #[test]
+    fn the_vault_value_can_come_from_standard_input() {
+        let cli = Cli::try_parse_from(["gitgit", "key", "set", "openai", "--stdin"]).unwrap();
+        match cli.command {
+            Command::Key(KeyCommand::Set { key, value, stdin }) => {
+                assert_eq!(key, "openai");
+                assert!(value.is_none(), "the value must not be on the command line");
+                assert!(stdin, "the safe path must be the one that was asked for");
+            }
+            other => panic!("expected `key set`, got {other:?}"),
+        }
+        // The help text offers the safe path. It has to be the help of
+        // the `key set` sub-command — the top-level help only lists the
+        // sub-commands.
+        let mut cmd = Cli::command();
+        let key_cmd = cmd.find_subcommand_mut("key").expect("the key sub-command");
+        let set_cmd = key_cmd
+            .find_subcommand_mut("set")
+            .expect("the key set sub-command");
+        let help = set_cmd.render_long_help().to_string();
+        assert!(
+            help.contains("--stdin"),
+            "the safe path must be offered in the help text: {help}"
+        );
+    }
+
+    /// The two ways of passing the value are mutually exclusive: a
+    /// command that accepted both would silently prefer one of them.
+    #[test]
+    fn the_value_cannot_come_from_both_places_at_once() {
+        assert!(
+            Cli::try_parse_from(["gitgit", "key", "set", "openai", "sk-x", "--stdin"]).is_err(),
+            "a value on the command line and on standard input must not both be accepted"
+        );
+        assert!(
+            Cli::try_parse_from(["gitgit", "key", "rotate", "openai", "sk-x", "--stdin"]).is_err(),
+            "a value on the command line and on standard input must not both be accepted"
+        );
+    }
+
+    /// `[FACT]` A value that arrives on standard input is the value that
+    /// gets stored — minus the newline the shell added, which is not part
+    /// of the secret.
+    #[tokio::test]
+    async fn the_value_read_from_standard_input_is_the_value_that_is_stored() {
+        let resolved = resolve_secret_value(None, Some("sk-from-stdin\n".to_string())).unwrap();
+        assert_eq!(resolved, "sk-from-stdin");
+
+        let dir = std::env::temp_dir().join(format!(
+            "gitgit-cli-secret-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let vault = crate::server::vault::FileVault::new(&dir);
+        crate::server::vault_versioned::VersionedVault::set_with_version(
+            &vault, "openai", &resolved,
+        )
+        .await
+        .unwrap();
+        let stored = crate::server::vault::Vault::get(&vault, "openai")
+            .await
+            .unwrap();
+        assert_eq!(stored.as_deref(), Some("sk-from-stdin"));
+    }
+
+    /// `[FACT]` No value at all is an error, and the error names the safe
+    /// way to pass one — it never carries a value.
+    #[tokio::test]
+    async fn a_missing_value_is_an_error_that_names_the_safe_way() {
+        let err = resolve_secret_value(None, None).unwrap_err();
+        let text = format!("{err}");
+        assert!(
+            text.contains("--stdin"),
+            "the error must name the safe path: {text}"
+        );
+        assert!(
+            !text.contains("sk-"),
+            "the error must never carry a value: {text}"
+        );
+        // An empty standard input is the same kind of error.
+        let err = resolve_secret_value(None, Some("\n".to_string())).unwrap_err();
+        assert!(format!("{err}").contains("no value"), "got: {err}");
+    }
+}

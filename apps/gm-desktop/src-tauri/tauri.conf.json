@@ -1,0 +1,92 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "gitgit Desktop",
+  "version": "0.1.0",
+  "identifier": "com.gitgit.desktop",
+  "build": {
+    "beforeDevCommand": "pnpm dev",
+    "devUrl": "http://localhost:5173",
+    "beforeBuildCommand": "pnpm build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "gitgit Desktop",
+        "label": "main",
+        "width": 1280,
+        "height": 800,
+        "minWidth": 960,
+        "minHeight": 600,
+        "resizable": true,
+        "fullscreen": false,
+        "decorations": true,
+        "transparent": false,
+        "shadow": true,
+        "center": true,
+        "visible": true,
+        "dragDropEnabled": false
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; img-src 'self' data: blob: https://*.tauri.app; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self' ipc: http://ipc.localhost http://127.0.0.1:8080 http://127.0.0.1:38080 ws://localhost:5173; font-src 'self' data:; frame-src 'self'; object-src 'self' blob:"
+    },
+    "trayIcon": {
+      "iconPath": "icons/tray.png",
+      "iconAsTemplate": false,
+      "menuOnLeftClick": true,
+      "tooltip": "gitgit Desktop"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["msi", "dmg", "appimage", "deb"],
+    "category": "DeveloperTool",
+    "shortDescription": "Local Git HTTP server desktop shell",
+    "longDescription": "gitgit Desktop is a local Git HTTP server with credential-vault integration, packaged as a native desktop application.",
+    "copyright": "Copyright (c) 2026 Ulysses",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/icon.png",
+      "icons/icon.ico",
+      "icons/icon.icns"
+    ],
+    "publisher": "Ulysses",
+    "homepage": "https://github.com/UlyssesLeoLee/GitGit",
+    "licenseFile": "../../../LICENSE",
+    "resources": {
+      "../../../CORRESPONDING-SOURCE.md": "CORRESPONDING-SOURCE.md"
+    },
+    "windows": {
+      "wix": {
+        "language": ["en-US", "zh-CN"],
+        "template": "wix/main.wxs"
+      }
+    },
+    "macOS": {
+      "frameworks": [],
+      "minimumSystemVersion": "10.15",
+      "exceptionDomain": ""
+    },
+    "linux": {
+      "deb": {
+        "depends": [
+          "libwebkit2gtk-4.1-0",
+          "libgtk-3-0"
+        ],
+        "files": {
+          "usr/share/doc/gitgit-desktop/copyright": "../../../LICENSE",
+          "usr/share/doc/gitgit-desktop/CORRESPONDING-SOURCE.md": "../../../CORRESPONDING-SOURCE.md"
+        }
+      },
+      "appimage": {
+        "files": {
+          "usr/share/doc/gitgit-desktop/LICENSE": "../../../LICENSE",
+          "usr/share/doc/gitgit-desktop/CORRESPONDING-SOURCE.md": "../../../CORRESPONDING-SOURCE.md"
+        }
+      }
+    }
+  },
+  "plugins": {}
+}

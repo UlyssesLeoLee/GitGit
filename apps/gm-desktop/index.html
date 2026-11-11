@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="auto">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="light dark" />
+    <title>gitgit Desktop</title>
+    <!--
+      Pre-load hints for the Tauri WebView2 / WKWebView runtime.
+      `process` is not available in production; the html transform
+      strips this annotation at build time so it never reaches the
+      shipped bundle.
+    -->
+  </head>
+  <body class="min-h-screen bg-slate-50 text-slate-900 dark:bg-slate-900 dark:text-slate-100">
+    <div id="app"></div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

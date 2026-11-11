@@ -1,0 +1,6 @@
+# The probe's BUILD OUTPUT, not its source. The .wxs, the two placeholder
+# files it references and the README are the evidence and are tracked.
+*.wixobj
+*.wixpdb
+*.msi
+*.cab

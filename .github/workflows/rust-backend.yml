@@ -1,0 +1,413 @@
+# Rust backend CI — covers gitgit-server itself.
+#
+# Three required jobs:
+#   * `test`        — cargo fmt / clippy / test --all-targets / test --doc / release build.
+#   * `audit`       — RUSTSEC advisory scan over Cargo.lock.
+#   * `integration` — scripts/regression-ut.ps1 + scripts/regression-it.ps1
+#                     + scripts/regression-st.ps1: the committed unit-test
+#                     count contract, a real `git` client pushing over real
+#                     HTTP to a live `gitgit serve`, and HTTP-level /api/*
+#                     assertions.
+#
+# The minIO e2e test is marked `#[ignore]`, so minIO coverage lives in a
+# separate self-hosted runner workflow (out of scope for V0.1). The
+# integration job is a hard gate: it has no continue-on-error and no
+# step-level `|| true`, so a real end-to-end failure fails this workflow.
+#
+# `audit` is a separate job rather than a step inside `test` on purpose. It
+# needs a one-off `cargo install cargo-audit`, and a CVE should fail in
+# seconds rather than after a full release build. As a job it also fails
+# without cancelling the unit-test signal, which a failing step inside
+# `test` would do: GitHub Actions skips every step after the first failure,
+# so an early audit step there would silently cost us the test and build
+# results every time a dependency is flagged.
+name: rust-backend
+
+on:
+  push:
+    branches: [dev, main, feature/gm-console-v0.1, feature/gm-desktop-v0.1]
+    paths:
+      - 'src/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'scripts/**'
+      - '.github/workflows/rust-backend.yml'
+  pull_request:
+    branches: [dev, main]
+    # [FACT] No workflow-level `paths:` filter on the pull_request trigger.
+    #
+    # A workflow-level filter decides whether the WORKFLOW starts at all, and a
+    # workflow that never starts reports nothing: GitHub's own documentation
+    # says a workflow skipped by path filtering leaves its checks in a
+    # "Pending" state, and a required check that is Pending blocks the pull
+    # request for ever. That is why the deep gates could never be required
+    # status checks, and why "the Rust gate is red" had no power to stop a
+    # merge.
+    #
+    # The filter now lives INSIDE the jobs (see the "Detect changed areas"
+    # step in each job below). A job whose `if:` condition is false is
+    # reported as "Success", which satisfies a required check. So these jobs
+    # report on every pull request and run only when they apply.
+    #
+    # The `push` trigger keeps its `paths:` filter: a direct push to a branch
+    # is not a pull request, and paying for the full Rust suite on every push
+    # to dev buys nothing that the pull request does not already buy.
+  schedule:
+    # The advisory database grows on its own schedule, so a scan that only
+    # runs when the source changes evaluates "no known vulnerabilities"
+    # only as often as the source happens to change.
+    #
+    # [FACT] Between 2026-10-05 and 2026-10-24 the `audit` job did not run
+    # on dev once: nothing touched `src/**`, `Cargo.toml`, `Cargo.lock` or
+    # `scripts/**` in that window. Nine advisories landed in the root
+    # `Cargo.lock` in the meantime (rustls 0.23.45, rustls-webpki 0.103.15,
+    # webpki-roots 1.0.9, quinn-proto 0.11.17) and the gate was not green -
+    # it was not running. The first push that touched `scripts/**` turned
+    # it red immediately.
+    #
+    # A weekly scan is the cheapest way to make the gap between "the
+    # database grew" and "we found out" bounded by a week instead of by
+    # whenever the next source change lands.
+    #
+    # 04:17 UTC on Mondays. The odd minute is deliberate: every scheduled
+    # workflow in the world fires at :00, and the queue at a round hour is
+    # the slowest moment of the week.
+    - cron: '17 4 * * 1'
+
+concurrency:
+  group: rust-backend-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: fmt + clippy + test
+    # The weekly schedule exists to re-evaluate the advisory database, not
+    # to re-run the whole suite; `audit` is the job that needs a clock.
+    # This job and `integration` already run on every push and PR.
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # [FACT] The full history is needed: the detection step diffs the
+          # change set against origin/<base>, and a shallow clone does not
+          # have that merge base.
+          fetch-depth: 0
+
+      # [FACT] The detection step lives INSIDE the job, not in front of the
+      # workflow. If it fails, this job goes red and blocks the merge. If it
+      # were a separate job that the gates depended on, a failed detection
+      # would SKIP the gates, and a skipped job reports "Success" — the exact
+      # deadlock this lane exists to close.
+      - name: Detect changed areas
+        id: detect
+        run: pwsh -NoProfile -File scripts/ci/changed-areas.ps1
+
+      - name: Install Rust toolchain
+        if: steps.detect.outputs.rust_backend == 'true'
+        uses: dtolnay/rust-toolchain@1.98.1
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache cargo registry & target
+        if: steps.detect.outputs.rust_backend == 'true'
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: '.'
+          cache-on-failure: true
+
+      - name: Check formatting
+        # No `--locked` here, and it cannot have one: cargo-fmt rejects the
+        # flag outright (`error: unexpected argument '--locked' found`,
+        # exit 2). It is also unnecessary — `cargo fmt` resolves no
+        # dependency graph, so it cannot rewrite `Cargo.lock`. The gate
+        # below asserts this, so a well-meaning "fix" cannot break the job.
+        if: steps.detect.outputs.rust_backend == 'true'
+        run: cargo fmt --all -- --check
+
+      - name: Clippy (deny warnings)
+        if: steps.detect.outputs.rust_backend == 'true'
+        run: cargo clippy --all-targets --locked -- -D warnings
+
+      - name: Run unit tests
+        # `--all-targets`, not `--bins`.
+        #
+        # `src/main.rs` is a thin CLI shell over the `gitgit` library
+        # target, so the unit tests live in the lib. `--bins` compiles only
+        # the binary target's test harness and reports "0 tests" — a green
+        # run that asserts nothing. `--all-targets` covers lib + bin + any
+        # integration/example/bench targets.
+        #
+        # `--locked`, and the same on every other cargo invocation in this
+        # job that resolves the dependency graph: without it a CI run may
+        # re-resolve it and rewrite `Cargo.lock`, so the artefact this job
+        # builds is not the one the commit describes. `--locked` turns that
+        # into a hard error instead of a silent rewrite. `cargo fmt` above
+        # is the one exception, and it cannot be otherwise.
+        if: steps.detect.outputs.rust_backend == 'true'
+        run: |
+          set -o pipefail
+          cargo test --all-targets --locked 2>&1 | tee /tmp/cargo-test.txt
+          # Guard the guard: `cargo test` exits 0 even when every target
+          # ran zero tests, so a future refactor that moves the tests out
+          # of the compiled target set would turn this gate green while
+          # checking nothing. Require a non-zero passed count.
+          if ! grep -qE 'test result: ok\. [1-9][0-9]* passed' /tmp/cargo-test.txt; then
+            echo "::error::no unit tests actually ran (expected a non-zero 'passed' count)"
+            grep -E 'test result|running [0-9]+ tests' /tmp/cargo-test.txt || true
+            exit 1
+          fi
+
+      - name: Run doc tests
+        # `--all-targets` deliberately excludes doc tests, so this stays a
+        # separate step.
+        if: steps.detect.outputs.rust_backend == 'true'
+        run: cargo test --doc --locked
+
+      - name: Build release
+        if: steps.detect.outputs.rust_backend == 'true'
+        run: cargo build --release --locked
+
+  audit:
+    name: dependency audit (RUSTSEC)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # [FACT] The full history is needed: the detection step diffs the
+          # change set against origin/<base>, and a shallow clone does not
+          # have that merge base.
+          fetch-depth: 0
+
+      # [FACT] The detection step lives INSIDE the job, not in front of the
+      # workflow. If it fails, this job goes red and blocks the merge. If it
+      # were a separate job that the gates depended on, a failed detection
+      # would SKIP the gates, and a skipped job reports "Success" — the exact
+      # deadlock this lane exists to close.
+      #
+      # [FACT] A `schedule` event has no base ref, so the detection reports
+      # every area as changed and this job runs exactly as it did before.
+      # That matters here: the weekly schedule exists to re-evaluate the
+      # advisory database, and this is the job that does that.
+      - name: Detect changed areas
+        id: detect
+        run: pwsh -NoProfile -File scripts/ci/changed-areas.ps1
+
+      - name: Install Rust toolchain
+        if: steps.detect.outputs.rust_backend == 'true'
+        uses: dtolnay/rust-toolchain@1.98.1
+
+      - name: Install cargo-audit
+        # Pinned, deliberately. A floating cargo-audit silently changes the
+        # rule set, and a security gate whose verdicts drift with the tool's
+        # release is not a gate. 0.22.2 is the version this scan was last
+        # verified against locally.
+        if: steps.detect.outputs.rust_backend == 'true'
+        run: cargo install cargo-audit --locked --version 0.22.2
+
+      - name: Audit dependencies
+        # `cargo audit` exits non-zero both when advisories are present and
+        # when the advisory database cannot be fetched. A gate that quietly
+        # passed in the second case would be worse than no gate, so both fail
+        # — the message below says which is which rather than leaving the
+        # reader to guess from an exit code.
+        #
+        # `set +e` around the pipeline is required: the runner's default
+        # `bash -e` would abort on the failure before PIPESTATUS could be
+        # read, and the pipe status is what tells us cargo-audit's own
+        # verdict rather than tee's.
+        if: steps.detect.outputs.rust_backend == 'true'
+        run: |
+          set +e
+          cargo audit 2>&1 | tee /tmp/cargo-audit.txt
+          status=${PIPESTATUS[0]}
+          set -e
+          if [ "$status" -ne 0 ]; then
+            if grep -qE '^(Crate|ID):' /tmp/cargo-audit.txt; then
+              echo "::error::RUSTSEC advisories are present in Cargo.lock (cargo audit exit $status)"
+            else
+              echo "::error::cargo audit could not complete (exit $status) — the advisory database was likely unreachable, so this gate checked nothing"
+            fi
+            exit "$status"
+          fi
+
+      - name: Advisory ratchet (baseline)
+        # The step above is the plain gate and it is untouched: `cargo audit`
+        # still runs as-is and still fails on vulnerabilities. What it does
+        # NOT do is fail on anything else — cargo-audit exits 0 when the only
+        # findings are `unmaintained`, `unsound` or `yanked`. So an advisory
+        # in those three classes passes this job without a word.
+        #
+        # [FACT] That is not hypothetical here. The repository has already
+        # paid for this exact shape once: 28 tests landed on dev between
+        # 2026-10-05 and 2026-10-21 with no re-agreement of the unit-test
+        # count contract in scripts/regression-baseline.json, and nobody
+        # noticed.
+        #
+        # This step is the ratchet, and it is ADDITIVE. It compares
+        # `cargo audit --json` against the committed baseline in
+        # scripts/advisory-baseline.json and fails on any advisory that is not
+        # in the baseline, naming it. Nothing here adds an `--ignore`, an
+        # audit.toml ignore list, or a `-D warnings` gate, and nothing here
+        # replaces the plain `cargo audit` above.
+        #
+        # [FACT] The checker PARSES cargo audit's JSON. It does not grep the
+        # text output for an advisory ID: a substring match can be satisfied
+        # by that ID appearing in a description, a URL or a comment, which is
+        # the same class of false pass this repository has already hit.
+        #
+        # An advisory that DISAPPEARS is good news and does not fail this
+        # step — it is reported as information and the baseline is asked to be
+        # re-agreed. Only an advisory that APPEARS fails.
+        #
+        # The advisory database is the one the step above already fetched.
+        # `dtolnay/rust-toolchain` puts cargo under $CARGO_HOME, and
+        # cargo-audit clones the database to $CARGO_HOME/advisory-db, which
+        # is where the checker looks for it by default.
+        if: steps.detect.outputs.rust_backend == 'true'
+        run: pwsh -NoProfile -File scripts/check-advisories.ps1 -Scope root
+
+  integration:
+    # Real end-to-end gate: real git client over real HTTP, plus HTTP-level
+    # assertions against a live `gitgit serve`. This is a hard gate — no
+    # continue-on-error, no `|| true`. A failure here fails the workflow and
+    # blocks merge to dev/main.
+    name: ST + IT regression (real git over HTTP)
+    # See the note on the `test` job: the weekly schedule runs the audit
+    # job only. This one is the most expensive job in the file and its
+    # value is per-change, not per-week.
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # [FACT] The full history is needed: the detection step diffs the
+          # change set against origin/<base>, and a shallow clone does not
+          # have that merge base.
+          fetch-depth: 0
+
+      # [FACT] The detection step lives INSIDE the job, not in front of the
+      # workflow. If it fails, this job goes red and blocks the merge. If it
+      # were a separate job that the gates depended on, a failed detection
+      # would SKIP the gates, and a skipped job reports "Success" — the exact
+      # deadlock this lane exists to close.
+      - name: Detect changed areas
+        id: detect
+        run: pwsh -NoProfile -File scripts/ci/changed-areas.ps1
+
+      - name: Install Rust toolchain
+        if: steps.detect.outputs.rust_backend == 'true'
+        uses: dtolnay/rust-toolchain@1.98.1
+
+      - name: Install jq
+        # The IT tier treats jq as optional and silently degrades to
+        # substring matching without it, which would weaken exactly the
+        # JSON-shape and array-length assertions this job exists to
+        # enforce. Install it so the gate is the same on CI as on a
+        # developer box that has jq.
+        if: steps.detect.outputs.rust_backend == 'true'
+        run: sudo apt-get update && sudo apt-get install -y jq
+
+      - name: Cache cargo registry & target
+        if: steps.detect.outputs.rust_backend == 'true'
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: '.'
+          cache-on-failure: true
+
+      - name: Configure git identity for the suite
+        # smoke.ps1 clones and commits; without a committer identity the
+        # commits fail and the test would report a misleading error.
+        if: steps.detect.outputs.rust_backend == 'true'
+        run: |
+          git config --global user.email "ci@gitgit.local"
+          git config --global user.name  "gitgit ci"
+          git config --global init.defaultBranch main
+
+      - name: Fetch cargo dependencies (warms the registry for --offline)
+        # The UT tier runs `cargo test --offline`, which cannot download
+        # anything. On a runner whose `~/.cargo` registry cache is cold that
+        # fails before a single test runs, so the registry has to be
+        # populated first. `cargo fetch --locked` does that and fails loudly
+        # if Cargo.lock would have to change. The IT/ST tiers build online,
+        # so this step exists for the UT tier alone.
+        if: steps.detect.outputs.rust_backend == 'true'
+        run: cargo fetch --locked
+
+      - name: UT — unit-test regression tier (test-count contract)
+        # scripts/regression-ut.ps1 asserts cargo's own test counts against
+        # the committed baseline in scripts/regression-baseline.json:
+        # ut.expectedTotal / ut.expectedPassed / ut.expectedIgnored, plus
+        # every entry of the ut.perModule map. Any drift — a test added,
+        # removed or renamed without re-agreeing the baseline — fails the
+        # tier with exit 1 and fails this job.
+        #
+        # No continue-on-error, no `|| true`: a count gate that cannot fail
+        # protects nothing. This tier exists because the contract drifted
+        # silently before — 28 tests landed on dev between 2026-10-05 and
+        # 2026-10-21 with no baseline re-agreement, and nobody noticed.
+        #
+        # The `test` job runs the same tests via `cargo test --all-targets`,
+        # but it asserts nothing about how MANY there are; the count
+        # contract lives here.
+        #
+        # Runs FIRST among the regression tiers on purpose. The tier builds
+        # into <repo>/target-regression/ (its own CARGO_TARGET_DIR override,
+        # kept for the documented Windows multi-workspace reason), and that
+        # is the same directory the IT and ST tiers build into — so this
+        # tier's compile is the job's one cold compile and the IT tier then
+        # reuses it. Pointing the tier at the job's cached target/ instead
+        # would split the job into two cold compiles.
+        #
+        # -TimeoutSec 1200: the tier's window covers compile AND run, and on
+        # CI the target dir is cold, so the default 600s is tight on a slow
+        # runner. This widens the window only; it touches none of the count
+        # assertions, and the job's own timeout-minutes is still the outer
+        # bound.
+        if: steps.detect.outputs.rust_backend == 'true'
+        run: pwsh -NoProfile -File scripts/regression-ut.ps1 -TimeoutSec 1200
+
+      - name: IT — HTTP integration tier
+        if: steps.detect.outputs.rust_backend == 'true'
+        run: pwsh -NoProfile -File scripts/regression-it.ps1
+
+      - name: ST — system tier (real git over HTTP)
+        if: steps.detect.outputs.rust_backend == 'true'
+        run: pwsh -NoProfile -File scripts/regression-st.ps1
+
+      - name: gitai end-to-end against a mock provider
+        # Drives the real binary through `gitai commit --from-diff` and
+        # asserts against a local mock provider: the diff is collected, the
+        # planted secrets are redacted before the request leaves the
+        # machine, the untrusted content is tagged, and the response is
+        # parsed. This is the only gate that exercises the CLI binary
+        # itself rather than the library, which is how the
+        # `Handle::current().block_on` panic in every `gitgit key *`
+        # subcommand went unnoticed.
+        if: steps.detect.outputs.rust_backend == 'true'
+        run: pwsh -NoProfile -File scripts/verify-gitai-e2e.ps1
+
+      - name: gitremote end-to-end against real git repos
+        # Same rationale: the library tests never run the binary. Builds
+        # two bare repos plus a clone, then checks add / ls / rm / sync
+        # end to end, including that a URL carrying shell metacharacters
+        # is stored but never executed.
+        if: steps.detect.outputs.rust_backend == 'true'
+        run: pwsh -NoProfile -File scripts/verify-gitremote-e2e.ps1
+
+      - name: Upload regression logs
+        # [FACT] `if: always()` is left exactly as it was, deliberately.
+        # This upload is diagnostic: it exists so that a FAILED tier's logs
+        # can be read. It carries `if-no-files-found: warn`, so it cannot
+        # turn the job red, and adding the area condition to it would take
+        # away the logs of a tier that failed — the one case the upload is
+        # for.
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: regression-logs
+          path: target/regression-logs/
+          if-no-files-found: warn

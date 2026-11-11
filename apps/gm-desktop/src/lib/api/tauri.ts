@@ -1,0 +1,163 @@
+/**
+ * Tauri command wrappers. Every function delegates to
+ * `window.__TAURI_INTERNALS__.invoke` (or its v2 equivalent) using
+ * `@tauri-apps/api/core::invoke`.
+ *
+ * When the Svelte app runs in a plain browser tab (during `vite
+ * dev` without the Tauri runtime), `invoke()` throws synchronously.
+ * We deliberately don't catch here — the stores catch at a higher
+ * level — but the `mock/handlers.ts` module can patch the global
+ * `invoke` so the dev workflow stays smooth.
+ */
+
+import { invoke as tauriInvoke } from '@tauri-apps/api/core';
+import type {
+  AdminPasswordStatus,
+  AppInfo,
+  CommitEntry,
+  DiffTarget,
+  RefEntry,
+  RepoDetail,
+  RepoDiff,
+  RepoStatus,
+  RepoSummary,
+  ServerStatus,
+  VaultDiagnostic,
+  VersionDiffDto,
+  VersionEntryDto,
+} from './types';
+
+export async function serverStatus(): Promise<ServerStatus> {
+  return await tauriInvoke('server_status');
+}
+
+export async function startServer(bind: string | null): Promise<ServerStatus> {
+  return await tauriInvoke('start_server', { bind });
+}
+
+export async function stopServer(): Promise<ServerStatus> {
+  return await tauriInvoke('stop_server');
+}
+
+export async function serverLogs(limit: number | null): Promise<string[]> {
+  return await tauriInvoke('server_logs', { limit });
+}
+
+export async function clearLogs(): Promise<void> {
+  return await tauriInvoke('clear_logs');
+}
+
+export async function listRepos(): Promise<RepoSummary[]> {
+  return await tauriInvoke('list_repos');
+}
+
+export async function repoDetail(name: string, limit: number | null): Promise<RepoDetail> {
+  return await tauriInvoke('repo_detail', { name, limit });
+}
+
+export async function cloneUrl(name: string, bind: string | null): Promise<string> {
+  return await tauriInvoke('clone_url', { name, serverBind: bind });
+}
+
+export async function openRepoInShell(name: string): Promise<void> {
+  return await tauriInvoke('open_repo_in_shell', { name });
+}
+
+/**
+ * Working-tree status. `root` is the directory the repository name is
+ * resolved under; the Rust side defaults it to the app's own repos
+ * directory and validates `name` before touching the filesystem.
+ */
+export async function repoStatus(
+  name: string,
+  root: string | null
+): Promise<RepoStatus> {
+  return await tauriInvoke('repo_status', { name, root });
+}
+
+/**
+ * Diff text for one of the three comparisons. `target` is passed through
+ * verbatim and refused server-side if it is not one of the three, rather
+ * than being silently defaulted.
+ */
+export async function repoDiff(
+  name: string,
+  target: DiffTarget,
+  path: string | null,
+  root: string | null
+): Promise<RepoDiff> {
+  return await tauriInvoke('repo_diff', { name, target, path, root });
+}
+
+export async function vaultList(): Promise<string[]> {
+  return await tauriInvoke('vault_list');
+}
+
+export async function vaultGet(key: string): Promise<string | null> {
+  return await tauriInvoke('vault_get', { key });
+}
+
+export async function vaultSet(key: string, value: string): Promise<number> {
+  return await tauriInvoke('vault_set', { key, value });
+}
+
+export async function vaultRotate(key: string): Promise<number> {
+  return await tauriInvoke('vault_rotate', { key });
+}
+
+export async function vaultVersions(key: string): Promise<VersionEntryDto[]> {
+  return await tauriInvoke('vault_versions', { key });
+}
+
+export async function vaultDiff(key: string, base: number, head: number): Promise<VersionDiffDto> {
+  return await tauriInvoke('vault_diff', { key, base, head });
+}
+
+export async function vaultRestore(key: string, targetVersion: number): Promise<number> {
+  return await tauriInvoke('vault_restore', { key, targetVersion });
+}
+
+export async function vaultDelete(key: string): Promise<void> {
+  return await tauriInvoke('vault_delete', { key });
+}
+
+export async function getAdminPasswordStatus(): Promise<AdminPasswordStatus> {
+  return await tauriInvoke('get_admin_password_status');
+}
+
+export async function setAdminPassword(password: string): Promise<number> {
+  return await tauriInvoke('set_admin_password', { password });
+}
+
+export async function clearAdminPassword(): Promise<void> {
+  return await tauriInvoke('clear_admin_password');
+}
+
+export async function appInfo(): Promise<AppInfo> {
+  return await tauriInvoke('app_info');
+}
+
+/**
+ * Report that the webview's JavaScript ran and the Svelte app mounted.
+ *
+ * The Rust side answers by writing ONE line to the application's own log
+ * file. That line is what the packaged-app verification greps for: it is
+ * the evidence that the window the installer produced is showing the
+ * product and not a blank page, because a blank page never reaches the
+ * end of the root component's `onMount`.
+ *
+ * A failure here is deliberately NOT fatal to the boot: a window that is
+ * working must not be broken by a marker that could not be written.
+ */
+export async function reportUiBoot(): Promise<void> {
+  await tauriInvoke('report_ui_boot');
+}
+
+export async function vaultDiagnostics(): Promise<VaultDiagnostic> {
+  return await tauriInvoke('vault_diagnostics');
+}
+
+// Silence "unused" warnings for types only referenced by
+// generated bindings today; keep them as part of the public surface
+// so consumer code can be typed without re-importing.
+export type { CommitEntry, RefEntry };

@@ -1,0 +1,824 @@
+# gm-desktop CI — the Tauri 2 + Svelte 5 desktop shell.
+#
+# This app had NO workflow until now: neither `rust-backend.yml` nor
+# `gm-console.yml` lists `apps/gm-desktop/**` in its `paths`, so desktop
+# changes were invisible to CI. That gap is what hid a long-standing
+# production build failure (see the note on the cargo step below).
+#
+# Three jobs, deliberately split by cost:
+#
+#   `audit` (ubuntu-latest) scans the *Tauri* crate's own lockfile. The root
+#   `audit` job in `rust-backend.yml` cannot: the root manifest is
+#   explicitly NOT a workspace, so the desktop app's 650 dependencies were
+#   never scanned. See the comment on that job.
+#
+#   `build` (ubuntu-latest) is the *lightweight* gate: lint, svelte-check,
+#   unit tests, the Vite production build, and the Rust fmt/clippy/test
+#   gates on the Tauri backend. It never bundles.
+#
+#   `msi` (windows-latest) is the *installer* gate: it runs a real release
+#   `tauri build` for BOTH install scopes, proves the two .msi files coexist
+#   instead of overwriting each other, smoke-checks them without installing
+#   anything, and uploads one artifact per scope. It needs Windows and a WiX
+#   toolchain, and it costs minutes rather than seconds, so it is not folded
+#   into `build`. See `.github/CI.md` "已知限制".
+#
+# Between them they cover what neither `rust-backend.yml` nor
+# `gm-console.yml` can: neither lists `apps/gm-desktop/**` in its `paths`, so
+# before this file existed desktop changes were invisible to CI. That gap is
+# what hid a long-standing production build failure (see the note on the
+# cargo step below).
+name: gm-desktop
+
+on:
+  push:
+    branches: [dev, main]
+    paths:
+      - 'apps/gm-desktop/**'
+      - '.github/workflows/gm-desktop.yml'
+      # The desktop unit tests assert things about the release workflow: the
+      # release body has to carry the Corresponding Source section, and the
+      # tag it names has to be the resolved tag. Without this path a change to
+      # `release.yml` would not run the tests that check it, so the gate would
+      # only ever fire on a change to the app.
+      - '.github/workflows/release.yml'
+      # The desktop unit tests also pin the properties of the always-running
+      # gate workflow - that it exists, that it has no path filter, and that
+      # its job carries the exact name the branch protection requires. Same
+      # reasoning as the line above: without this path, editing the gate
+      # would not run the tests that check the gate.
+      - '.github/workflows/gate.yml'
+      # The desktop crate consumes the root crate by path
+      # (`gitgit = { path = "../../.." }`), so a change to the root manifest
+      # or lockfile can break the `--locked` cargo steps in this workflow.
+      # Omitting these from the filter is what let a stale
+      # `src-tauri/Cargo.lock` break this job for a full day without CI
+      # noticing: the breakage was introduced by a commit that touched only
+      # root `Cargo.toml` + `Cargo.lock`, so this workflow never ran.
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      # The advisory ratchet step in this workflow reads
+      # `scripts/advisory-baseline.json` and runs `scripts/check-advisories.ps1`.
+      # A workflow whose own gate depends on files outside its `paths` filter
+      # does not re-evaluate that gate when those files change — the same
+      # omission that let a stale `src-tauri/Cargo.lock` break this job for a
+      # full day without CI noticing. Listing them only ever causes MORE runs,
+      # never fewer.
+      - 'scripts/advisory-baseline.json'
+      - 'scripts/check-advisories.ps1'
+  pull_request:
+    branches: [dev, main]
+    # [FACT] No workflow-level `paths:` filter on the pull_request trigger.
+    #
+    # A workflow-level filter decides whether the WORKFLOW starts at all, and a
+    # workflow that never starts reports nothing: GitHub's own documentation
+    # says a workflow skipped by path filtering leaves its checks in a
+    # "Pending" state, and a required check that is Pending blocks the pull
+    # request for ever. That is why these jobs could never be required status
+    # checks, and why "the desktop gate is red" had no power to stop a merge.
+    #
+    # The filter now lives INSIDE the jobs (see the "Detect changed areas"
+    # step in each of the three jobs below). A job whose `if:` condition is
+    # false is reported as "Success", which satisfies a required check. So
+    # these jobs report on every pull request and run only when they apply.
+    #
+    # The `push` trigger keeps its `paths:` filter: a direct push to a branch
+    # is not a pull request, and paying for the full desktop suite on every
+    # push to dev buys nothing that the pull request does not already buy.
+
+concurrency:
+  group: gm-desktop-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Advisory scan for the *Tauri* crate's own dependency tree.
+  #
+  # [FACT] The root `audit` job in `rust-backend.yml` does not cover this.
+  # The root `Cargo.toml` says so itself: "This is intentionally a single
+  # crate, NOT a workspace", and `apps/gm-desktop/src-tauri/` has its own
+  # `Cargo.lock` (650 crate dependencies, measured). Running `cargo audit`
+  # at the repo root reads the root lockfile only, so every dependency
+  # reachable *only* through the desktop app was invisible to it.
+  #
+  # [FACT] Measured on the current lockfile (2026-10-24, cargo-audit 0.22.2
+  # against an advisory database of 1352 advisories): 0 vulnerabilities, 5
+  # unmaintained/unsound/yanked warnings. The 8 that this comment used to
+  # claim was never measured — it was stale the moment it was written, and
+  # the real number on 2026-10-24 was 13. Eight of those 13 are now closed
+  # (tokio, clipboard-win, yoke-derive and the five `unic-*` crates); the 5
+  # that remain each name the exact constraint that blocks them in
+  # scripts/advisory-baseline.json. So this job is not closing a known hole
+  # — it is making "clean" an enforced property rather than a coincidence.
+  # The desktop app is the only thing most users install, so its tree is the
+  # one that matters commercially.
+  #
+  # Kept as its own job, mirroring the reasoning in `rust-backend.yml`: a
+  # one-off `cargo install cargo-audit` plus an advisory-DB fetch should
+  # fail in seconds, not after the full Rust and frontend gates, and a
+  # failure here must not cancel the test signal.
+  audit:
+    name: cargo audit (tauri crate)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # [FACT] The full history is needed: the detection step diffs the
+          # change set against origin/<base>, and a shallow clone does not
+          # have that merge base.
+          fetch-depth: 0
+
+      # [FACT] The detection step lives INSIDE the job, not in front of the
+      # workflow. If it fails, this job goes red and blocks the merge. If it
+      # were a separate job that the gates depended on, a failed detection
+      # would SKIP the gate, and a skipped job reports "Success" — the exact
+      # deadlock this lane exists to close.
+      - name: Detect changed areas
+        id: detect
+        run: pwsh -NoProfile -File scripts/ci/changed-areas.ps1
+
+      - name: Install Rust toolchain
+        if: steps.detect.outputs.gm_desktop == 'true'
+        uses: dtolnay/rust-toolchain@1.98.1
+
+      - name: Install cargo-audit
+        if: steps.detect.outputs.gm_desktop == 'true'
+        # Pinned to the same version `rust-backend.yml` pins, for the same
+        # reason: a floating cargo-audit silently changes the rule set, and
+        # a security gate whose verdicts drift with the tool's release is
+        # not a gate.
+        run: cargo install cargo-audit --locked --version 0.22.2
+
+      - name: Audit the Tauri crate's dependencies
+        if: steps.detect.outputs.gm_desktop == 'true'
+        # `--file` is the whole point of this job: without it, `cargo audit`
+        # in `src-tauri` would still be correct (it reads the nearest
+        # manifest), but stating it makes the scope explicit at the point
+        # where a reader might otherwise assume the root lock was checked.
+        #
+        # `set +e` around the pipeline is required: the runner's default
+        # `bash -e` would abort on the failure before PIPESTATUS could be
+        # read, and the pipe status is what tells us cargo-audit's own
+        # verdict rather than tee's.
+        working-directory: apps/gm-desktop/src-tauri
+        run: |
+          set +e
+          cargo audit --file Cargo.lock 2>&1 | tee /tmp/cargo-audit-desktop.txt
+          status=${PIPESTATUS[0]}
+          set -e
+          if [ "$status" -ne 0 ]; then
+            if grep -qE '^(Crate|ID):' /tmp/cargo-audit-desktop.txt; then
+              echo "::error::RUSTSEC advisories are present in apps/gm-desktop/src-tauri/Cargo.lock (cargo audit exit $status)"
+            else
+              echo "::error::cargo audit could not complete (exit $status) — the advisory database was likely unreachable, so this gate checked nothing"
+            fi
+            exit "$status"
+          fi
+
+      - name: Advisory ratchet (baseline)
+        if: steps.detect.outputs.gm_desktop == 'true'
+        # The step above is the plain gate and it is untouched: `cargo audit`
+        # still runs as-is and still fails on vulnerabilities. What it does
+        # NOT do is fail on anything else — cargo-audit exits 0 when the only
+        # findings are `unmaintained`, `unsound` or `yanked`. So an advisory
+        # in those three classes passes this job without a word.
+        #
+        # This step is the ratchet, and it is ADDITIVE. It compares
+        # `cargo audit --json` against the committed baseline in
+        # scripts/advisory-baseline.json and fails on any advisory that is not
+        # in the baseline, naming it. Nothing here adds an `--ignore`, an
+        # audit.toml ignore list, or a `-D warnings` gate, and nothing here
+        # replaces the plain `cargo audit` above.
+        #
+        # [FACT] The checker PARSES cargo audit's JSON. It does not grep the
+        # text output for an advisory ID: a substring match can be satisfied
+        # by that ID appearing in a description, a URL or a comment.
+        #
+        # An advisory that DISAPPEARS is good news and does not fail this
+        # step — it is reported as information and the baseline is asked to be
+        # re-agreed. Only an advisory that APPEARS fails.
+        #
+        # Run from the repository root, not from `src-tauri`: the script
+        # resolves the repository root and the lockfile paths itself, so it
+        # scans the same lockfile the step above scans.
+        run: pwsh -NoProfile -File scripts/check-advisories.ps1 -Scope tauri
+
+  build:
+    name: lint + check + test + build + cargo check
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    defaults:
+      run:
+        working-directory: apps/gm-desktop
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # [FACT] The full history is needed: the detection step diffs the
+          # change set against origin/<base>, and a shallow clone does not
+          # have that merge base.
+          fetch-depth: 0
+
+      # [FACT] The detection step lives INSIDE the job, not in front of the
+      # workflow. If it fails, this job goes red and blocks the merge. If it
+      # were a separate job that the gates depended on, a failed detection
+      # would SKIP the gate, and a skipped job reports "Success" — the exact
+      # deadlock this lane exists to close.
+      #
+      # [FACT] `working-directory` is set here because this job carries a
+      # job-level `defaults.run.working-directory: apps/gm-desktop`, and the
+      # script lives at the REPOSITORY root. Without this line the step would
+      # look for `apps/gm-desktop/scripts/ci/changed-areas.ps1`, fail, and turn
+      # the job red on every pull request — including the ones this lane
+      # exists to make reportable.
+      - name: Detect changed areas
+        id: detect
+        working-directory: ${{ github.workspace }}
+        run: pwsh -NoProfile -File scripts/ci/changed-areas.ps1
+
+      # pnpm MUST be installed before setup-node. With `cache: 'pnpm'`,
+      # setup-node shells out to `pnpm store path` to resolve the cache
+      # directory; installing pnpm afterwards makes that step fail. This
+      # is the same ordering bug that used to keep gm-console red — see the
+      # comment in gm-console.yml.
+      - name: Install pnpm
+        if: steps.detect.outputs.gm_desktop == 'true'
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      # Node 22, not 20: Node 20 ("Iron") reached EOL on 2026-04-30, and
+      # `@testing-library/jest-dom@6.x` declares `engines.node: ">=22"`.
+      - name: Set up Node.js
+        if: steps.detect.outputs.gm_desktop == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'pnpm'
+          cache-dependency-path: apps/gm-desktop/pnpm-lock.yaml
+
+      - name: Install dependencies
+        if: steps.detect.outputs.gm_desktop == 'true'
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint
+        if: steps.detect.outputs.gm_desktop == 'true'
+        run: pnpm lint
+
+      - name: Svelte check
+        if: steps.detect.outputs.gm_desktop == 'true'
+        run: pnpm check
+
+      - name: Unit tests
+        if: steps.detect.outputs.gm_desktop == 'true'
+        run: pnpm test
+
+      # The thresholds in `vite.config.ts` were declared for a long time
+      # and read as a gate, but nothing ever evaluated them: the step
+      # above is `vitest run` without `--coverage`. As of 2026-10-05 the
+      # suite clears all four (measured 94.78% lines / 94.23% statements
+      # / 95.17% functions / 78.43% branches, against 70/70/60/55), so
+      # the declaration is now actually enforced.
+      #
+      # It is a separate step rather than `--coverage` on the step above
+      # so the suite is not run twice. And the guard is fail-closed: the
+      # coverage reporter's own `text` output is not proof that tests ran,
+      # because a filtered run matching zero files exits 0 and prints a
+      # table. This asserts the run reported real work.
+      #
+      # `[FACT]` The ANSI stripping is not decoration, and the first
+      # version of this step failed on CI because of it. Vitest colours
+      # its output when `CI` is set, so the captured line is
+      #
+      #     ESC[2m      Tests ESC[22m ESC[1mESC[32m378 passedESC[39m...
+      #
+      # and a `Tests +[1-9][0-9]* passed` pattern cannot match across
+      # those escape sequences. It matched locally and failed on the
+      # runner, which is the whole argument for running a gate under the
+      # conditions it will actually run in. Measured locally by forcing
+      # `CI=true` and colour on.
+      - name: Coverage gate
+        if: steps.detect.outputs.gm_desktop == 'true'
+        run: |
+          # `[FACT]` `set -o pipefail` is load-bearing, not hygiene.
+          # GitHub Actions runs a `run:` block as `bash -e {0}` — `-e`
+          # but NOT `pipefail` — so `pnpm test:coverage | tee` returned
+          # tee's status, i.e. 0, no matter what vitest exited with.
+          # Measured locally:
+          #     bash -e -c 'false | tee /dev/null'            -> exit 0
+          #     bash -e -o pipefail -c 'false | tee /dev/null' -> exit 1
+          # The step below therefore ignored the suite's own verdict.
+          set -o pipefail
+          pnpm test:coverage 2>&1 | tee /tmp/gmd-coverage.txt
+          sed 's/\x1b\[[0-9;]*m//g' /tmp/gmd-coverage.txt > /tmp/gmd-coverage.plain.txt
+
+          # Guard 1 — the run reported real passing work. A run that
+          # matched zero test files prints no such line, and a run with a
+          # failure prints `Tests  1 failed | 390 passed (391)`, which
+          # this pattern cannot match.
+          if ! grep -qE 'Tests +[1-9][0-9]* passed' /tmp/gmd-coverage.plain.txt; then
+            echo "::error::the coverage run reported no passing tests, so its table proves nothing"
+            tail -40 /tmp/gmd-coverage.plain.txt
+            exit 1
+          fi
+
+          # Guards 2 and 3 exist because of a measured flake, not a
+          # hypothetical. In one local run in two, vitest printed
+          #   [vitest-pool]: Timeout terminating forks worker for
+          #   .../tests/unit/router.test.ts
+          #   This might cause false positive tests.
+          # and accounted for 25 of 26 files while still exiting 0.
+          #
+          # Guard 1 cannot see that: `Tests  385 passed (385)` is a
+          # perfectly good-looking line for a run that silently skipped a
+          # whole test file. Rehearsed against the real log, the
+          # pre-2026-10-05 version of this step — the single grep above —
+          # reported PASS for that 25/26 log. So a dropped file read as a
+          # green build, which is the exact failure the gate exists to
+          # prevent.
+
+          # Guard 2 — the pool did not report a worker failure.
+          if grep -q 'forks worker' /tmp/gmd-coverage.plain.txt; then
+            echo "::error::vitest reported a forks-worker failure; the run may have skipped files"
+            grep -n 'forks worker' /tmp/gmd-coverage.plain.txt | head -5
+            exit 1
+          fi
+
+          # Guard 3 — every test file on disk actually ran. The total
+          # vitest reports is compared against the number of test files
+          # that exist, so a silently dropped file fails instead of
+          # shrinking the number and reading as progress.
+          expected=$(find tests -type f -name '*.test.ts' | wc -l | tr -d '[:space:]')
+          reported=$(sed -nE 's/^[[:space:]]*Test Files[[:space:]].*\(([0-9]+)\)[[:space:]]*$/\1/p' /tmp/gmd-coverage.plain.txt | tail -1)
+          if [ -z "$reported" ]; then
+            echo "::error::no 'Test Files ... (N)' summary line to compare against $expected files"
+            exit 1
+          fi
+          if [ "$reported" != "$expected" ]; then
+            echo "::error::$expected test files exist but vitest accounted for $reported"
+            grep -E '^[[:space:]]*(Test Files|Tests)[[:space:]]' /tmp/gmd-coverage.plain.txt | tail -5
+            exit 1
+          fi
+
+          # Guard 4 — the summary line names no failure.
+          #
+          # `[FACT]` Measured, and it is NOT the guard that does the work.
+          # With a file failing, vitest 5.0.3 puts the failure FIRST:
+          #     Test Files  1 failed | 27 passed (28)
+          #     Tests  1 failed | 403 passed (404)
+          # so guard 1's `Tests +[1-9][0-9]* passed` cannot match and
+          # guard 1 closes the step on its own. Verified by adding a
+          # deliberately failing test file and running the real suite.
+          #
+          # It is kept because it costs one grep and covers the one
+          # format change that would quietly defeat guard 1: a vitest
+          # that reported `Tests  403 passed | 1 failed` would satisfy
+          # guard 1, match guard 3 (28 == 28), and only fail here. It
+          # has never been observed to be load-bearing, and it is
+          # documented as such rather than presented as if it had been
+          # proven.
+          if grep -E '^[[:space:]]*Test Files[[:space:]]' /tmp/gmd-coverage.plain.txt | grep -q 'failed'; then
+            echo "::error::the Test Files summary reports a failure"
+            exit 1
+          fi
+
+          echo "coverage gate: $expected/$reported test files accounted for"
+
+      - name: Build
+        if: steps.detect.outputs.gm_desktop == 'true'
+        run: pnpm build
+
+      # NOTE: no `working-directory` here — that key is only valid on `run:`
+      # steps, and the job-level default already points at apps/gm-desktop.
+      - name: Install Rust toolchain
+        if: steps.detect.outputs.gm_desktop == 'true'
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      # Tauri 2 on Linux needs the WebKitGTK / GTK stack for its build
+      # script to resolve pkg-config. This is Tauri's documented Linux
+      # prerequisite set, not an arbitrary extra. `patchelf` is required
+      # by the bundler; we keep it here so the step stays valid if a full
+      # `tauri build` is added later.
+      - name: Install Tauri Linux prerequisites
+        if: steps.detect.outputs.gm_desktop == 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            patchelf
+
+      # `cargo fmt --all -- --check`: the sibling crate `rust-backend.yml`
+      # gates on this, and `src-tauri` had accumulated 44 formatting
+      # hunks across 8 files purely because nothing ever ran it. Formatting
+      # is not cosmetic debt here — it is what makes a 130-line diff
+      # reviewable, and this gate is what keeps the next one small.
+      - name: Rust format (src-tauri)
+        if: steps.detect.outputs.gm_desktop == 'true'
+        working-directory: apps/gm-desktop/src-tauri
+        run: cargo fmt --all -- --check
+
+      # `cargo clippy`, not a bare `cargo check`: clippy runs the same
+      # compile, so it replaces check rather than adding to it, and it is
+      # the only thing that would have caught the 20 clippy errors and 14
+      # warnings that were sitting in `src-tauri` before this step
+      # existed. `-D warnings` matches the gate in `rust-backend.yml`.
+      #
+      # `--all-targets` is required: the default `cargo clippy` lints
+      # only the lib, and every test in this crate lives in `#[cfg(test)]`
+      # modules that a lib-only run never sees.
+      - name: Clippy (deny warnings)
+        if: steps.detect.outputs.gm_desktop == 'true'
+        working-directory: apps/gm-desktop/src-tauri
+        run: cargo clippy --all-targets --locked -- -D warnings
+
+      # `ServerManager` had zero coverage, which is why `stop()` could
+      # report `running: false` while `axum::serve` kept the port bound:
+      # dropping a tokio `JoinHandle` detaches the task instead of
+      # cancelling it. The regression tests for that live in
+      # `state.rs` and cannot run unless a workflow runs them.
+      #
+      # `--lib` rather than `--all-targets`: the tests are all in the
+      # lib target, and the bin target is the full Tauri executable,
+      # which this job has no reason to link a second time. The guard
+      # below is what keeps "0 tests ran" from reading as green.
+      - name: Rust unit tests (src-tauri)
+        if: steps.detect.outputs.gm_desktop == 'true'
+        working-directory: apps/gm-desktop/src-tauri
+        run: |
+          cargo test --locked --lib 2>&1 | tee /tmp/gm-desktop-cargo-test.txt
+          # `cargo test` exits 0 even when every target ran zero tests, so
+          # a refactor that moved the tests out of the compiled target
+          # set would turn this step green while testing nothing.
+          if ! grep -qE 'test result: ok\. [1-9][0-9]* passed' /tmp/gm-desktop-cargo-test.txt; then
+            echo "::error::src-tauri ran zero Rust tests (or failed) — refusing to pass"
+            exit 1
+          fi
+
+      - name: Upload Rust test log
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gm-desktop-cargo-test-log
+          path: /tmp/gm-desktop-cargo-test.txt
+          retention-days: 7
+
+      - name: Upload web bundle
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gm-desktop-dist
+          path: apps/gm-desktop/dist/
+          retention-days: 14
+
+  # The installer gate. Separate from `build` on purpose: `build` is the
+  # fast Linux lint/test gate and runs on every change, while a full release
+  # `tauri build` needs a Windows runner and a WiX toolchain and costs
+  # minutes, so it is its own job with its own timeout rather than a step
+  # bolted onto the end of `build`.
+  #
+  # What this job exists to catch: the Tauri bundler names an MSI
+  # {productName}_{version}_{arch}_{lang}.msi, which carries no install
+  # scope, so a per-user and a per-machine build of the same version and
+  # language land on the SAME path and the second silently overwrites the
+  # first with exit code 0. build-msi.ps1 moves each artifact out of the
+  # shared bundle directory under a scope-qualified name; this job proves
+  # both variants survive that, and uploads them separately.
+  msi:
+    name: msi (per-user + per-machine)
+    runs-on: windows-latest
+    timeout-minutes: 45
+
+    # [FACT] The area decision, published to the two consumer jobs below.
+    #
+    # [INFERENCE] A `needs:` chain is NOT enough to skip a consumer, and the
+    # reason is worth writing down because it is the second time in this work
+    # that a documented GitHub behaviour was not what the design assumed:
+    # this job is never SKIPPED. When the area does not match, the job runs,
+    # its steps are individually skipped, and the job concludes SUCCESS.
+    # GitHub's documentation, "Using jobs in a workflow", says a dependent
+    # job is skipped when the job it needs "fails or is skipped" — a
+    # dependency that merely SUCCEEDS does not skip its dependents, so
+    # `msi-install` and `msi-launch` would run and then fail on an artefact
+    # that was never uploaded.
+    #
+    # So the decision is published instead of inferred: the consumers read it
+    # and are skipped as a whole when it is false, and a skipped job reports
+    # "Success" — which is exactly what a required check needs when the gate
+    # does not apply.
+    #
+    # [FACT] The value already exists: the detection step prints the area
+    # flags. This publishes one of them, it does not compute anything.
+    #
+    # [FACT] When this job FAILS the output is empty, so the consumers are
+    # skipped and report Success — and this job, being a required context
+    # itself, blocks the merge on its own account. That is the invariant the
+    # structure test enforces: every job a required context needs must
+    # itself be a required context.
+    outputs:
+      applies: ${{ steps.detect.outputs.gm_desktop }}
+
+    # No job-level `defaults.run.working-directory` here, unlike `build`: the
+    # steps below address repo-root paths (apps/gm-desktop/scripts/...) and
+    # upload paths, so an implicit working directory would only be one more
+    # thing to get wrong.
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # [FACT] The full history is needed: the detection step diffs the
+          # change set against origin/<base>, and a shallow clone does not
+          # have that merge base.
+          fetch-depth: 0
+
+      # [FACT] The detection step lives INSIDE the job, not in front of the
+      # workflow. If it fails, this job goes red and blocks the merge. If it
+      # were a separate job that the gates depended on, a failed detection
+      # would SKIP the gate, and a skipped job reports "Success" — the exact
+      # deadlock this lane exists to close.
+      - name: Detect changed areas
+        id: detect
+        run: pwsh -NoProfile -File scripts/ci/changed-areas.ps1
+
+      # Same ordering constraint as the `build` job: pnpm before setup-node,
+      # because setup-node shells out to `pnpm store path` for the cache.
+      - name: Install pnpm
+        if: steps.detect.outputs.gm_desktop == 'true'
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Set up Node.js
+        if: steps.detect.outputs.gm_desktop == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'pnpm'
+          cache-dependency-path: apps/gm-desktop/pnpm-lock.yaml
+
+      - name: Install dependencies
+        if: steps.detect.outputs.gm_desktop == 'true'
+        working-directory: apps/gm-desktop
+        run: pnpm install --frozen-lockfile
+
+      # No `components:` needed: nothing here runs rustfmt or clippy, and the
+      # msvc host toolchain is what `tauri build` needs on Windows.
+      - name: Install Rust toolchain
+        if: steps.detect.outputs.gm_desktop == 'true'
+        uses: dtolnay/rust-toolchain@stable
+
+      # A cold release build of this crate tree plus two bundler runs. Shelled
+      # out to `pwsh -File` rather than invoked with `&` so the script's exit
+      # code lands in $LASTEXITCODE and the explicit check below is live code:
+      # a `pwsh -command` step that only runs a failing native command would
+      # otherwise still report the step as passed.
+      - name: Build both MSI variants
+        if: steps.detect.outputs.gm_desktop == 'true'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          pwsh -NoProfile -File ./apps/gm-desktop/scripts/build-msi.ps1 -Scope both -OutputDir msi-out
+          if ($LASTEXITCODE -ne 0) { throw "build-msi.ps1 exited $LASTEXITCODE" }
+
+      # Signing runs before verification, for the same reason as in
+      # `release.yml`: signing changes the bytes, so `verify-msi.ps1`'s
+      # manifest cross-check has to run against the signed files.
+      #
+      # No `-Required` here, and that is the deliberate difference from the
+      # release path. GitHub withholds secrets from pull requests raised from
+      # forks, so requiring a certificate would turn every such PR red while
+      # adding no safety. This job signs when credentials exist and says so
+      # when they do not; `release.yml` is where "unsigned must not ship" is
+      # enforced, because that is the only job whose output is distributed.
+      - name: Sign the MSIs when credentials are present
+        if: steps.detect.outputs.gm_desktop == 'true'
+        shell: pwsh
+        env:
+          GITGIT_MSI_PFX_BASE64: ${{ secrets.MSI_SIGN_PFX_BASE64 }}
+          GITGIT_MSI_PFX_PASSWORD: ${{ secrets.MSI_SIGN_PFX_PASSWORD }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          pwsh -NoProfile -File ./apps/gm-desktop/scripts/sign-msi.ps1 -Dir msi-out
+          if ($LASTEXITCODE -ne 0) { throw "sign-msi.ps1 exited $LASTEXITCODE" }
+
+      # Neither an install nor elevation: `msiexec /a` lays the file table out
+      # into a temp directory, and the MSI tables are read through Windows
+      # Installer COM automation, so this asserts real payload and real scope
+      # on a stock runner.
+      - name: Smoke check the MSIs (no install, no elevation)
+        if: steps.detect.outputs.gm_desktop == 'true'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          pwsh -NoProfile -File ./apps/gm-desktop/scripts/verify-msi.ps1 -Dir msi-out
+          if ($LASTEXITCODE -ne 0) { throw "verify-msi.ps1 exited $LASTEXITCODE" }
+
+      # The version comes from the manifest build-msi.ps1 wrote, so the
+      # artifact names cannot drift from what was actually built. A missing or
+      # unparseable manifest fails here rather than silently yielding
+      # artifact names with an empty version.
+      - name: Read variant metadata
+        if: steps.detect.outputs.gm_desktop == 'true'
+        id: meta
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $manifestPath = Join-Path $PWD 'msi-out/manifest.json'
+          if (-not (Test-Path -LiteralPath $manifestPath)) { throw "manifest not found: $manifestPath" }
+          $m = Get-Content -LiteralPath $manifestPath -Raw -Encoding UTF8 | ConvertFrom-Json
+          "version=$($m.version)"  | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "variants=$(@($m.variants).Count)" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
+      # One artifact per scope, and `if-no-files-found: error` on both: with the
+      # default 'warn', a glob that matches nothing leaves a green job with no
+      # installer at all, which is the same class of failure as the collision
+      # this job exists to prevent. The scope token in the name is what makes
+      # the two uploads distinct.
+      - name: Upload perMachine MSI
+        if: success() && steps.detect.outputs.gm_desktop == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: gm-desktop-msi-${{ steps.meta.outputs.version }}-perMachine
+          path: msi-out/*_perMachine_*.msi
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload perUser MSI
+        if: success() && steps.detect.outputs.gm_desktop == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: gm-desktop-msi-${{ steps.meta.outputs.version }}-perUser
+          path: msi-out/*_perUser_*.msi
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload variant manifest
+        if: success() && steps.detect.outputs.gm_desktop == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: gm-desktop-msi-${{ steps.meta.outputs.version }}-manifest
+          path: msi-out/manifest.json
+          if-no-files-found: error
+          retention-days: 14
+
+      # Uploaded on failure too, so a red installer job is diagnosable without
+      # re-running it. `if: always()` is safe here: the step fails loudly if
+      # the artifacts are absent, and on a build failure the job is already
+      # red, so nothing is being hidden.
+      - name: Upload build log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gm-desktop-msi-build-log
+          path: |
+            msi-out/manifest.json
+            apps/gm-desktop/src-tauri/target/release/bundle/msi/
+          if-no-files-found: ignore
+          retention-days: 7
+
+  # ---------------------------------------------------------------------------
+  # The Windows counterpart of the `deb installs and links on a stock Ubuntu`
+  # job in gm-desktop-bundle.yml.
+  # ---------------------------------------------------------------------------
+  msi-install:
+    name: msi installs and removes itself on a stock Windows machine
+    # `needs: msi` so the artefact under test is the one the job above built,
+    # not a rebuild. A second build would be a different set of bytes, and the
+    # whole point is to install what is going to be shipped.
+    needs: msi
+    if: needs.msi.outputs.applies == 'true'
+    runs-on: windows-latest
+    timeout-minutes: 30
+
+    # Deliberately NOT claiming that the GUI opens. [FACT] It does — the
+    # `msi-launch` job below starts the packaged application and asserts
+    # that a top-level window appears (measured 2026-10-25: the window is
+    # titled 'gitgit Desktop'). This job stays out of it on purpose: a
+    # webkit app fails to start in a LINUX container for reasons that have
+    # nothing to do with packaging, and a gate that reddens for those
+    # reasons gets switched off. What is proven here is the part packaging
+    # controls — the package installs on a machine that has nothing but
+    # Windows, registers itself, and removes itself cleanly.
+    #
+    # The boundary is enforced, not just stated: the script asserts that no
+    # `gm-desktop.exe` process is running after an install, and the MSI's own
+    # `LaunchApplication` custom action is bound to the WixUI ExitDialog, which
+    # `/qn` never reaches.
+    steps:
+      - uses: actions/checkout@v4
+
+      # The three artefacts the `msi` job uploaded: the two per-scope
+      # installers and the manifest. `merge-multiple: true` flattens them into
+      # one directory, which is the layout `verify-msi-install.ps1` expects
+      # (`-Dir msi-out`, manifest at `msi-out/manifest.json`).
+      #
+      # `pattern: gm-desktop-msi-*` also matches `gm-desktop-msi-build-log`,
+      # which exists only when the `msi` job FAILED — and then this job is
+      # skipped anyway, because it needs `msi`.
+      - name: Download the built MSIs
+        uses: actions/download-artifact@v4
+        with:
+          pattern: gm-desktop-msi-*
+          path: msi-out
+          merge-multiple: true
+
+      # Shelled out to `pwsh -File` rather than invoked with `&` so the
+      # script's exit code lands in $LASTEXITCODE and the explicit check
+      # below is live code: a `pwsh -command` step that only runs a failing
+      # native command would otherwise still report the step as passed.
+      - name: Install, assert, uninstall, assert gone
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          pwsh -NoProfile -File ./apps/gm-desktop/scripts/verify-msi-install.ps1 -Dir msi-out
+          if ($LASTEXITCODE -ne 0) { throw "verify-msi-install.ps1 exited $LASTEXITCODE" }
+
+  # ---------------------------------------------------------------------------
+  # The Windows counterpart of the question the Linux container cannot answer.
+  # ---------------------------------------------------------------------------
+  msi-launch:
+    name: the packaged application starts and presents a window
+    # [FACT] The job now asserts MORE than its name says: it captures the
+    # window's pixels and requires them to show the product. The name is
+    # NOT renamed, because it is one of the fourteen required status-check
+    # contexts in `scripts/ci/required-checks.json`, and the branch
+    # protection requires that string character for character. Renaming the
+    # job here without changing the protection would leave the protection
+    # requiring a check that is never reported — the same deadlock as a
+    # path-filtered workflow, one string away.
+    #
+    # The PACKAGED artefact, not a dev build: `msi` produced this package,
+    # and the point is what a user would actually receive.
+    needs: msi
+    if: needs.msi.outputs.applies == 'true'
+    runs-on: windows-latest
+    timeout-minutes: 30
+
+    # [FACT] Why this job exists, and why it is not the same as
+    # `msi-install`. That job proves the package installs, registers and
+    # removes itself, and deliberately does NOT launch the application —
+    # the reason it gives is a LINUX one: a webkit/GTK app fails to start
+    # in a container with no dbus, no seat and no hardware, for reasons
+    # that have nothing to do with packaging, and a gate that reddens for
+    # those reasons gets switched off.
+    #
+    # That reason does not hold here. `windows-latest` has a real
+    # interactive desktop and the Edge WebView2 runtime is part of the
+    # image, so the question can be asked of the packaged artefact at
+    # all: does the thing we ship actually start?
+    #
+    # Until now it had never been asked IN CI. The repository's own task
+    # ledger records a real-machine observation from 2026-10-04 (T10 in
+    # `docs/plan/v0-tasks.md`: the installed binary was startable, window
+    # title `gitgit Desktop`), but every statement about the artefacts in
+    # the AUTOMATED gates was structural: the right bytes, in the right
+    # place, in a package that installs. A package that installs and then
+    # crashes on start-up would have satisfied all of them.
+    #
+    # It is a SEPARATE job, with a separate script, so the `msi-install`
+    # contract ("installs and removes; does not launch") stays exactly as
+    # it is. A gate that asserts a boundary is worth keeping intact.
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download the built MSIs
+        uses: actions/download-artifact@v4
+        with:
+          pattern: gm-desktop-msi-*-perMachine
+          path: msi-out
+          merge-multiple: true
+
+      # Shelled out to `pwsh -File` rather than invoked with `&` so the
+      # script's exit code lands in $LASTEXITCODE and the explicit check
+      # below is live code: a `pwsh -command` step that only runs a
+      # failing native command would otherwise still report the step as
+      # passed.
+      - name: Install, launch, assert a window appeared, remove
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $msi = Get-ChildItem -Path msi-out -Filter '*_perMachine_*.msi' -File | Select-Object -First 1
+          if (-not $msi) { throw 'no perMachine .msi was downloaded' }
+          pwsh -NoProfile -File ./apps/gm-desktop/scripts/verify-msi-launch.ps1 -Msi $msi.FullName
+          if ($LASTEXITCODE -ne 0) { throw "verify-msi-launch.ps1 exited $LASTEXITCODE" }
+
+      # The window capture is evidence, so it is kept.
+      #
+      # [FACT] `verify-msi-launch.ps1` writes two PNGs: the application's
+      # window, and the deliberately blank control window it captured to
+      # show that the capture path rejects a blank surface. When the check
+      # goes red, the first of them is the answer to "what did the window
+      # actually show?", and a human can look at it.
+      #
+      # [FACT] `if: always()` rather than `if: failure()`: a passing run's
+      # capture is the reference the next red run is compared against, and
+      # the file is a few tens of kilobytes.
+      - name: Keep the window captures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: msi-launch-window-capture
+          path: msi-launch-evidence/
+          if-no-files-found: warn
+          retention-days: 7

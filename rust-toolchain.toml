@@ -1,0 +1,8 @@
+# Pinned toolchain so local `cargo fmt` / `cargo clippy` produce byte-identical
+# results to CI. Without this, a contributor on a different `stable` can see
+# rustfmt/clippy output that CI disagrees with (and vice versa as `stable`
+# drifts). Must be kept in sync with the `dtolnay/rust-toolchain` version in
+# .github/workflows/rust-backend.yml.
+[toolchain]
+channel = "1.98.1"
+components = ["rustfmt", "clippy"]

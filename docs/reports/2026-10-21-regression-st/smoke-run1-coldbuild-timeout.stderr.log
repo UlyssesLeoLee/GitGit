@@ -1,0 +1,5 @@
+[31;1mFail: [0mD:\GitGit\.worktrees\reg-st\scripts\smoke.ps1:127[0m
+[31;1m[0m[36;1mLine |[0m
+[31;1m[0m[36;1m[36;1m 127 | [0m         [36;1mFail "cargo build failed (exit=$($build.ExitCode))"[0m
+[31;1m[0m[36;1m[36;1m[0m[36;1m[0m[36;1m     | [31;1m         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m
+[31;1m[0m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m     | [31;1m[smoke] FAIL: cargo build failed (exit=-1)[0m

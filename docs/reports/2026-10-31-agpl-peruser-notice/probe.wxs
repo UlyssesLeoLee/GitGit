@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  THE HYPOTHESIS, MEASURED.
+
+  A component that installs into the user profile may carry EXTRA File
+  children - as long as its KeyPath is an HKCU registry value rather than
+  a file. That is the shape the repository's per-user WiX template uses
+  for the executable itself, and it is the shape the AGPL-3.0 section
+  6(d) notice now rides along in.
+
+  Component "Path" : HKCU registry KeyPath + the executable + the NOTICE.
+  Component "CMP_InstallDirCleanup" / "CMP_ProgramsFolderCleanup" :
+                     the ICE64 remedy the repository's render-wix-template.py
+                     already applies (a directory inside the user profile
+                     has to be listed for removal).
+
+  The OLD shape - a component of its own whose KeyPath is a FILE, which is
+  what the Tauri bundler renders for every bundle.resources entry - is
+  reproduced in ../2026-10-28-agpl-corresponding-source/wixprobe/ and
+  fails with ICE38 (light exits 204).
+-->
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+    <Product Id="*" Name="probe2" Language="1033" Manufacturer="m" Version="1.0.0">
+        <Package Id="*" Keywords="Installer" InstallerVersion="450" Languages="0" Compressed="yes" InstallScope="perUser" SummaryCodepage="1252"/>
+        <Property Id="MSIINSTALLPERUSER" Value="1" />
+        <Media Id="1" Cabinet="probe2.cab" EmbedCab="yes" />
+        <Directory Id="TARGETDIR" Name="SourceDir">
+            <Directory Id="LocalAppDataFolder" Name="LocalAppDataFolder">
+                <Directory Id="ProgramsFolder" Name="Programs">
+                    <Directory Id="INSTALLDIR" Name="probe2"/>
+                </Directory>
+            </Directory>
+        </Directory>
+        <DirectoryRef Id="INSTALLDIR">
+            <Component Id="Path" Guid="11111111-1111-1111-1111-111111111111" Win64="yes">
+                <RegistryValue Root="HKCU" Key="Software\m\probe2" Name="Path" Type="string" Value="[INSTALLDIR]" KeyPath="yes" />
+                <File Id="Path" Source="probe.exe" Checksum="yes"/>
+                <File Id="CorrespondingSourceNotice" Source="notice.md" Name="CORRESPONDING-SOURCE.md"/>
+            </Component>
+            <Component Id="CMP_InstallDirCleanup" Guid="*">
+                <RegistryValue Root="HKCU" Key="Software\m\probe2" Name="InstallDirCleanup" Type="integer" Value="1" KeyPath="yes" />
+                <RemoveFolder Id="INSTALLDIR" On="uninstall" />
+            </Component>
+        </DirectoryRef>
+        <DirectoryRef Id="ProgramsFolder">
+            <Component Id="CMP_ProgramsFolderCleanup" Guid="*">
+                <RegistryValue Root="HKCU" Key="Software\m\probe2" Name="ProgramsFolderCleanup" Type="integer" Value="1" KeyPath="yes" />
+                <RemoveFolder Id="ProgramsFolder" On="uninstall" />
+            </Component>
+        </DirectoryRef>
+        <Feature Id="MainProgram" Title="Application" Level="1" ConfigurableDirectory="INSTALLDIR" AllowAdvertise="no" Display="expand" Absent="disallow">
+            <ComponentRef Id="Path"/>
+            <ComponentRef Id="CMP_InstallDirCleanup"/>
+            <ComponentRef Id="CMP_ProgramsFolderCleanup"/>
+        </Feature>
+    </Product>
+</Wix>

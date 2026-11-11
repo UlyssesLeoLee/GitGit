@@ -1,0 +1,47 @@
+# Rust build artifacts
+/target/
+**/*.rs.bk
+
+# Bare repos (the server stores them under ./repos/)
+/repos/
+
+# Default V0 Credential Vault root (DEFAULT_VAULT_FILE_ROOT = .gitgit/vault).
+# This holds real API keys: `gitgit key set openai <key>` writes into it, so
+# without this rule a plain `git add .` would stage a live credential.
+.gitgit/
+
+# Editor / OS noise
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db
+
+# Local logs
+*.log
+
+# Per-worktree build cache used by scripts/regression*.ps1
+target-regression/
+
+# Per-lane Cargo target dirs. `CARGO_TARGET_DIR` is shared process-wide, so
+# concurrent lanes each get their own; without this rule a bare `git add -A`
+# stages several GB of build output.
+target-*/
+# Same idea, dotted form. A lane told to isolate with
+# CARGO_TARGET_DIR=D:\GitGit\.cargo-target-<lane> picks the dotted name
+# naturally, and `target-*/` does not match it.
+.cargo-target-*/
+
+# Local overrides
+.env
+.env.local
+
+# git worktree 路径 (ULYS-123 收尾清理, per D-Boy directive)
+/.worktrees/
+
+# apps/gm-desktop node_modules (apps/gm-console 已有自己的)
+/apps/gm-desktop/node_modules/
+
+# 本地 smoke server 错误日志
+/smoke_server.err
+/smoke_server.log

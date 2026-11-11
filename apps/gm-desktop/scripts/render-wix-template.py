@@ -1,0 +1,311 @@
+#!/usr/bin/env python3
+"""Render the per-user WiX template from the per-machine one.
+
+WHY A GENERATOR INSTEAD OF A SECOND HAND-MAINTAINED COPY
+=======================================================
+`wix/main.wxs` and `wix/main-peruser.wxs` are the same ~500-line WiX
+template apart from six edits. Keeping the second file as a manual copy
+means the two can silently drift: a Tauri upgrade updates the vendored
+template, someone re-diffs the per-machine copy, and the per-user copy is
+never noticed until an installer is built from a template whose directory
+tree and registry roots no longer agree with the other one.
+
+So `main.wxs` is the single source of truth and this script derives the
+per-user variant from it. Every edit is asserted: if an edit's anchor text
+is not found, the script fails loudly instead of emitting a file that
+looks fine and is wrong. The generated file is committed so that building
+never depends on running this first, and so a reviewer can read the diff.
+
+THE SIX EDITS
+=============
+1. `InstallScope` on `<Package>`: perMachine -> perUser, AND
+   `MSIINSTALLPERUSER=1` is added.
+
+   [FACT] `InstallScope="perUser"` on its own does **not** produce a
+   per-user package. It writes no `ALLUSERS` property at all, and a
+   package with no `ALLUSERS` is installed per-MACHINE when the
+   installing user has administrative rights and per-user when they do
+   not. Measured on 2026-10-25 on the package this template produced:
+   its Property table holds 21 properties and no `ALLUSERS`, and the
+   SAME package put its files in `%LOCALAPPDATA%\\Programs` for an
+   unelevated user and in `C:\\Program Files` for an elevated one.
+
+   `MSIINSTALLPERUSER=1` is the documented way to force a per-user
+   installation regardless of the installing user's privileges, and that
+   is what the second half of this edit adds. Without it the per-user
+   variant is per-user only for the users who cannot install
+   per-machine — which is the opposite of who needs it.
+
+   Do NOT also add an explicit `<Property Id="ALLUSERS" Value="2"/>`.
+   That is the single most misleading part of this whole exercise and
+   it was tried here first, from several blog posts that recommend it.
+   `ALLUSERS=2` does not mean "per user"; it means "dual purpose, let
+   the installer decide at run time based on the user's privileges" —
+   which is exactly the behaviour `MSIINSTALLPERUSER=1` exists to
+   remove. Adding it on top of `InstallScope="perUser"` overrides the
+   scope WiX already wrote, and on a non-elevated session the system
+   then picks per-machine - so the package installs as per-user in some
+   respects and still fails at `InstallFinalize` with Error 1925 in
+   others. WiX also refuses to let you spell an empty `ALLUSERS` as a
+   `Property` (`CNDL0006: The Property/@Value attribute's value cannot
+   be an empty string`), and it is `MSIINSTALLPERUSER` that expresses
+   the empty-`ALLUSERS` intent.
+
+2. The install directory moves from `ProgramFiles[64]Folder` to
+   `LocalAppDataFolder\\Programs`. A per-machine package writing to
+   Program Files cannot be serviced per-user, and a per-user package
+   writing there is both wrong and, on most machines, still privileged.
+   `LocalAppDataFolder` is a WiX built-in well-known directory.
+
+3. The deep-link registry root: HKLM -> HKCU. Upstream's template even
+   carries the comment "Change the Root to HKCU for perUser
+   installations" directly above this block. It is currently inert
+   because no deep-link protocol is configured in tauri.conf.json, but
+   leaving it as HKLM would fail the first time someone adds one.
+
+4. The `Path` component moves its KeyPath from the installed file to an
+   HKCU registry value. This is ICE38, and it is a hard error, not a
+   warning: once a component installs into the user profile, Windows
+   Installer requires the keypath to be a per-user registry value so
+   that the component can be resolved without elevation. Every other
+   component in the template already uses an HKCU keypath, so `Path`
+   was the only one that had to move.
+
+5. A `RemoveFolder` for `ProgramsFolder`, declared from a component that
+   lives *inside* `ProgramsFolder` and is referenced from the MainProgram
+   feature. This is ICE64, also a hard error: a directory inside the user
+   profile has to be listed for removal. The placement matters more than
+   it looks - attaching the same `RemoveFolder` to the uninstall
+   component under `INSTALLDIR` does put the directory in the MSI
+   RemoveFile table (verified by reading the table back out of a
+   built MSI) and ICE64 still fails. `RemoveFolder` only deletes an
+   empty directory, so sibling per-user applications are unaffected.
+
+Usage:  python apps/gm-desktop/scripts/render-wix-template.py
+"""
+
+from __future__ import annotations
+
+import hashlib
+import os
+import sys
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+WIX_DIR = os.path.normpath(os.path.join(HERE, "..", "src-tauri", "wix"))
+SOURCE = os.path.join(WIX_DIR, "main.wxs")
+TARGET = os.path.join(WIX_DIR, "main-peruser.wxs")
+
+HEADER = """<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  GENERATED FILE - DO NOT EDIT BY HAND
+  ====================================
+  Produced by apps/gm-desktop/scripts/render-wix-template.py from
+  wix/main.wxs. Edit the source template and re-run the script; the six
+  edits it applies are listed both there and in the script's docstring.
+
+  SOURCE-SHA256: __SOURCE_SHA256__
+  The SHA-256 of wix/main.wxs as this file was generated from. It is here so
+  that a stale generated file cannot go unnoticed: the build only checks that
+  this file EXISTS (apps/gm-desktop/scripts/build-msi.ps1), not that it
+  matches its source, so without this line an edit to main.wxs that nobody
+  re-rendered would silently produce a per-user installer that differs from
+  the per-machine one. The gate that reads this line is
+  apps/gm-desktop/tests/unit/agpl-license-gate.test.ts.
+
+  This is the PER-USER variant: it installs into
+  %LOCALAPPDATA%\\Programs without administrator rights. The PER-MACHINE
+  variant is main.wxs.
+
+  Build the per-machine package with:
+      pnpm tauri build (bundles msi)
+  Build the per-user package with:
+      pnpm tauri build (bundles msi, config tauri.peruser.conf.json)
+
+  NOTE ON THIS COMMENT: an XML comment may not contain two consecutive
+  hyphens anywhere inside it, not even inside what looks like prose or a
+  command line. candle reports a misleading CNDL0104 "not a valid source
+  file" when it happens, because the comment is terminated early and the
+  remainder becomes stray text in front of the root element. Command
+  lines above are therefore written without their usual double-hyphen
+  flags. Keep it that way when editing.
+-->
+"""
+
+# (description, source text, replacement text)
+EDITS = [
+    (
+        "InstallScope: perMachine -> perUser",
+        '                 InstallScope="perMachine"\n',
+        '                 InstallScope="perUser"\n',
+    ),
+    (
+        "force the per-user scope: MSIINSTALLPERUSER=1",
+        '        <Property Id="REINSTALLMODE" Value="amus" />\n',
+        '        <Property Id="REINSTALLMODE" Value="amus" />\n'
+        "\n"
+        "        <!-- Force the per-user scope, whatever the installing user's\n"
+        "             privileges are. [FACT] `InstallScope=\"perUser\"` on its own\n"
+        "             does NOT do this: it writes no ALLUSERS property at all,\n"
+        "             and a package with no ALLUSERS is installed per-MACHINE\n"
+        "             when the installer has administrative rights and per-user\n"
+        "             when it does not. Measured on 2026-10-25 on the package\n"
+        "             this template produces: its Property table holds 21\n"
+        "             properties and no ALLUSERS, and the SAME package put its\n"
+        "             files in %LOCALAPPDATA%\\Programs for an unelevated user\n"
+        "             and in C:\\Program Files for an elevated one. The\n"
+        "             per-user variant has to be per-user for an administrator\n"
+        "             too, which is most Windows users. -->\n"
+        '        <Property Id="MSIINSTALLPERUSER" Value="1" />\n',
+    ),
+    (
+        "install directory: Program Files -> %LOCALAPPDATA%\\Programs",
+        '            <Directory Id="$(var.PlatformProgramFilesFolder)" Name="PFiles">\n'
+        '                <Directory Id="INSTALLDIR" Name="{{product_name}}"/>\n'
+        "            </Directory>\n",
+        '            <Directory Id="LocalAppDataFolder" Name="LocalAppDataFolder">\n'
+        '                <Directory Id="ProgramsFolder" Name="Programs">\n'
+        '                    <Directory Id="INSTALLDIR" Name="{{product_name}}"/>\n'
+        "                </Directory>\n"
+        "            </Directory>\n",
+    ),
+    (
+        "deep-link registry root: HKLM -> HKCU",
+        '                <RegistryKey Root="HKLM" Key="Software\\Classes\\\\{{protocol}}">\n',
+        '                <RegistryKey Root="HKCU" Key="Software\\Classes\\\\{{protocol}}">\n',
+    ),
+    (
+        "ICE38: Path component keypath moves from the file to HKCU, and the "
+        "Corresponding Source notice rides along in that component",
+        '            <Component Id="Path" Guid="{{path_component_guid}}" Win64="$(var.Win64)">\n'
+        '                <File Id="Path" Source="{{main_binary_path}}" KeyPath="yes" Checksum="yes"/>\n',
+        '            <Component Id="Path" Guid="{{path_component_guid}}" Win64="$(var.Win64)">\n'
+        "                <!-- ICE38: a component installing into the user profile\n"
+        "                     must use an HKCU registry value as its KeyPath. -->\n"
+        '                <RegistryValue Root="HKCU" Key="Software\\\\{{manufacturer}}\\\\{{product_name}}"\n'
+        '                               Name="Path" Type="string" Value="[INSTALLDIR]" KeyPath="yes" />\n'
+        '                <File Id="Path" Source="{{main_binary_path}}" Checksum="yes"/>\n'
+        "                <!-- AGPL-3.0 section 6(d): the Corresponding Source notice\n"
+        "                     rides along in THIS component, so it installs and\n"
+        "                     uninstalls with the program it belongs to, and so that\n"
+        "                     it needs no component of its own - a component whose\n"
+        "                     KeyPath is a FILE is exactly what ICE38 rejects here.\n"
+        "                     [FACT] Measured, not inferred: a per-user-shaped\n"
+        "                     package whose notice file is a child of an\n"
+        "                     HKCU-keypath component links cleanly (candle exit 0,\n"
+        "                     light exit 0) and the notice is in the MSI's File\n"
+        "                     table, while the old shape exits 204 with LGHT0204\n"
+        "                     (ICE38). The probe lives under\n"
+        "                     docs/reports/2026-10-31-agpl-peruser-notice/.\n"
+        "                     [FACT] The Source path is RELATIVE: candle runs in\n"
+        "                     <out>/wix/<arch> and this file sits in <out>/resources,\n"
+        "                     which is where the bundler copies the icon and which is\n"
+        "                     NOT wiped - the bundler removes <out>/wix/<arch> and\n"
+        "                     nothing else. An absolute path here would bind the\n"
+        "                     generated template to one machine. -->\n"
+        '                <File Id="CorrespondingSourceNotice" Source="../../resources/CORRESPONDING-SOURCE.md" Name="CORRESPONDING-SOURCE.md" Checksum="yes"/>\n',
+    ),
+    (
+        "ICE64: remove ProgramsFolder from a component inside that directory",
+        '        <DirectoryRef Id="ApplicationProgramsFolder">\n',
+        '        <DirectoryRef Id="ProgramsFolder">\n'
+        "            <!-- ICE64: a directory inside the user profile has to be\n"
+        "                 listed for removal. Declaring the RemoveFolder from a\n"
+        "                 component that LIVES in ProgramsFolder is what satisfies\n"
+        "                 the check; the same RemoveFolder attached to the\n"
+        "                 uninstall component under INSTALLDIR puts the directory\n"
+        "                 in the RemoveFile table and still fails. RemoveFolder\n"
+        "                 only deletes an empty directory, so sibling per-user\n"
+        "                 applications are unaffected. -->\n"
+        '            <Component Id="CMP_ProgramsFolderCleanup" Guid="*">\n'
+        '                <RegistryValue Root="HKCU" Key="Software\\\\{{manufacturer}}\\\\{{product_name}}"\n'
+        '                               Name="ProgramsFolderCleanup" Type="integer" Value="1" KeyPath="yes" />\n'
+        '                <RemoveFolder Id="ProgramsFolder" On="uninstall" />\n'
+        "            </Component>\n"
+        "        </DirectoryRef>\n"
+        "\n"
+        '        <DirectoryRef Id="ApplicationProgramsFolder">\n',
+    ),
+    (
+        "reference the cleanup component from the MainProgram feature",
+        '            <ComponentRef Id="RegistryEntries"/>\n',
+        '            <ComponentRef Id="RegistryEntries"/>\n'
+        '            <ComponentRef Id="CMP_ProgramsFolderCleanup" />\n',
+    ),
+    (
+        "ICE38: the per-user MSI carries no bundle.resources component",
+        '            {{resources}}\n',
+        "            <!-- [FACT] The per-user package carries NO bundle.resources\n"
+        "                 component, and that is deliberate. [FACT] The Tauri bundler\n"
+        "                 renders every entry of bundle.resources as a component whose\n"
+        "                 KeyPath is a FILE (Component KeyPath=\"yes\" around a File\n"
+        "                 child), and ICE38 requires a component that installs into the\n"
+        "                 user profile to use an HKCU registry value as its KeyPath.\n"
+        "                 [FACT] Measured, not inferred: with the resources\n"
+        "                 placeholder present, light.exe fails with LGHT0204 (ICE38)\n"
+        "                 and exits 204. [FACT] The per-MACHINE template keeps the\n"
+        "                 placeholder and the notice reaches the per-machine MSI\n"
+        "                 that way; this variant cannot, so the notice reaches the\n"
+        "                 per-user MSI by a different route instead - it is a File\n"
+        "                 child of the Path component, whose KeyPath is an HKCU\n"
+        "                 registry value. -->\n",
+    ),
+    (
+        "ICE38: and no ComponentRef for a resource that is not there",
+        '            {{#each resource_file_ids as |resource_file_id| ~}}\n'
+        '                <ComponentRef Id="{{ resource_file_id }}"/>\n'
+        '            {{/each~}}\n',
+        "            <!-- [FACT] No resource ComponentRefs either: the components they\n"
+        "                 would point at are not in this template, and a ComponentRef\n"
+        "                 to a component that does not exist is what light.exe\n"
+        "                 rejects. -->\n",
+    ),
+]
+
+
+def main() -> int:
+    if not os.path.exists(SOURCE):
+        print(f"error: source template not found: {SOURCE}", file=sys.stderr)
+        return 1
+
+    with open(SOURCE, encoding="utf-8") as fh:
+        text = fh.read()
+
+    # The digest goes into the generated file's header so that a stale
+    # generated file is detectable without running this script. It is the
+    # digest of the SOURCE, never of the generated file, so there is no
+    # circularity.
+    source_digest = hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+    # Drop the source file's own header; the generated file gets its own.
+    marker = '<?if $(sys.BUILDARCH)="x86"?>'
+    idx = text.find(marker)
+    if idx == -1:
+        print("error: could not find the buildarch block in the source template", file=sys.stderr)
+        return 1
+    body = text[idx:]
+
+    applied = 0
+    for desc, src, dst in EDITS:
+        count = body.count(src)
+        if count != 1:
+            print(
+                f"error: edit anchor matched {count} times, expected exactly 1: {desc}\n"
+                f"       anchor: {src!r}",
+                file=sys.stderr,
+            )
+            return 1
+        body = body.replace(src, dst)
+        applied += 1
+
+    with open(TARGET, "w", encoding="utf-8", newline="\n") as fh:
+        fh.write(HEADER.replace("__SOURCE_SHA256__", source_digest) + body)
+
+    print(
+        f"wrote {TARGET} ({os.path.getsize(TARGET)} bytes, {applied} edits applied, "
+        f"source sha256 {source_digest})"
+    )
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

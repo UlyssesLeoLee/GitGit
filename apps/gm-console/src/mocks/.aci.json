@@ -1,0 +1,56 @@
+{
+  "$schema": "https://ulysses-star.local/schemas/aci/v0.1.0-draft.json",
+  "aci_version": "0.1.0-draft",
+  "aci_compat_version": "0.1.0-draft",
+  "project": "gitgit-msw",
+  "description": "GitGit gm-console MSW frontend mock ACI 契约 v0.1 (per ULYS-191 v0.2 cross-project schema)",
+  "homepage": "https://github.com/UlyssesLeoLee/GitGit",
+  "supported_layers": ["ut", "st", "e2e"],
+  "severity_levels": ["critical", "high", "medium", "low", "info"],
+  "assertion_statuses": ["PASS", "FAIL", "WARN", "SKIP"],
+  "schema_required_fields": [
+    "assertion_id",
+    "aci_version",
+    "layer",
+    "scope",
+    "expect",
+    "actual",
+    "status",
+    "severity",
+    "reasoning",
+    "captured_at"
+  ],
+  "plugins": {
+    "health": {
+      "plugin_id": "health",
+      "enabled": true,
+      "default_mode": "offline",
+      "modules": {
+        "heartbeat": { "module_id": "heartbeat", "enabled": true, "mode": "offline" }
+      }
+    },
+    "repo": {
+      "plugin_id": "repo",
+      "enabled": true,
+      "default_mode": "offline",
+      "modules": {
+        "list_repos": { "module_id": "list_repos", "enabled": true, "mode": "offline" },
+        "get_repo": { "module_id": "get_repo", "enabled": true, "mode": "offline" },
+        "get_refs": { "module_id": "get_refs", "enabled": true, "mode": "offline" }
+      }
+    },
+    "vault": {
+      "plugin_id": "vault",
+      "enabled": true,
+      "default_mode": "offline",
+      "modules": {
+        "list_keys": { "module_id": "list_keys", "enabled": true, "mode": "offline" },
+        "key_detail": { "module_id": "key_detail", "enabled": true, "mode": "offline" },
+        "versions": { "module_id": "versions", "enabled": true, "mode": "offline" }
+      }
+    }
+  },
+  "module_count_total": 7,
+  "module_count_enabled": 7,
+  "module_switch_stage": "stage1 (§4.4 per ULYS-190 cross-project pattern G-MS-04)"
+}
