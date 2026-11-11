@@ -140,7 +140,7 @@
 | CI 执行结果 | PostgreSQL（Node + Event）| CI-REQ-001 |
 | Git 对象 | 文件系统（裸仓库）| 系统 `git` 二进制直接管理。不存入 PostgreSQL |
 | 密钥（API 密钥、Agent 凭据）| 加密专用存储（PostgreSQL `secrets` 表 + 信封加密）| SEC-REQ-005（与图数据隔离）|
-| 审计导出 | 仅追加文件 + 外部 SIEM 集成（V1+）| 详见 [§7.2 审计](07-security-design.md#72-审计-audit) |
+| 审计导出 | 仅追加文件 + 外部 SIEM 集成（V1+）| 详见 [§7.2 审计](07-security-design.md#72-审计--audit) |
 
 **重评估触发条件（Phase 10 §1.3 原话）：**
 > 在以下任一条件下重新评估：(a) 实际运行遥测显示通过递归 CTE 的遍历查询在真实 Edge 数下超过了商定的延迟预算，或 (b) 需要无限制深度 / 图算法查询（DTWIN-REQ-003、WKFL-REQ-002）的 V2 功能实际进入开发。若发生迁移，作为从 `events` 日志可重建的二级索引引入，绝不作为主存储，也不需要改变 Node/Edge/Event 本身的数据模型（依据需求书 §16 的明确设计目标"后续新增 spec 概念永远不应需要新的结构原语"）。

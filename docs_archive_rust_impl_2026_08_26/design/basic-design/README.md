@@ -10,7 +10,7 @@
 >
 > **目标读者 / Audience:** 内部架构师 / 实现工程师 / 未来外部受托评审方。同时面向实现方、运维方、安全审计方三类读者。
 >
-> **IPA 共通框架 2013 位置：** 本书对应 `系统方式设计过程`（P3）的全部 4 活动 + `软件受入过程`（P9）的支持部分。详细对应见 [00. 介绍 §0.6 IPA 过程地图](00-introduction.md#06-ipa-过程地图-ipa-process-map) 与 [Appendix C — IPA 过程·交付物 对照表](appendix-c-ipa-mapping.md)。
+> **IPA 共通框架 2013 位置：** 本书对应 `系统方式设计过程`（P3）的全部 4 活动 + `软件受入过程`（P9）的支持部分。详细对应见 [00. 介绍 §0.6 IPA 过程地图](00-introduction.md#06-ipa-过程地图--ipa-process-map) 与 [Appendix C — IPA 过程·交付物 对照表](appendix-c-ipa-mapping.md)。
 >
 > **标签规约 / Tagging convention (沿用项目既有约定):**
 > - `[FACT]` — 一次源验证过的事实

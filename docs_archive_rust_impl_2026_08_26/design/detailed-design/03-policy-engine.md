@@ -2,7 +2,7 @@
 
 ## 3.1 目标 / Purpose
 
-实现 [基本设计 §3.7 安全与访问控制子系统](../basic-design/03-functional-design.md#37-安全与访问控制子系统-security-access-control-subsystem) 的核心决策逻辑：RBAC + ABAC 评估、AI 特有策略强制、决策缓存、失败模式、审计联动。
+实现 [基本设计 §3.7 安全与访问控制子系统](../basic-design/03-functional-design.md#37-安全与访问控制子系统--security--access-control-subsystem) 的核心决策逻辑：RBAC + ABAC 评估、AI 特有策略强制、决策缓存、失败模式、审计联动。
 
 ## 3.2 模块结构
 

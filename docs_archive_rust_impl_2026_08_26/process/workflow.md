@@ -82,15 +82,15 @@
 | 28 | **基本设计** — API 设计 (API) | 28 | API 设计书 | [基本设计 §11](../design/basic-design/11-api-design.md) | QA-021（Admin 鉴权域）|
 | 29 | **基本设计** — 外部接口设计 (IF) | 29 | 外部接口设计书 | [基本设计 §05](../design/basic-design/05-interface-design.md) | — |
 | 30 | **基本设计** — 数据库基本设计 (DB) | 30 | DB 基本设计 | [基本设计 §04](../design/basic-design/04-data-design.md) | QA-002 |
-| 31 | **基本设计** — 数据模型设计 (ER) | 31 | ER 图 | [基本设计 §04.1](../design/basic-design/04-data-design.md#41-概念数据模型-conceptual-data-model) | QA-002 |
+| 31 | **基本设计** — 数据模型设计 (ER) | 31 | ER 图 | [基本设计 §04.1](../design/basic-design/04-data-design.md#41-概念数据模型--conceptual-data-model) | QA-002 |
 | 32 | **基本设计** — 批处理设计 (Batch) | 32 | 批处理设计书 | [`templates/design/32-batch-design.md`](templates/design/32-batch-design.md) | — |
-| 33 | **基本设计** — 权限设计 | 33 | 权限设计书 | [基本设计 §07.1](../design/basic-design/07-security-design.md#71-认证-授权-authentication-authorization) | QA-021 |
+| 33 | **基本设计** — 权限设计 | 33 | 权限设计书 | [基本设计 §07.1](../design/basic-design/07-security-design.md#71-认证--授权--authentication--authorization) | QA-021 |
 | 34 | **基本设计** — 安全设计 | 34 | 安全设计书 | [基本设计 §07](../design/basic-design/07-security-design.md) | QA-002 / QA-003 / QA-005 / QA-012 / QA-021 |
 | 35 | **基本设计** — 基础设施基本设计 (Infra) | 35 | 基础设施基本设计 | [基本设计 §08](../design/basic-design/08-operations-design.md) | QA-016 / QA-017 |
-| 36 | **基本设计** — 网络基本设计 (NW) | 36 | 网络基本设计 | [基本设计 §07.4](../design/basic-design/07-security-design.md#74-网络安全-network-securitysec-req-008-phase-14-f14-3) | QA-021 |
-| 37 | **基本设计** — 运用设计 | 37 | 运用设计书 | [基本设计 §08.5](../design/basic-design/08-operations-design.md#85-支持与-faq-support) | — |
-| 38 | **基本设计** — 监视设计 | 38 | 监视设计书 | [基本设计 §08.3](../design/basic-design/08-operations-design.md#83-监控-monitoringobs-req-v1) + [详细设计 §10](../design/detailed-design/10-observability.md) | QA-009 |
-| 39 | **基本设计** — 备份设计 | 39 | 备份设计书 | [基本设计 §08.2](../design/basic-design/08-operations-design.md#82-备份-恢复-backup-recoverybkp-req) | QA-009 |
+| 36 | **基本设计** — 网络基本设计 (NW) | 36 | 网络基本设计 | [基本设计 §07.4](../design/basic-design/07-security-design.md#74-网络安全--network-securitysec-req-008-phase-14-f14-3) | QA-021 |
+| 37 | **基本设计** — 运用设计 | 37 | 运用设计书 | [基本设计 §08.5](../design/basic-design/08-operations-design.md#85-支持与-faq--support) | — |
+| 38 | **基本设计** — 监视设计 | 38 | 监视设计书 | [基本设计 §08.3](../design/basic-design/08-operations-design.md#83-监控--monitoringobs-req-v1) + [详细设计 §10](../design/detailed-design/10-observability.md) | QA-009 |
+| 39 | **基本设计** — 备份设计 | 39 | 备份设计书 | [基本设计 §08.2](../design/basic-design/08-operations-design.md#82-备份--恢复--backup--recoverybkp-req) | QA-009 |
 | 40 | **基本设计** — 迁移设计 | 40 | 迁移设计书 | [基本设计 §09](../design/basic-design/09-migration-design.md) | QA-016 |
 | 41 | **基本设计** — 基本设计评审 (BD Review) | 41 | 评审记录 | [基本设计 README](../design/basic-design/README.md) | QA-001（签核）||
 | 42 | **详细设计** — 程序结构设计 | 42 | 程序结构设计书 | [详细设计 §00.2](../design/detailed-design/00-overview.md#02-顶层模块划分) | QA-017（crate 拆分）|
@@ -108,16 +108,16 @@
 | 54 | **实现** — 编码 (PG) | 54 | 源代码 | [tech-selection.md §19 crate 建议](../architecture/tech-selection.md#19-关键-req-id-新增) | QA-024（IMPL 重写）||
 | 55 | **实现** — 静态分析 (SAST) | 55 | SAST 报告 | [tech-selection.md §15.1 REQ-TS-002](../architecture/tech-selection.md#151-性能与安全) | — |
 | 56 | **实现** — 代码评审 (CR) | 56 | CR 记录 | REQ-TS-001（禁 unsafe）| — |
-| 57 | **实现** — 构建 (Build) | 57 | 构建产物 | [tech-selection.md §17 cargo-chef/sccache](../architecture/tech-selection.md#16-关键风险与缓解-risks-mitigations) | QA-023 ||
-| 58 | **实现** — CI | 58 | CI 流水线 | [tech-selection.md §16 CI 风险表](../architecture/tech-selection.md#16-关键风险与缓解-risks-mitigations) | QA-010 / QA-022 / QA-023 ||
-| 59 | **单元测试** — 单元测试计划 (UT Plan) | 59 | 单元测试计划 | [基本设计 §10.1](../design/basic-design/10-acceptance-test-policy.md#101-测试级别-test-levels) | — |
+| 57 | **实现** — 构建 (Build) | 57 | 构建产物 | [tech-selection.md §17 cargo-chef/sccache](../architecture/tech-selection.md#16-关键风险与缓解--risks--mitigations) | QA-023 ||
+| 58 | **实现** — CI | 58 | CI 流水线 | [tech-selection.md §16 CI 风险表](../architecture/tech-selection.md#16-关键风险与缓解--risks--mitigations) | QA-010 / QA-022 / QA-023 ||
+| 59 | **单元测试** — 单元测试计划 (UT Plan) | 59 | 单元测试计划 | [基本设计 §10.1](../design/basic-design/10-acceptance-test-policy.md#101-测试级别--test-levels) | — |
 | 60 | **单元测试** — 单元测试规格书 (UT) | 60 | 单元测试规格书 | 同上 | QA-012（AISEC-REQ 测试）||
 | 61 | **单元测试** — 单元测试评审 (UT Review) | 61 | 评审记录 | 同上 | — |
 | 62 | **单元测试** — 单元测试实施 (UT) | 62 | 单元测试结果 | 同上 | QA-019（72h soak）||
 | 63 | **单元测试** — 缺陷修正 (Bug Fix) | 63 | 缺陷修复 | 同上 | — |
 | 64 | **单元测试** — 再测试 (Retest) | 64 | 再测试结果 | 同上 | — |
 | 65 | **单元测试** — 单元测试完成批准 | 65 | 完成批准 | [基本设计 §10.2 MVP DoD](../design/basic-design/10-acceptance-test-policy.md#102-mvp-验收条件重申-phase-9-6-的-definition-of-done) | QA-007 ||
-| 66 | **集成测试** — 集成测试计划 (IT Plan) | 66 | 集成测试计划 | [基本设计 §10.1](../design/basic-design/10-acceptance-test-policy.md#101-测试级别-test-levels) | — |
+| 66 | **集成测试** — 集成测试计划 (IT Plan) | 66 | 集成测试计划 | [基本设计 §10.1](../design/basic-design/10-acceptance-test-policy.md#101-测试级别--test-levels) | — |
 | 67 | **集成测试** — 集成测试规格书 (IT) | 67 | 集成测试规格书 | 同上 | QA-004（leader lock 测试）||
 | 68 | **集成测试** — 集成测试环境构建 | 68 | 测试环境就绪 | 同上 | QA-011（gix 兼容性）||
 | 69 | **集成测试** — 内部集成测试 (ITa) | 69 | 内部集成测试结果 | 同上 | QA-004 / QA-013 / QA-014 ||
@@ -127,7 +127,7 @@
 | 73 | **集成测试** — 外部系统联调测试 | 73 | 联调测试结果 | 同上 | — |
 | 74 | **集成测试** — 故障 / 缺陷应对 | 74 | 缺陷修复 | 同上 | — |
 | 75 | **集成测试** — 回归测试 (Regression) | 75 | 回归测试结果 | 同上 | — |
-| 76 | **系统测试** — 系统测试计划 (ST Plan) | 76 | 系统测试计划 | [基本设计 §10.3](../design/basic-design/10-acceptance-test-policy.md#103-验收测试清单-acceptance-checklist) | — |
+| 76 | **系统测试** — 系统测试计划 (ST Plan) | 76 | 系统测试计划 | [基本设计 §10.3](../design/basic-design/10-acceptance-test-policy.md#103-验收测试清单--acceptance-checklist) | — |
 | 77 | **系统测试** — 系统测试规格书 (ST) | 77 | 系统测试规格书 | 同上 | QA-009（性能）||
 | 78 | **系统测试** — 功能测试 | 78 | 功能测试结果 | 同上 | QA-007 ||
 | 79 | **系统测试** — 场景测试 | 79 | 场景测试结果 | 同上 | — |
@@ -140,12 +140,12 @@
 | 86 | **系统测试** — 备份恢复测试 (B/R) | 86 | 备份恢复测试结果 | 同上 | QA-009 ||
 | 87 | **系统测试** — 可用性测试 | 87 | 可用性测试结果 | 同上 | QA-009 ||
 | 88 | **系统测试** — 运用测试 (OT) | 88 | 运用测试结果 | 同上 | — |
-| 89 | **系统测试** — 系统测试完成批准 | 89 | 完成批准 | [基本设计 §10.4](../design/basic-design/10-acceptance-test-policy.md#104-发布判定-release-decision) | QA-007 ||
-| 90 | **验收测试** — 验收测试计划 (UAT Plan) | 90 | 验收测试计划 | [基本设计 §10.1](../design/basic-design/10-acceptance-test-policy.md#101-测试级别-test-levels) | — |
+| 89 | **系统测试** — 系统测试完成批准 | 89 | 完成批准 | [基本设计 §10.4](../design/basic-design/10-acceptance-test-policy.md#104-发布判定--release-decision) | QA-007 ||
+| 90 | **验收测试** — 验收测试计划 (UAT Plan) | 90 | 验收测试计划 | [基本设计 §10.1](../design/basic-design/10-acceptance-test-policy.md#101-测试级别--test-levels) | — |
 | 91 | **验收测试** — 验收测试规格书 (UAT) | 91 | 验收测试规格书 | 同上 | QA-001（PO 签核）||
 | 92 | **验收测试** — 用户验收测试 (UAT) | 92 | 用户验收测试结果 | 同上 | QA-001 ||
 | 93 | **验收测试** — 业务场景测试 | 93 | 业务场景测试结果 | 同上 | — |
-| 94 | **验收测试** — 验收判定 | 94 | 验收判定书 | [基本设计 §10.4](../design/basic-design/10-acceptance-test-policy.md#104-发布判定-release-decision) | QA-001（PO 签核）||
+| 94 | **验收测试** — 验收判定 | 94 | 验收判定书 | [基本设计 §10.4](../design/basic-design/10-acceptance-test-policy.md#104-发布判定--release-decision) | QA-001（PO 签核）||
 | 95 | **验收测试** — 验收 (Acceptance) | 95 | 验收证书 | 同上 | QA-001 ||
 | 96 | **迁移** — 迁移计划 (Migration Plan) | 96 | 迁移计划书 | [基本设计 §09](../design/basic-design/09-migration-design.md) | QA-016 ||
 | 97 | **迁移** — 迁移步骤制定 | 97 | 迁移步骤书 | 同上 | — |
@@ -153,34 +153,34 @@
 | 99 | **迁移** — 数据迁移 (Data Migration) | 99 | 数据迁移结果 | 同上 | — |
 | 100 | **迁移** — 系统迁移 | 100 | 系统迁移结果 | 同上 | QA-009 ||
 | 101 | **迁移** — 迁移结果确认 | 101 | 迁移确认书 | 同上 | — |
-| 102 | **发布** — 发布计划 (Release Plan) | 102 | 发布计划书 | [基本设计 §10.4 发布判定](../design/basic-design/10-acceptance-test-policy.md#104-发布判定-release-decision) | QA-001 ||
+| 102 | **发布** — 发布计划 (Release Plan) | 102 | 发布计划书 | [基本设计 §10.4 发布判定](../design/basic-design/10-acceptance-test-policy.md#104-发布判定--release-decision) | QA-001 ||
 | 103 | **发布** — 发布判定 (Go/No-Go) | 103 | 发布判定书 | 同上 | QA-001 ||
-| 104 | **发布** — 生产环境构建 (Production) | 104 | 生产环境就绪 | [基本设计 §08.6 K8s 部署形态](../design/basic-design/08-operations-design.md#86-v1-k8s-部署形态-v1-k8s-deployment-topology) | QA-016 ||
+| 104 | **发布** — 生产环境构建 (Production) | 104 | 生产环境就绪 | [基本设计 §08.6 K8s 部署形态](../design/basic-design/08-operations-design.md#86-v1-k8s-部署形态--v1-k8s-deployment-topology) | QA-016 ||
 | 105 | **发布** — 生产部署 (Deploy) | 105 | 部署结果 | [详细设计 §13.5 K8s 部署清单](../design/detailed-design/13-admin-api-and-ops-ui.md#135-v1-k8s-部署清单) | — |
 | 106 | **发布** — 启动确认 (Smoke Test) | 106 | 启动确认报告 | 同上 | — |
 | 107 | **发布** — 服务开始 (Go-Live) | 107 | 服务开始公告 | 同上 | — |
 | 108 | **发布** — 初期流动应对 (Hypercare) | 108 | 初期流动报告 | 同上 | QA-019 ||
-| 109 | **运维** — 运维交接 (Handover) | 109 | 运维交接书 | [基本设计 §08.5](../design/basic-design/08-operations-design.md#85-支持与-faq-support) | — |
+| 109 | **运维** — 运维交接 (Handover) | 109 | 运维交接书 | [基本设计 §08.5](../design/basic-design/08-operations-design.md#85-支持与-faq--support) | — |
 | 110 | **运维** — 系统监视 (Monitoring) | 110 | 监视报告 | [详细设计 §10.4-10.5](../design/detailed-design/10-observability.md) | QA-009 ||
 | 111 | **运维** — 作业管理 (Job) | 111 | 作业管理报告 | [`templates/operations/111-job-mgmt.md`](templates/operations/111-job-mgmt.md) | — |
-| 112 | **运维** — 备份 (Backup) | 112 | 备份结果 | [基本设计 §08.2](../design/basic-design/08-operations-design.md#82-备份-恢复-backup-recoverybkp-req) | QA-009 ||
+| 112 | **运维** — 备份 (Backup) | 112 | 备份结果 | [基本设计 §08.2](../design/basic-design/08-operations-design.md#82-备份--恢复--backup--recoverybkp-req) | QA-009 ||
 | 113 | **运维** — 容量管理 (Capacity) | 113 | 容量管理报告 | [`templates/operations/113-capacity.md`](templates/operations/113-capacity.md) | QA-009 ||
 | 114 | **运维** — 事件管理 (Incident) | 114 | 事件报告 | [基本设计 §14.2.3 中心事件流](../design/basic-design/14-admin-ops-ui.md#1423-中心事件流) | — |
 | 115 | **运维** — 故障管理 | 115 | 故障报告 | [基本设计 §14.2.5 审计日志](../design/basic-design/14-admin-ops-ui.md#1425-审计日志) | — |
 | 116 | **运维** — 问题管理 (Problem) | 116 | 问题分析报告 | 同上 | — |
-| 117 | **运维** — 询问管理 (Support) | 117 | 询问处理报告 | [基本设计 §08.5 支持与 FAQ](../design/basic-design/08-operations-design.md#85-支持与-faq-support) | — |
-| 118 | **维护** — 变更要求 (CR) | 118 | 变更要求书 | [基本设计 §09.3 架构一致性](../design/basic-design/09-migration-design.md#93-架构一致性-architecture-consistencycloud-req-001) | — |
+| 117 | **运维** — 询问管理 (Support) | 117 | 询问处理报告 | [基本设计 §08.5 支持与 FAQ](../design/basic-design/08-operations-design.md#85-支持与-faq--support) | — |
+| 118 | **维护** — 变更要求 (CR) | 118 | 变更要求书 | [基本设计 §09.3 架构一致性](../design/basic-design/09-migration-design.md#93-架构一致性--architecture-consistencycloud-req-001) | — |
 | 119 | **维护** — 影响分析 (Impact Analysis) | 119 | 影响分析报告 | 同上 | — |
 | 120 | **维护** — 变更管理 (Change) | 120 | 变更管理记录 | [Admin API §13.5 部署清单](../design/detailed-design/13-admin-api-and-ops-ui.md#135-v1-k8s-部署清单) | — |
-| 121 | **维护** — 构成管理 (CM) | 121 | 构成管理报告 | [基本设计 §00.6 Git 引用](../design/basic-design/00-introduction.md#06-ipa-过程地图-ipa-process-map) | — |
-| 122 | **维护** — 补丁应用 (Patch) | 122 | 补丁应用报告 | [基本设计 §07.4 网络安全](../design/basic-design/07-security-design.md#74-网络安全-network-securitysec-req-008-phase-14-f14-3) | — |
+| 121 | **维护** — 构成管理 (CM) | 121 | 构成管理报告 | [基本设计 §00.6 Git 引用](../design/basic-design/00-introduction.md#06-ipa-过程地图--ipa-process-map) | — |
+| 122 | **维护** — 补丁应用 (Patch) | 122 | 补丁应用报告 | [基本设计 §07.4 网络安全](../design/basic-design/07-security-design.md#74-网络安全--network-securitysec-req-008-phase-14-f14-3) | — |
 | 123 | **维护** — 脆弱性应对 (Vulnerability) | 123 | 脆弱性应对报告 | [基本设计 §06.5 安全性](../design/basic-design/06-non-functional-design.md#65-安全性security-ipa-grade-⑤) | — |
 | 124 | **维护** — 改修 (Maintenance) | 124 | 改修报告 | [`templates/maintenance/124-maintenance.md`](templates/maintenance/124-maintenance.md) | — |
 | 125 | **维护** — 紧急改修 (Hotfix) | 125 | 紧急改修报告 | [`templates/maintenance/125-hotfix.md`](templates/maintenance/125-hotfix.md) | — |
 | 126 | **维护** — 回归测试 (Regression) | 126 | 回归测试结果 | [`templates/maintenance/126-regression.md`](templates/maintenance/126-regression.md) | — |
 | 127 | **质量管理** — 品质计划 (QA Plan) | 127 | 品质计划书 | [基本设计 §10.0](../design/basic-design/10-acceptance-test-policy.md) | — |
 | 128 | **质量管理** — 品质评审 (QA Review) | 128 | 品质评审记录 | 同上 | — |
-| 129 | **质量管理** — 品质评价 (QA) | 129 | 品质评价报告 | [基本设计 §10.4 发布判定](../design/basic-design/10-acceptance-test-policy.md#104-发布判定-release-decision) | — |
+| 129 | **质量管理** — 品质评价 (QA) | 129 | 品质评价报告 | [基本设计 §10.4 发布判定](../design/basic-design/10-acceptance-test-policy.md#104-发布判定--release-decision) | — |
 | 130 | **质量管理** — 品质审计 (Audit) | 130 | 品质审计报告 | [Admin API §13.3 admin_audit](../design/detailed-design/13-admin-api-and-ops-ui.md#133-admin_audit-表-ddl) | — |
 | 131 | **管理** — 项目计划 (PJ Plan) | 131 | 项目计划书 | [`templates/management/131-project-plan.md`](templates/management/131-project-plan.md) | — |
 | 132 | **管理** — WBS 管理 (WBS) | 132 | WBS 文档 | [`templates/management/132-wbs.md`](templates/management/132-wbs.md) | — |

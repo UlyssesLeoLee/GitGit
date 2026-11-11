@@ -10,7 +10,7 @@
 
 [基本设计 §14.2.5](../../design/basic-design/14-admin-ops-ui.md) 与 [详设 §10.5 可观测性](../../design/detailed-design/10-observability.md) 要求 admin_audit / events 实时转发到 SIEM,以满足 SEC-REQ-004 强审计要求。
 
-[ADR-0009 SIEM 集成方案](../../architecture/decisions/0009-SIEM-集成方案wal2json-到-Kafka-Vector-直-webhook.md) 已选 wal2json → Kafka / Vector / webhook 三选一,但没明确**具体 SIEM 适配**。本 ADR 解决"目标 SIEM 选型"。
+[ADR-0009 SIEM 集成方案](0009-SIEM-适配策略（wal2json-→-Kafka---Vector---直接-webhook）.md) 已选 wal2json → Kafka / Vector / webhook 三选一,但没明确**具体 SIEM 适配**。本 ADR 解决"目标 SIEM 选型"。
 
 候选 SIEM: Splunk / ELK (Elastic Stack) / Datadog / Microsoft Sentinel / AWS CloudWatch / 自建 Loki
 
@@ -86,7 +86,7 @@
 
 ## References
 
-- [ADR-0009: SIEM 集成方案](../../architecture/decisions/0009-SIEM-集成方案wal2json-到-Kafka-Vector-直-webhook.md)
+- [ADR-0009: SIEM 集成方案](0009-SIEM-适配策略（wal2json-→-Kafka---Vector---直接-webhook）.md)
 - [ADR-0016: OTel Collector 部署模式](#)
 - [基本设计 §14.2.5 SIEM 适配](../../design/basic-design/14-admin-ops-ui.md)
 - [详细设计 §10 可观测性](../../design/detailed-design/10-observability.md)

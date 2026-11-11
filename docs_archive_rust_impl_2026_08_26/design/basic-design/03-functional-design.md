@@ -92,7 +92,7 @@
 
 ### 3.3.5 状态
 - 提示词 / 响应作为 Event 记录（可审计）
-- 提供商凭据由 Secrets Store（[§7.5 密钥管理](07-security-design.md#75-密钥管理-secrets-managementsec-req-005-sec-req-010)）管理，与图数据隔离
+- 提供商凭据由 Secrets Store（[§7.5 密钥管理](07-security-design.md#75-密钥管理--secrets-managementsec-req-005-sec-req-010)）管理，与图数据隔离
 
 ## 3.4 上下文引擎子系统 / Context Engine Subsystem
 
@@ -147,7 +147,7 @@
 ### 3.5.5 状态
 - Agent 节点 / AgentRun 节点持久化到图谱
 - 仅执行期间的状态封闭在 Agent Workspace 内
-- 凭据由 Secrets Store（[§7.5](07-security-design.md#75-密钥管理-secrets-managementsec-req-005-sec-req-010)）管理
+- 凭据由 Secrets Store（[§7.5](07-security-design.md#75-密钥管理--secrets-managementsec-req-005-sec-req-010)）管理
 
 ## 3.6 CI/CD 子系统 / CI/CD Subsystem
 

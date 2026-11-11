@@ -85,9 +85,9 @@ docs/design/detailed-design/
 ## 重要前置条件
 
 1. **主语言已选定为 Rust**（[架构 / 技术选型文档](../../architecture/tech-selection.md)，状态 Accepted 2026-08-19）— 本书中的代码示例使用 Rust 风格伪代码/类型化伪代码（所有语言特定的 API 都在 `[IMPL]` 代码块中以注释标注目标语言）；详细实现将使用具体 Rust crate（sqlx / Axum / gix / Tonic 等）
-2. **PostgreSQL 14+** 是确定的（基本设计 [§2.4](../basic-design/02-architecture.md#24-存储架构-storage-architecture采用-phase-10-1)）
-3. **5 原语**作为图谱核心（基本设计 [§3.2](../basic-design/03-functional-design.md#32-工程图谱子系统-engineering-graph-subsystem)）— 详细设计的所有数据结构都从这出发
-4. **AISEC-REQ-009(a) MVP non-negotiable**（[§7.2](../basic-design/07-security-design.md#72-审计-audit)）— DB role 分离设计在 [01 数据层](01-data-layer.md) 详写
+2. **PostgreSQL 14+** 是确定的（基本设计 [§2.4](../basic-design/02-architecture.md#24-存储架构--storage-architecture采用-phase-10-1)）
+3. **5 原语**作为图谱核心（基本设计 [§3.2](../basic-design/03-functional-design.md#32-工程图谱子系统--engineering-graph-subsystem)）— 详细设计的所有数据结构都从这出发
+4. **AISEC-REQ-009(a) MVP non-negotiable**（[§7.2](../basic-design/07-security-design.md#72-审计--audit)）— DB role 分离设计在 [01 数据层](01-data-layer.md) 详写
 5. **Git 写路径强约束**：禁止为"纯 Rust"重写，必须用 shell `git` 进程（[技术选型文档 §7.2](../../architecture/tech-selection.md#72-强约束来自-phase10-architecturemd-6-第-2-项)）
 
 ---

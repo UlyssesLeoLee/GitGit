@@ -23,7 +23,7 @@
 
 ## 1.3 DB role 分离（AISEC-REQ-009(a) MVP 必填）
 
-**[PROPOSAL]** 这是 Phase 11 RT-10（红队最大发现）的核心防御：Platform 进程的常规 DB role 对 `events` 表**只授 INSERT**，无 UPDATE/DELETE。详细原理见基本设计 [§7.2 审计](../basic-design/07-security-design.md#72-审计-audit)。
+**[PROPOSAL]** 这是 Phase 11 RT-10（红队最大发现）的核心防御：Platform 进程的常规 DB role 对 `events` 表**只授 INSERT**，无 UPDATE/DELETE。详细原理见基本设计 [§7.2 审计](../basic-design/07-security-design.md#72-审计--audit)。
 
 ### 1.3.1 role 矩阵
 
@@ -594,7 +594,7 @@ migrate down 1  # 回滚一条
 
 ## 1.10 备份与恢复 / Backup & Recovery
 
-详见基本设计 [§8.2 备份/恢复](../basic-design/08-operations-design.md#82-备份-恢复-backup-recoverybkp-req)。
+详见基本设计 [§8.2 备份/恢复](../basic-design/08-operations-design.md#82-备份--恢复--backup--recoverybkp-req)。
 
 数据库角色（PostgreSQL 自己的角色，不是平台业务角色）的备份：使用 `pg_dumpall --roles-only` 单独备份 role 定义。
 

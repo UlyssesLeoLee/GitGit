@@ -2,7 +2,7 @@
 
 ## 6.1 目标 / Purpose
 
-实现 [基本设计 §3.1 Git Server 子系统](../basic-design/03-functional-design.md#31-git-server-子系统-git-server-subsystem) 的混合 Git 实现（CLI 子进程 + libgit2）。覆盖：HTTP/SSH 协议、混合读写、graph-aware 钩子回调、bare 仓库管理、认证。
+实现 [基本设计 §3.1 Git Server 子系统](../basic-design/03-functional-design.md#31-git-server-子系统--git-server-subsystem) 的混合 Git 实现（CLI 子进程 + libgit2）。覆盖：HTTP/SSH 协议、混合读写、graph-aware 钩子回调、bare 仓库管理、认证。
 
 ## 6.2 模块结构
 

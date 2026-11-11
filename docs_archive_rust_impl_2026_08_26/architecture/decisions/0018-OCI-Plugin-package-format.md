@@ -12,14 +12,14 @@
 
 - 用什么 OCI manifest schema?
 - App 元数据放哪一层(annotation / config / 单独 label)?
-- 与 [ADR-0008 Plugin Manifest Schema (app.yaml)](../../architecture/decisions/0008-Plugin-App-Manifest-Schema-app.yaml-与版本兼容策略.md) 的关系?
+- 与 [ADR-0008 Plugin Manifest Schema (app.yaml)](0008-Plugin---App-Manifest-Schema-%28app.yaml%29-与版本兼容策略.md) 的关系?
 - 多架构(amd64 + arm64)支持?
 
 ## Decision Drivers
 
 - [DRIVER-1] 沿用 OCI Image Spec v1.1(标准,生态最广)
 - [DRIVER-2] App metadata 不能仅靠 label(会被 `docker build` 误改)
-- [DRIVER-3] 与 [ADR-0008](../../architecture/decisions/0008-Plugin-App-Manifest-Schema-app.yaml-与版本兼容策略.md) 兼容:`app.yaml` 仍然存在,但打包进 OCI 镜像
+- [DRIVER-3] 与 [ADR-0008](0008-Plugin---App-Manifest-Schema-%28app.yaml%29-与版本兼容策略.md) 兼容:`app.yaml` 仍然存在,但打包进 OCI 镜像
 - [DRIVER-4] 多架构支持(V1+ Cloud 多节点异构)
 - [DRIVER-5] 镜像签名(可选 V0.5+,与 [SEC-REQ-007 强认证](#) 协调)
 
@@ -31,7 +31,7 @@
 
 ## Decision Outcome
 
-**Chosen option**: "Option A — OCI Image Manifest v1.1 + app.yaml 内嵌", because 与 [ADR-0013 containerd](#) 生态一致;`app.yaml` 仍存在(避免打破 [ADR-0008](../../architecture/decisions/0008-Plugin-App-Manifest-Schema-app.yaml-与版本兼容策略.md));多架构通过 OCI Image Index 支持。
+**Chosen option**: "Option A — OCI Image Manifest v1.1 + app.yaml 内嵌", because 与 [ADR-0013 containerd](#) 生态一致;`app.yaml` 仍存在(避免打破 [ADR-0008](0008-Plugin---App-Manifest-Schema-%28app.yaml%29-与版本兼容策略.md));多架构通过 OCI Image Index 支持。
 
 ### 镜像结构
 
@@ -95,11 +95,11 @@ platform-app-<name>:<version>
   - 平台在 `plugin-loader` 拉镜像前验证签名
   - 签名失败 → 拒绝 + 审计 event
 
-### 与 [ADR-0008 app.yaml](../../architecture/decisions/0008-Plugin-App-Manifest-Schema-app.yaml-与版本兼容策略.md) 的关系
+### 与 [ADR-0008 app.yaml](0008-Plugin---App-Manifest-Schema-%28app.yaml%29-与版本兼容策略.md) 的关系
 
-- `app.yaml` schema **不变**(沿用 [ADR-0008](../../architecture/decisions/0008-Plugin-App-Manifest-Schema-app.yaml-与版本兼容策略.md))
+- `app.yaml` schema **不变**(沿用 [ADR-0008](0008-Plugin---App-Manifest-Schema-%28app.yaml%29-与版本兼容策略.md))
 - 打包方式变化: 从"文件目录" → "OCI 镜像 + 内嵌 app.yaml"
-- 加载时: 平台从 OCI 镜像 layer 0 读取 `app.yaml` 字符串,再用 [ADR-0008](../../architecture/decisions/0008-Plugin-App-Manifest-Schema-app.yaml-与版本兼容策略.md) 的 schema 校验
+- 加载时: 平台从 OCI 镜像 layer 0 读取 `app.yaml` 字符串,再用 [ADR-0008](0008-Plugin---App-Manifest-Schema-%28app.yaml%29-与版本兼容策略.md) 的 schema 校验
 
 ### Consequences
 
@@ -138,7 +138,7 @@ platform-app-<name>:<version>
 
 ## References
 
-- [ADR-0008: Plugin / App Manifest Schema (app.yaml) 与版本兼容策略](../../architecture/decisions/0008-Plugin-App-Manifest-Schema-app.yaml-与版本兼容策略.md)
+- [ADR-0008: Plugin / App Manifest Schema (app.yaml) 与版本兼容策略](0008-Plugin---App-Manifest-Schema-%28app.yaml%29-与版本兼容策略.md)
 - [ADR-0013: OCI 容器标准 vs Docker-only](#)
 - [基本设计 §13.2 App 集群与可热插拔架构](../../design/basic-design/13-app-cluster-and-plugins.md)
 - [详细设计 §12 App Registry & Plugin Loader](../../design/detailed-design/12-app-registry-and-plugin-loader.md)

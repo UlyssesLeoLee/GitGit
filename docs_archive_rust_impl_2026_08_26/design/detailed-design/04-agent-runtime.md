@@ -2,7 +2,7 @@
 
 ## 4.1 目标 / Purpose
 
-实现 [基本设计 §3.5 Agent Runtime 子系统](../basic-design/03-functional-design.md#35-agent-运行时子系统-agent-runtime-subsystem) 的 7 项 MVP 需求（AGT-REQ-001〜007）和 V1 邻近的 008/009。覆盖：生命周期状态机、隔离工作区、范围受限凭证签发、Policy-gated 执行流、资源上限、消息/状态协议、Agent 作为图谱一级节点。
+实现 [基本设计 §3.5 Agent Runtime 子系统](../basic-design/03-functional-design.md#35-agent-运行时子系统--agent-runtime-subsystem) 的 7 项 MVP 需求（AGT-REQ-001〜007）和 V1 邻近的 008/009。覆盖：生命周期状态机、隔离工作区、范围受限凭证签发、Policy-gated 执行流、资源上限、消息/状态协议、Agent 作为图谱一级节点。
 
 ## 4.2 模块结构
 

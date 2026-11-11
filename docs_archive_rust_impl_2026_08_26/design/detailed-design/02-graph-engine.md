@@ -2,7 +2,7 @@
 
 ## 2.1 目标 / Purpose
 
-实现 [基本设计 §3.2 Engineering Graph 子系统](../basic-design/03-functional-design.md#32-工程图谱子系统-engineering-graph-subsystem) 的 5 个原语（Node、Edge、Event、Policy、View），提供 CRUD、遍历、类型校验、缓存能力。本章是平台差异化主轴的实现核心。
+实现 [基本设计 §3.2 Engineering Graph 子系统](../basic-design/03-functional-design.md#32-工程图谱子系统--engineering-graph-subsystem) 的 5 个原语（Node、Edge、Event、Policy、View），提供 CRUD、遍历、类型校验、缓存能力。本章是平台差异化主轴的实现核心。
 
 ## 2.2 模块结构 / Module Layout
 
@@ -137,7 +137,7 @@ type EdgeTypeDef struct {
 
 ### 2.4.2 注册表初始化
 
-**[IMPL]** 内置类型在 Platform 启动时同步加载（从 [01 数据层 §1.4.3](01-data-layer.md#143-类型注册表-type-registry) 的 SQL 种子 + Go 代码内的硬编码类型）。两者必须一致，由 [测试 2.4.4](#244-类型注册表一致性测试) 保证。
+**[IMPL]** 内置类型在 Platform 启动时同步加载（从 [01 数据层 §1.4.3](01-data-layer.md#143-类型注册表--type-registry) 的 SQL 种子 + Go 代码内的硬编码类型）。两者必须一致，由 [测试 2.4.4](#244-类型注册表一致性测试) 保证。
 
 ```go
 // [IMPL] internal/graph/registry/builtin.go
@@ -310,7 +310,7 @@ func (s *Service) Create(ctx context.Context, actor Actor, fromID, toID uuid.UUI
 
 ### 2.5.2 软删除与更正模式
 
-**[PROPOSAL]** 边不可物理删除（基本设计 [§4.5 数据生命周期](../basic-design/04-data-design.md#45-数据生命周期-data-lifecycle)）。要"取消"一条边：
+**[PROPOSAL]** 边不可物理删除（基本设计 [§4.5 数据生命周期](../basic-design/04-data-design.md#45-数据生命周期--data-lifecycle)）。要"取消"一条边：
 
 1. 创建一条**反向** `cancels` 边
 2. 查询逻辑视图中过滤 `cancels` 边指向的边

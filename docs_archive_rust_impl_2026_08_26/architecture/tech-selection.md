@@ -52,9 +52,9 @@
 **关键拒绝项：**
 
 1. **Memgraph 独立部署** — 拒绝。理由：与"能 PostgreSQL 解决不增加"原则冲突；图遍历用 PG 递归 CTE 已足够（[phase10-architecture.md §6 决策矩阵](../../docs/requirements/phase10-architecture.md)）
-2. **NATS JetStream** — 拒绝。理由：中心事件总线用 PG Outbox + LISTEN/NOTIFY 即可（[§13.4](../design/basic-design/13-app-cluster-and-plugins.md#134-中心事件总线-central-event-bus)）；不引入新组件
+2. **NATS JetStream** — 拒绝。理由：中心事件总线用 PG Outbox + LISTEN/NOTIFY 即可（[§13.4](../design/basic-design/13-app-cluster-and-plugins.md#134-中心事件总线--central-event-bus)）；不引入新组件
 3. **MinIO / S3** — 拒绝（暂缓到 V1+）。理由：MVP 本地文件系统足够；V1+ Cloud 才评估 S3 兼容对象存储
-4. **Valkey / Redis** — 拒绝。理由：决策缓存用 in-process LRU（[§2.9](../design/detailed-design/02-graph-engine.md#29-缓存-caching)）；不引入独立缓存服务
+4. **Valkey / Redis** — 拒绝。理由：决策缓存用 in-process LRU（[§2.9](../design/detailed-design/02-graph-engine.md#29-缓存--caching)）；不引入独立缓存服务
 5. **自实现 Git 协议** — 强约束禁止。理由：phase10-architecture.md §6 明确"禁止为 Rust 原则重复实现成熟高风险 Git 基础设施"；写路径（pack/negotiation）继续 shell `git` 进程
 6. **独立 Admin 进程用不同语言** — 拒绝。理由：所有进程统一 Rust；Admin UI 前端是 SvelteKit 独立（与 §14 一致）
 
@@ -351,7 +351,7 @@ let output = tokio::process::Command::new("git")
 
 - `jsonwebtoken` 是 Rust 生态最广泛使用的 JOSE 库
 - `argon2` 是 OWASP 推荐（替代 bcrypt / scrypt）
-- 强约束：**终端 / Admin 双 JWT issuer + 独立签名密钥**（[§7.8](../design/basic-design/07-security-design.md#78-admin-独立鉴权域-admin-separate-auth-domain)）
+- 强约束：**终端 / Admin 双 JWT issuer + 独立签名密钥**（[§7.8](../design/basic-design/07-security-design.md#78-admin-独立鉴权域--admin-separate-auth-domain)）
 
 ---
 
@@ -374,7 +374,7 @@ let output = tokio::process::Command::new("git")
 
 - **ring** — 非纯 Rust；BoringSSL 绑定；与 RustCrypto 兼容性差
 - **openssl** — 系统库依赖；C FFI；与 Rust 异步生态集成麻烦
-- **手写加密** — 强约束禁止（[§7.5](../design/basic-design/07-security-design.md#75-密钥管理-secrets-managementsec-req-005-sec-req-010)）
+- **手写加密** — 强约束禁止（[§7.5](../design/basic-design/07-security-design.md#75-密钥管理--secrets-managementsec-req-005-sec-req-010)）
 
 ---
 
@@ -553,20 +553,20 @@ POST /mcp/v1/rpc
 
 ## 18. 后续 ADR 引用 / Future ADRs
 
-> **更新 (2026-08-23):** 以下子决策已落地为 [ADR-0012 ~ 0019](../decisions/README.md)，状态均为 **Proposed**，等待 SA + TL + EM 签核后转 Accepted。原 §18 编号 `ADR-002 ~ ADR-008` 存在与 [decisions/0002 ~ 0008](../decisions/) 编号冲突，已统一改为 `0012+`。详见 [ADR-0019: ADR 编号体系化收尾](../decisions/0019-ADR-batch-0012-0018-体系化收尾.md)。
+> **更新 (2026-08-23):** 以下子决策已落地为 [ADR-0012 ~ 0019](decisions/README.md)，状态均为 **Proposed**，等待 SA + TL + EM 签核后转 Accepted。原 §18 编号 `ADR-002 ~ ADR-008` 存在与 [decisions/0002 ~ 0008](../decisions/) 编号冲突，已统一改为 `0012+`。详见 [ADR-0019: ADR 编号体系化收尾](decisions/0019-ADR-batch-0012-0018-体系化收尾.md)。
 >
-> **附记:** [ADR-0010 (App 沙箱 Wasm+WASI)](../decisions/0010-app-sandbox-wasm-wasi.md) 与 [ADR-0011 (可观测性平台 OTel+Prometheus+Loki+Temp+Grafana)](../decisions/0011-observability-platform.md) 为已存在的 Accepted ADR (2026-08-20)，未被 §18 显式引用，但已并入目录。
+> **附记:** [ADR-0010 (App 沙箱 Wasm+WASI)](decisions/0010-app-sandbox-wasm-wasi.md) 与 [ADR-0011 (可观测性平台 OTel+Prometheus+Loki+Temp+Grafana)](decisions/0011-observability-platform.md) 为已存在的 Accepted ADR (2026-08-20)，未被 §18 显式引用，但已并入目录。
 
 | ADR # | 主题 | 关联文档 | 状态 |
 |---|---|---|---|
-| [ADR-0012](../decisions/0012-gix-read-path-module-boundary.md) | gix 读路径与 shell `git` 写路径的模块边界 | phase10-architecture.md §7 项 12 | Proposed 2026-08-23 |
-| [ADR-0013](../decisions/0013-OCI-container-standard-vs-Docker-only.md) | OCI 容器标准 vs Docker-only (containerd + runc) | basic-design/05-interface-design.md | Proposed 2026-08-23 |
-| [ADR-0014](../decisions/0014-WebAuthn-credential-library-selection.md) | WebAuthn 凭证库选型（V1+ Cloud Admin 双因素）| basic-design/14-admin-ops-ui.md §14.3.3 | Proposed 2026-08-23 |
-| [ADR-0015](../decisions/0015-SIEM-adapter-selection.md) | SIEM 适配器（Splunk / ELK / Datadog）| basic-design/14-admin-ops-ui.md §14.2.5 | Proposed 2026-08-23 |
-| [ADR-0016](../decisions/0016-OTel-Collector-deployment-mode.md) | OTel Collector 部署模式（Sidecar vs DaemonSet vs Gateway）| detailed-design/10-observability.md | Proposed 2026-08-23 |
-| [ADR-0017](../decisions/0017-HashiCorp-Vault-integration.md) | HashiCorp Vault 集成细节（MVP 本地文件 / V1+ Vault KV v2）| basic-design/07-security-design.md §7.5 | Proposed 2026-08-23 |
-| [ADR-0018](../decisions/0018-OCI-Plugin-package-format.md) | OCI Plugin 包格式（App / Plugin Image Manifest schema）| basic-design/13-app-cluster-and-plugins.md §13.2 | Proposed 2026-08-23 |
-| [ADR-0019](../decisions/0019-ADR-batch-0012-0018-体系化收尾.md) | ADR 编号体系化收尾（元决策）| — | Proposed 2026-08-23 |
+| [ADR-0012](decisions/0012-gix-read-path-module-boundary.md) | gix 读路径与 shell `git` 写路径的模块边界 | phase10-architecture.md §7 项 12 | Proposed 2026-08-23 |
+| [ADR-0013](decisions/0013-OCI-container-standard-vs-Docker-only.md) | OCI 容器标准 vs Docker-only (containerd + runc) | basic-design/05-interface-design.md | Proposed 2026-08-23 |
+| [ADR-0014](decisions/0014-WebAuthn-credential-library-selection.md) | WebAuthn 凭证库选型（V1+ Cloud Admin 双因素）| basic-design/14-admin-ops-ui.md §14.3.3 | Proposed 2026-08-23 |
+| [ADR-0015](decisions/0015-SIEM-adapter-selection.md) | SIEM 适配器（Splunk / ELK / Datadog）| basic-design/14-admin-ops-ui.md §14.2.5 | Proposed 2026-08-23 |
+| [ADR-0016](decisions/0016-OTel-Collector-deployment-mode.md) | OTel Collector 部署模式（Sidecar vs DaemonSet vs Gateway）| detailed-design/10-observability.md | Proposed 2026-08-23 |
+| [ADR-0017](decisions/0017-HashiCorp-Vault-integration.md) | HashiCorp Vault 集成细节（MVP 本地文件 / V1+ Vault KV v2）| basic-design/07-security-design.md §7.5 | Proposed 2026-08-23 |
+| [ADR-0018](decisions/0018-OCI-Plugin-package-format.md) | OCI Plugin 包格式（App / Plugin Image Manifest schema）| basic-design/13-app-cluster-and-plugins.md §13.2 | Proposed 2026-08-23 |
+| [ADR-0019](decisions/0019-ADR-batch-0012-0018-体系化收尾.md) | ADR 编号体系化收尾（元决策）| — | Proposed 2026-08-23 |
 
 ---
 
