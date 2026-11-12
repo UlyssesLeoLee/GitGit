@@ -31,6 +31,10 @@ target-*/
 # CARGO_TARGET_DIR=D:\GitGit\.cargo-target-<lane> picks the dotted name
 # naturally, and `target-*/` does not match it.
 .cargo-target-*/
+# The bare dotted name too: a lane that sets CARGO_TARGET_DIR to
+# `D:\GitGit\.cargo-target` (no lane suffix) would otherwise be staged by
+# a bare `git add -A`.
+.cargo-target/
 
 # Local overrides
 .env
