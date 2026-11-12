@@ -870,6 +870,34 @@ jobs:
           # branch, and a build from a branch is not a build of the tag.
           ref: ${{ needs.verify-tag.outputs.tag }}
 
+      # The signing material is asserted BEFORE anything is built.
+      #
+      # [FACT] `sign-msi.ps1` already fails closed when the certificate is
+      # missing, and the `Sign the MSIs` step further down calls it with
+      # `-Required`.
+      # [FACT] That call happens AFTER `build-msi.ps1`, which produces the
+      # installers.
+      # [INFERENCE] So a missing certificate used to be discovered only after
+      # a build that takes minutes, by which time the reason the run is red
+      # has scrolled off the top of the log.
+      #
+      # This step is that same assertion, moved to the front of the job: it
+      # reads the same two environment variables and reports the same
+      # condition, but it runs first. "The certificate is not there" is then
+      # the first thing the log says, and the build never starts.
+      #
+      # [FACT] The secrets arrive as environment variables, never as
+      # arguments, so the passphrase never reaches a command line or the log.
+      - name: Assert the signing material is configured
+        shell: pwsh
+        env:
+          GITGIT_MSI_PFX_BASE64: ${{ secrets.MSI_SIGN_PFX_BASE64 }}
+          GITGIT_MSI_PFX_PASSWORD: ${{ secrets.MSI_SIGN_PFX_PASSWORD }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          pwsh -NoProfile -File ./apps/gm-desktop/scripts/assert-signing-config.ps1 -Required
+          if ($LASTEXITCODE -ne 0) { throw "assert-signing-config.ps1 exited $LASTEXITCODE" }
+
       - name: Install pnpm
         uses: pnpm/action-setup@v4
         with:
