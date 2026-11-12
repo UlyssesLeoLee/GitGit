@@ -21,6 +21,9 @@
 //!   (AISEC-REQ-001) and secret redaction (AISEC-REQ-004).
 //! - [`diff`] — git input collection via the `git` subprocess.
 //! - [`prompt`] — the three task prompts.
+//! - [`conflict`] — the conflict-region model, the prompt builder's input,
+//!   and the suggestion checks (ADR-0024, Lane B).
+//! - [`keys`] — where a provider key comes from (ADR-0024 §3.9).
 //!
 //! ## What is deliberately absent
 //!
@@ -39,7 +42,9 @@
 //! party because "gitai scrubs it" has misread the module.
 
 pub mod anthropic;
+pub mod conflict;
 pub mod diff;
+pub mod keys;
 pub mod openai;
 pub mod prompt;
 pub mod provider;

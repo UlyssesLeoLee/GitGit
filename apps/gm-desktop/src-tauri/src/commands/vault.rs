@@ -75,10 +75,33 @@ pub async fn vault_list(state: State<'_, DesktopState>) -> AppResult<Vec<String>
     Ok(keys)
 }
 
+/// Fetch a stored credential.
+///
+/// `[PROPOSAL]` ADR-0024 §3.9 item 3: the `ai/` namespace is excluded from
+/// the generic read path, so a provider key can never travel to the
+/// webview. The key is written by `ai_key_set` and read by the AI call
+/// itself, on the Rust side; there is deliberately no `ai_key_get`.
+///
+/// `[INFERENCE]` The *name* of an AI key still shows up in `vault_list`,
+/// because ADR-0024 §3.9's landing requirement is "list the name, do not
+/// fetch the value" — the settings page can say "a key is configured for
+/// openai" without ever seeing it.
 #[tauri::command]
 pub async fn vault_get(state: State<'_, DesktopState>, key: String) -> AppResult<Option<String>> {
-    let vault = state.vault.clone();
-    let value = vault.get(&key).await?;
+    vault_get_inner(state.vault.as_ref(), &key).await
+}
+
+/// The read path without the Tauri state, so it can be exercised directly.
+pub async fn vault_get_inner<V: gitgit::server::vault::Vault + ?Sized>(
+    vault: &V,
+    key: &str,
+) -> AppResult<Option<String>> {
+    if gitgit::ai::keys::is_ai_key(key) {
+        return Err(AppError::Vault(String::from(
+            "the ai/ namespace is not readable from the ui; a provider key never leaves the backend",
+        )));
+    }
+    let value = vault.get(key).await?;
     Ok(value)
 }
 
@@ -149,4 +172,59 @@ fn validate_key(key: &str) -> AppResult<()> {
         return Err(AppError::InvalidRepoName(key.to_string()));
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    // The crate lints deny `unwrap_used` / `expect_used` / `panic`, which
+    // are the normal vocabulary of test assertions. They are re-enabled
+    // for this module only, which is compiled exclusively under
+    // `cfg(test)` and never reaches the shipped binary.
+    #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+
+    use gitgit::server::vault::{FileVault, Vault};
+
+    use super::*;
+
+    /// A file-backed vault in a fresh temporary directory.
+    fn temp_vault(label: &str) -> FileVault {
+        let dir = std::env::temp_dir().join(format!(
+            "gitgit-desktop-vault-{label}-{}-{}",
+            std::process::id(),
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&dir).expect("temp dir");
+        FileVault::new(dir)
+    }
+
+    #[tokio::test]
+    async fn the_ai_namespace_is_not_readable_through_the_generic_path() {
+        // ADR-0024 §3.9 item 3: the `ai/` namespace is excluded from the
+        // generic read path, so a provider key can never reach the
+        // webview.
+        let vault = temp_vault("ai-namespace");
+        vault
+            .set("ai/openai", "sk-secret-value")
+            .await
+            .expect("store");
+        let err = vault_get_inner(&vault, "ai/openai")
+            .await
+            .expect_err("the ai/ namespace is refused");
+        assert_eq!(err.kind(), "Vault");
+        assert!(
+            !err.to_string().contains("sk-secret-value"),
+            "the key must not be echoed: {err}"
+        );
+    }
+
+    #[tokio::test]
+    async fn an_ordinary_key_still_reads() {
+        // The exclusion is narrow: only the `ai/` namespace is refused.
+        let vault = temp_vault("ordinary");
+        vault.set("openai", "sk-other").await.expect("store");
+        assert_eq!(
+            vault_get_inner(&vault, "openai").await.expect("read"),
+            Some(String::from("sk-other"))
+        );
+    }
 }
