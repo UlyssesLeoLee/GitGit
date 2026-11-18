@@ -45,8 +45,12 @@
 
 use std::sync::Arc;
 
+use gitgit::ai::conflict::{self, ConflictRegion};
+use gitgit::ai::keys;
 use gitgit::ai::provider::{ChatRequest, StreamEvent, StreamReceiver};
 use gitgit::ai::{prompt, registry, sanitize};
+use gitgit::server::vault::Vault;
+use gitgit::server::vault_versioned::VersionedVault;
 use tauri::{AppHandle, Emitter, State};
 
 use crate::error::{AppError, AppResult};
@@ -151,6 +155,118 @@ struct TauriEmitter(AppHandle);
 
 impl ReviewEmitter for TauriEmitter {
     fn emit(&self, event: &ReviewEvent) -> Result<(), String> {
+        self.0
+            .emit(event.name(), event.clone())
+            .map_err(|e| format!("emit {}: {e}", event.name()))
+    }
+}
+
+/// One token delta of a conflict arbitration.
+pub const EVENT_CONFLICT_TOKEN: &str = "ai-conflict://token";
+/// The model the provider says it served.
+pub const EVENT_CONFLICT_MODEL: &str = "ai-conflict://model";
+/// The stream completed; the answer has been validated.
+pub const EVENT_CONFLICT_DONE: &str = "ai-conflict://done";
+/// The stream failed. Carries provider/proxy error text, never a key.
+pub const EVENT_CONFLICT_FAILED: &str = "ai-conflict://failed";
+/// A stream was cancelled from the UI.
+pub const EVENT_CONFLICT_CANCELLED: &str = "ai-conflict://cancelled";
+
+/// What became of the model's answer.
+///
+/// `[PROPOSAL]` ADR-0024 §3.4.4: "the suggestion is marked **rejected**,
+/// with the reason attached; the user can still edit by hand". The two
+/// states are one enum rather than two optional fields so that a consumer
+/// cannot read "no suggestion and no reason" as a third, undefined state.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[serde(tag = "state", rename_all = "camelCase")]
+pub enum SuggestionOutcome {
+    /// The answer passed every check in ADR §3.4.2 and may be shown.
+    Accepted {
+        /// The replacement text, verbatim.
+        suggestion: String,
+    },
+    /// The answer was refused.
+    Rejected {
+        /// The user-facing reason the answer was refused.
+        reason: String,
+    },
+}
+
+/// One event on the conflict channel.
+///
+/// `[FACT]` The shape mirrors [`ReviewEvent`]: a `type` tag for dispatch,
+/// `camelCase` fields for the TypeScript consumer, and a `session_id` on
+/// every event so a late event from a cancelled session can be discarded
+/// instead of appended to the next region's text.
+///
+/// `[PROPOSAL]` ADR-0024 §3.7.2 adds one field the review channel does
+/// not have: `region_id`. Two arbitrations can be in flight over the life
+/// of the app, and the region id is what says *which* region a token
+/// belongs to — the property that stops a late token from one region
+/// landing on another.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[serde(tag = "type", rename_all = "camelCase")]
+pub enum ConflictEvent {
+    /// An incremental chunk of the model's answer.
+    Token {
+        session_id: String,
+        region_id: String,
+        delta: String,
+    },
+    /// The model the provider reported.
+    Model {
+        session_id: String,
+        region_id: String,
+        model: String,
+    },
+    /// Terminal success. `tokens` counts the deltas received.
+    Done {
+        session_id: String,
+        region_id: String,
+        tokens: u32,
+        outcome: SuggestionOutcome,
+    },
+    /// Terminal failure. `message` is provider or transport wording.
+    Failed {
+        session_id: String,
+        region_id: String,
+        message: String,
+    },
+    /// Cancelled by the user.
+    ///
+    /// `[INFERENCE]` No `region_id` here: the cancellation is a property of
+    /// the *stream*, and the caller knows which region it asked about.
+    Cancelled { session_id: String },
+}
+
+impl ConflictEvent {
+    /// Tauri event name for this variant.
+    pub fn name(&self) -> &'static str {
+        match self {
+            ConflictEvent::Token { .. } => EVENT_CONFLICT_TOKEN,
+            ConflictEvent::Model { .. } => EVENT_CONFLICT_MODEL,
+            ConflictEvent::Done { .. } => EVENT_CONFLICT_DONE,
+            ConflictEvent::Failed { .. } => EVENT_CONFLICT_FAILED,
+            ConflictEvent::Cancelled { .. } => EVENT_CONFLICT_CANCELLED,
+        }
+    }
+}
+
+/// Transport for conflict events.
+///
+/// `[FACT]` This is the same shape as [`ReviewEmitter`]: the behaviour
+/// worth testing — event ordering, cancellation, the key-leak guard — is
+/// what a recording emitter observes, and a command body that required a
+/// live Tauri runtime could not be exercised at all.
+pub trait ConflictEmitter: Send + Sync {
+    /// Deliver one event. `Err` carries a description of the bridge
+    /// failure only.
+    fn emit(&self, event: &ConflictEvent) -> Result<(), String>;
+}
+
+impl ConflictEmitter for TauriEmitter {
+    fn emit(&self, event: &ConflictEvent) -> Result<(), String> {
         self.0
             .emit(event.name(), event.clone())
             .map_err(|e| format!("emit {}: {e}", event.name()))
@@ -412,6 +528,399 @@ pub async fn ai_review_cancel(app: AppHandle, state: State<'_, DesktopState>) ->
     cancel_review(Arc::clone(&state.reviews), Arc::new(TauriEmitter(app))).await
 }
 
+// --- conflict arbitration (ADR-0024 §3.4 / §3.7) -------------------------
+
+/// The conflict region as it arrives from the webview.
+///
+/// `[FACT]` The desktop shell talks to the webview in camelCase JSON, so
+/// the DTO renames its fields. The conversion into the library's
+/// [`ConflictRegion`] is the only place the two shapes meet, which keeps
+/// the AI-facing type free of any wire-format concern.
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConflictRegionDto {
+    /// The repository-relative path of the conflicted file.
+    pub path: String,
+    /// The base blob's object id, when the base was available.
+    pub base_oid: String,
+    /// The region's ordinal in the merged output.
+    pub index: usize,
+    /// The ours side's text, verbatim.
+    pub ours: String,
+    /// The base side's text, verbatim.
+    pub base: String,
+    /// The theirs side's text, verbatim.
+    pub theirs: String,
+    /// The base file's lines before the region.
+    pub context_before: String,
+    /// The base file's lines after the region.
+    pub context_after: String,
+}
+
+impl From<ConflictRegionDto> for ConflictRegion {
+    fn from(dto: ConflictRegionDto) -> Self {
+        ConflictRegion {
+            path: dto.path,
+            base_oid: dto.base_oid,
+            index: dto.index,
+            ours: dto.ours,
+            base: dto.base,
+            theirs: dto.theirs,
+            context_before: dto.context_before,
+            context_after: dto.context_after,
+        }
+    }
+}
+
+/// Everything `ai_conflict_start` accepts besides the region itself.
+#[derive(Debug, Clone, Default)]
+pub struct ConflictArgs {
+    /// Registry key. Blank/absent means [`DEFAULT_PROVIDER`].
+    pub provider: Option<String>,
+    /// Blank/absent means the preset's default model.
+    pub model: Option<String>,
+    /// Blank/absent means the preset's own base URL.
+    pub base_url: Option<String>,
+}
+
+/// What the UI learns when an arbitration starts.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConflictStarted {
+    /// Identifies this stream, exactly as [`ReviewStarted::session_id`]
+    /// does for a review.
+    pub session_id: String,
+    /// The region this arbitration is about.
+    ///
+    /// `[PROPOSAL]` ADR-0024 §3.7.2: the answer has to come back bound to
+    /// this id, and the UI needs it to match a token event to a region.
+    pub region_id: String,
+    /// The registry key that was used.
+    pub provider: String,
+    /// The model that was requested.
+    pub model: String,
+    /// Always `true` here — a provider that cannot stream is refused
+    /// rather than degraded.
+    pub streaming: bool,
+    /// How many suspected secrets were replaced before sending.
+    ///
+    /// `[FACT]` Redaction is heuristic (`src/ai/sanitize.rs`), so the count
+    /// is surfaced rather than hidden: ADR-0024 §3.3 requires the dialog to
+    /// say how much was replaced.
+    pub redactions: usize,
+}
+
+/// The most characters the answer may accumulate.
+///
+/// `[PROPOSAL]` The frontend caps the text it buffers at
+/// `REVIEW_MAX_TEXT_CHARS = 200_000`; this is the same number on the Rust
+/// side, so a runaway stream cannot grow the backend's memory without
+/// bound. An answer this long is refused by the length check anyway.
+pub const CONFLICT_MAX_ANSWER_CHARS: usize = 200_000;
+
+/// Refuse a region that carries nothing to arbitrate.
+fn validate_region(region: &ConflictRegion) -> AppResult<()> {
+    if region.path.trim().is_empty() {
+        return Err(AppError::AiReviewInvalid(String::from(
+            "the conflict region has no path",
+        )));
+    }
+    if region.ours.trim().is_empty()
+        && region.base.trim().is_empty()
+        && region.theirs.trim().is_empty()
+    {
+        return Err(AppError::AiReviewInvalid(String::from(
+            "the conflict region is empty on all three sides",
+        )));
+    }
+    Ok(())
+}
+
+/// Resolve the credential for `provider` (ADR-0024 §3.9).
+///
+/// `[PROPOSAL]` The vault wins, the environment is the fallback, and
+/// neither is `None` — which the caller turns into `AiReviewNoKey`.
+pub async fn resolve_ai_key<V: Vault + ?Sized>(vault: &V, provider: &str) -> Option<String> {
+    resolve_ai_key_with(vault, provider, read_api_key_env()).await
+}
+
+/// The same rule with the environment value passed in.
+///
+/// `[INFERENCE]` Taking the environment value as an argument is what makes
+/// the precedence rule testable: the process environment is global, and a
+/// test that mutated it would race every other test in the binary.
+pub async fn resolve_ai_key_with<V: Vault + ?Sized>(
+    vault: &V,
+    provider: &str,
+    env_value: Option<String>,
+) -> Option<String> {
+    let from_vault = match vault.get(&keys::ai_key_name(provider)).await {
+        Ok(value) => value,
+        Err(e) => {
+            // A vault that cannot be read is not a reason to refuse the
+            // call: the environment is still there. The error names the
+            // key, never a value.
+            tracing::warn!(
+                error = %e,
+                provider = %provider,
+                "could not read the provider key from the vault"
+            );
+            None
+        }
+    };
+    keys::pick_ai_key(from_vault, env_value)
+}
+
+/// Store a provider key in the vault (ADR-0024 §3.9).
+///
+/// The value is written under `ai/<provider>` and is **not** returned:
+/// there is deliberately no `ai_key_get`, and the generic `vault_get`
+/// refuses the `ai/` namespace, so a provider key cannot travel back to
+/// the webview.
+pub async fn ai_key_set_inner<V: VersionedVault + ?Sized>(
+    vault: &V,
+    provider: &str,
+    key: &str,
+) -> AppResult<()> {
+    let provider = provider.trim();
+    if !keys::is_valid_provider_name(provider) {
+        return Err(AppError::AiReviewInvalid(String::from(
+            "the provider name must be a plain lower-case name (letters, digits, '-' and '_')",
+        )));
+    }
+    let value = key.trim();
+    if value.is_empty() {
+        return Err(AppError::AiReviewInvalid(String::from(
+            "the api key is empty",
+        )));
+    }
+    vault
+        .set_with_version(&keys::ai_key_name(provider), value)
+        .await?;
+    Ok(())
+}
+
+/// Start a streaming arbitration for one conflict region.
+///
+/// Tauri-independent on purpose, for the same reason [`spawn_review`] is:
+/// the behaviour worth testing cannot be seen through a Tauri app handle.
+pub async fn spawn_conflict(
+    manager: Arc<ReviewManager>,
+    emitter: Arc<dyn ConflictEmitter>,
+    api_key: Option<String>,
+    region: ConflictRegion,
+    args: ConflictArgs,
+) -> AppResult<ConflictStarted> {
+    validate_region(&region)?;
+    let provider_key = clean(&args.provider).unwrap_or(DEFAULT_PROVIDER);
+    let registry = registry::ProviderRegistry::builtin();
+    // An unknown key fails here, with the known keys listed, and before
+    // any credential is read.
+    let spec = registry.get(provider_key)?;
+    if !spec.supports_streaming() {
+        return Err(AppError::AiReviewUnsupported(String::from(provider_key)));
+    }
+    // One stream at a time, exactly as for a review: two arbitrations
+    // interleaving their tokens into one text box is the same defect the
+    // `ReviewManager` slot exists to prevent.
+    if let Some(running) = manager.running_session() {
+        return Err(AppError::AiReviewAlreadyRunning(running));
+    }
+    let api_key = api_key.ok_or(AppError::AiReviewNoKey)?;
+
+    let spec = match clean(&args.base_url) {
+        Some(url) => spec.with_base_url(url),
+        None => spec.clone(),
+    };
+    let model = clean(&args.model).map_or_else(|| spec.default_model().to_string(), str::to_string);
+
+    let mut req = ChatRequest::new(model.clone(), prompt::conflict(&region));
+    // Untrusted tagging + heuristic secret redaction, after the prompt is
+    // built — the same order as `spawn_review`.
+    let redactions = prompt::conflict_redactions(&region);
+    sanitize::sanitize_request(&mut req);
+
+    let provider = spec.build(provider_key);
+    // The error is scrubbed on the way out, for the same reason the review
+    // path scrubs it: a misconfigured proxy can echo the `Authorization`
+    // header back inside an error body.
+    let rx = provider
+        .send_stream(&api_key, &req)
+        .await
+        .map_err(|e| AppError::Gitgit(sanitize::scrub_secret(&e.to_string(), &api_key)))?;
+
+    let session_id = new_session_id();
+    let join = tokio::spawn(pump_conflict(
+        Arc::clone(&manager),
+        emitter,
+        api_key,
+        session_id.clone(),
+        region.clone(),
+        rx,
+    ));
+    if let Err((handle, previous)) = manager.install(session_id.clone(), join) {
+        handle.abort();
+        let _ = handle.await;
+        return Err(AppError::AiReviewAlreadyRunning(previous));
+    }
+
+    Ok(ConflictStarted {
+        session_id,
+        region_id: region.id(),
+        provider: String::from(provider_key),
+        model,
+        streaming: true,
+        redactions,
+    })
+}
+
+/// Cancel the running arbitration and announce it. Tauri-independent.
+pub async fn cancel_conflict(
+    manager: Arc<ReviewManager>,
+    emitter: Arc<dyn ConflictEmitter>,
+) -> AppResult<String> {
+    let session_id = manager.cancel().await?;
+    if let Err(e) = emitter.emit(&ConflictEvent::Cancelled {
+        session_id: session_id.clone(),
+    }) {
+        // The cancel itself succeeded; failing the command here would tell
+        // the UI that stopping did not work, which is the one thing that
+        // would be a lie.
+        tracing::warn!(error = %e, "could not emit conflict cancellation");
+    }
+    Ok(session_id)
+}
+
+/// Drain one conflict stream into events, and validate the answer.
+///
+/// `[FACT]` This is [`pump`]'s shape: the slot is released on every exit
+/// path, the provider's error is scrubbed on the way out, and a stream
+/// that ends without a terminal event is reported as a failure rather
+/// than left to look like a finished answer.
+///
+/// `[PROPOSAL]` The one addition is the validation: ADR-0024 §3.4.2's five
+/// checks run on the accumulated answer *before* it is offered as a
+/// suggestion, and a refused answer is reported as a refusal with its
+/// reason. Nothing is written either way.
+async fn pump_conflict(
+    manager: Arc<ReviewManager>,
+    emitter: Arc<dyn ConflictEmitter>,
+    api_key: String,
+    session_id: String,
+    region: ConflictRegion,
+    mut rx: StreamReceiver,
+) {
+    let _slot = SlotGuard {
+        manager: Arc::clone(&manager),
+        session_id: session_id.clone(),
+    };
+
+    let region_id = region.id();
+    let mut tokens: u32 = 0;
+    let mut answer = String::new();
+    while let Some(item) = rx.recv().await {
+        match item {
+            Ok(StreamEvent::Token(delta)) => {
+                tokens = tokens.saturating_add(1);
+                if answer.len() < CONFLICT_MAX_ANSWER_CHARS {
+                    answer.push_str(&delta);
+                }
+                let _ = emitter.emit(&ConflictEvent::Token {
+                    session_id: session_id.clone(),
+                    region_id: region_id.clone(),
+                    delta,
+                });
+            }
+            Ok(StreamEvent::Model(model)) => {
+                let _ = emitter.emit(&ConflictEvent::Model {
+                    session_id: session_id.clone(),
+                    region_id: region_id.clone(),
+                    model,
+                });
+            }
+            Ok(StreamEvent::Finished) => {
+                let outcome = match conflict::validate_answer(&region, &answer) {
+                    Ok(suggestion) => SuggestionOutcome::Accepted { suggestion },
+                    Err(rejection) => SuggestionOutcome::Rejected {
+                        reason: rejection.reason().to_string(),
+                    },
+                };
+                let _ = emitter.emit(&ConflictEvent::Done {
+                    session_id: session_id.clone(),
+                    region_id: region_id.clone(),
+                    tokens,
+                    outcome,
+                });
+                return;
+            }
+            Err(e) => {
+                let _ = emitter.emit(&ConflictEvent::Failed {
+                    session_id: session_id.clone(),
+                    region_id: region_id.clone(),
+                    message: sanitize::scrub_secret(&e.to_string(), &api_key),
+                });
+                return;
+            }
+        }
+    }
+
+    // The channel closed with neither `Finished` nor an error. That is a
+    // truncated stream, and it is reported as a failure rather than left
+    // to look like a finished answer.
+    let _ = emitter.emit(&ConflictEvent::Failed {
+        session_id,
+        region_id,
+        message: String::from("the conflict stream ended before the provider finished"),
+    });
+}
+
+/// Start an AI arbitration for one conflict region. Returns as soon as the
+/// request is accepted; the answer arrives on the `ai-conflict://` events.
+#[tauri::command]
+pub async fn ai_conflict_start(
+    app: AppHandle,
+    state: State<'_, DesktopState>,
+    region: ConflictRegionDto,
+    provider: Option<String>,
+    model: Option<String>,
+    base_url: Option<String>,
+) -> AppResult<ConflictStarted> {
+    let provider_key = clean(&provider).unwrap_or(DEFAULT_PROVIDER).to_string();
+    let api_key = resolve_ai_key(state.vault.as_ref(), &provider_key).await;
+    spawn_conflict(
+        Arc::clone(&state.reviews),
+        Arc::new(TauriEmitter(app)),
+        api_key,
+        region.into(),
+        ConflictArgs {
+            provider,
+            model,
+            base_url,
+        },
+    )
+    .await
+}
+
+/// Stop the running arbitration. Returns the session id that was stopped.
+#[tauri::command]
+pub async fn ai_conflict_cancel(
+    app: AppHandle,
+    state: State<'_, DesktopState>,
+) -> AppResult<String> {
+    cancel_conflict(Arc::clone(&state.reviews), Arc::new(TauriEmitter(app))).await
+}
+
+/// Store a provider key in the vault. Returns nothing — a key never
+/// travels back to the webview.
+#[tauri::command]
+pub async fn ai_key_set(
+    state: State<'_, DesktopState>,
+    provider: String,
+    key: String,
+) -> AppResult<()> {
+    ai_key_set_inner(state.vault.as_ref(), &provider, &key).await
+}
+
 #[cfg(test)]
 mod tests {
     //! Tests for the streaming review command layer (V0 task T9).
@@ -437,8 +946,10 @@ mod tests {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::net::{TcpListener, TcpStream};
 
+    use gitgit::ai::conflict::DialogChoice;
     use gitgit::ai::provider::StreamEvent;
     use gitgit::ai::stream::stream_channel;
+    use gitgit::server::vault_versioned::VersionedVault;
 
     use super::*;
     use crate::state::REVIEW_MAX_DIFF_BYTES;
@@ -1369,5 +1880,480 @@ mod tests {
                 }
             })
             .unwrap_or(0)
+    }
+
+    /* ---------------- conflict arbitration (ADR-0024 §3.4 / §3.7) ------- */
+
+    /// A conflict region with three distinct sides.
+    fn conflict_region() -> ConflictRegion {
+        ConflictRegion {
+            path: String::from("src/foo.rs"),
+            base_oid: String::from("0123456789abcdef0123456789abcdef01234567"),
+            index: 0,
+            ours: String::from("let a = 1;\n"),
+            base: String::from("let a = 0;\n"),
+            theirs: String::from("let a = 2;\n"),
+            context_before: String::from("fn main() {\n"),
+            context_after: String::from("}\n"),
+        }
+    }
+
+    /// Collects conflict events instead of shipping them to a webview.
+    #[derive(Default)]
+    struct ConflictRecorder {
+        events: Mutex<Vec<ConflictEvent>>,
+    }
+
+    impl ConflictRecorder {
+        fn events(&self) -> Vec<ConflictEvent> {
+            self.events
+                .lock()
+                .expect("recorder is not poisoned")
+                .clone()
+        }
+
+        /// The outcome the arbitration ended with.
+        fn outcome(&self) -> SuggestionOutcome {
+            self.events()
+                .into_iter()
+                .find_map(|e| match e {
+                    ConflictEvent::Done { outcome, .. } => Some(outcome),
+                    _ => None,
+                })
+                .expect("a done event")
+        }
+    }
+
+    impl ConflictEmitter for ConflictRecorder {
+        fn emit(&self, event: &ConflictEvent) -> Result<(), String> {
+            self.events
+                .lock()
+                .expect("recorder is not poisoned")
+                .push(event.clone());
+            Ok(())
+        }
+    }
+
+    /// A unique directory under the system temp dir.
+    fn unique_temp(label: &str) -> std::path::PathBuf {
+        static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let n = COUNTER.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        std::env::temp_dir().join(format!(
+            "gitgit-desktop-conflict-{label}-{}-{n}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ))
+    }
+
+    /// Render `text` so it can sit inside a JSON string in a mock frame.
+    fn json_escape(text: &str) -> String {
+        let mut out = String::new();
+        for c in text.chars() {
+            match c {
+                '\\' => out.push_str("\\\\"),
+                '"' => out.push_str("\\\""),
+                '\n' => out.push_str("\\n"),
+                '\r' => out.push_str("\\r"),
+                '\t' => out.push_str("\\t"),
+                other => out.push(other),
+            }
+        }
+        out
+    }
+
+    /// SSE frames that deliver `answer` as two chunks: the region id and
+    /// the replacement text.
+    ///
+    /// `[INFERENCE]` Two frames rather than one, so the test also covers
+    /// the newline between the id and the text surviving the stream.
+    fn answer_frames(answer: &str) -> Vec<String> {
+        let mut frames = vec![model_frame()];
+        let (id, body) = match answer.split_once('\n') {
+            Some((id, body)) => (id, body),
+            None => (answer, ""),
+        };
+        frames.push(content_frame(&json_escape(id)));
+        frames.push(content_frame(&json_escape(&format!("\n{body}"))));
+        frames.push("data: [DONE]\n\n".to_string());
+        frames
+    }
+
+    /// The provider arguments that point at the mock server.
+    fn start_conflict_args(base_url: &str) -> ConflictArgs {
+        ConflictArgs {
+            base_url: Some(String::from(base_url)),
+            ..ConflictArgs::default()
+        }
+    }
+
+    /// Wait for `predicate` over the recorder, or fail the test.
+    async fn wait_for_conflict(
+        recorder: &Arc<ConflictRecorder>,
+        what: &str,
+        predicate: impl Fn(&[ConflictEvent]) -> bool,
+    ) -> Vec<ConflictEvent> {
+        for _ in 0..200 {
+            let events = recorder.events();
+            if predicate(&events) {
+                return events;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        panic!("timed out waiting for {what}");
+    }
+
+    #[tokio::test]
+    async fn an_accepted_answer_becomes_a_suggestion() {
+        // The happy path: the model echoed the region id and proposed a
+        // replacement, so the answer passes every check and is offered as a
+        // suggestion — and only as a suggestion.
+        let region = conflict_region();
+        let answer = format!("{}\nlet a = 1;\n", region.id());
+        let mock = MockSseServer::start(MockCfg::ok(answer_frames(&answer))).await;
+        let manager = Arc::new(ReviewManager::new());
+        let recorder = Arc::new(ConflictRecorder::default());
+        let emitter: Arc<dyn ConflictEmitter> = recorder.clone();
+        let started = spawn_conflict(
+            Arc::clone(&manager),
+            emitter,
+            Some(String::from("k")),
+            region,
+            start_conflict_args(&mock.base_url()),
+        )
+        .await
+        .expect("the arbitration starts");
+        assert!(started.streaming, "the start must report streaming");
+        assert_eq!(started.region_id, answer.lines().next().unwrap_or_default());
+
+        wait_for_conflict(&recorder, "the done event", |e| {
+            e.iter().any(|x| matches!(x, ConflictEvent::Done { .. }))
+        })
+        .await;
+        let _ = manager.cancel().await;
+        mock.finish().await;
+
+        assert_eq!(
+            recorder.outcome(),
+            SuggestionOutcome::Accepted {
+                suggestion: String::from("let a = 1;\n")
+            },
+            "an accepted suggestion keeps the text verbatim"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_conflict_answer_carrying_a_marker_is_rejected_and_nothing_is_written() {
+        // ADR-0024 §3.4.2 row 2: the model "helpfully" pastes the whole
+        // conflicted block back. The suggestion must be marked rejected
+        // with a reason, and nothing may be written.
+        let region = conflict_region();
+        let answer = format!(
+            "{}\n<<<<<<< OURS\nlet a = 1;\n=======\nlet a = 0;\n>>>>>>> THEIRS\n",
+            region.id()
+        );
+        // The file the conflict came from, so "nothing was written" is an
+        // observation about the disk rather than an assertion about the
+        // absence of a call.
+        let dir = unique_temp("no-write");
+        std::fs::create_dir_all(&dir).expect("temp dir");
+        let file = dir.join("foo.rs");
+        let before = "<<<<<<< OURS\nlet a = 1;\n=======\nlet a = 0;\n>>>>>>> THEIRS\n";
+        std::fs::write(&file, before).expect("write the conflicted file");
+
+        let mock = MockSseServer::start(MockCfg::ok(answer_frames(&answer))).await;
+        let manager = Arc::new(ReviewManager::new());
+        let recorder = Arc::new(ConflictRecorder::default());
+        let emitter: Arc<dyn ConflictEmitter> = recorder.clone();
+        spawn_conflict(
+            Arc::clone(&manager),
+            emitter,
+            Some(String::from("k")),
+            region,
+            start_conflict_args(&mock.base_url()),
+        )
+        .await
+        .expect("the arbitration starts");
+
+        wait_for_conflict(&recorder, "the done event", |e| {
+            e.iter().any(|x| matches!(x, ConflictEvent::Done { .. }))
+        })
+        .await;
+        let _ = manager.cancel().await;
+        mock.finish().await;
+
+        match recorder.outcome() {
+            SuggestionOutcome::Rejected { reason } => {
+                assert!(reason.contains("conflict marker"), "got: {reason}");
+            }
+            SuggestionOutcome::Accepted { suggestion } => {
+                panic!("the suggestion must be refused, got: {suggestion}");
+            }
+        }
+        assert_eq!(
+            std::fs::read_to_string(&file).expect("read back"),
+            before,
+            "the arbitration path must not write anything"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_conflict_answer_bound_to_another_region_is_discarded() {
+        // ADR-0024 §3.7.2: the answer has to carry the id of the region it
+        // was shown for. A different id means the answer is about something
+        // else, and it is discarded rather than shown.
+        let region = conflict_region();
+        let other_id = "00000000000000000000000000000000";
+        let answer = format!("{other_id}\nlet a = 1;\n");
+        let mock = MockSseServer::start(MockCfg::ok(answer_frames(&answer))).await;
+        let manager = Arc::new(ReviewManager::new());
+        let recorder = Arc::new(ConflictRecorder::default());
+        let emitter: Arc<dyn ConflictEmitter> = recorder.clone();
+        spawn_conflict(
+            Arc::clone(&manager),
+            emitter,
+            Some(String::from("k")),
+            region,
+            start_conflict_args(&mock.base_url()),
+        )
+        .await
+        .expect("the arbitration starts");
+
+        wait_for_conflict(&recorder, "the done event", |e| {
+            e.iter().any(|x| matches!(x, ConflictEvent::Done { .. }))
+        })
+        .await;
+        let _ = manager.cancel().await;
+        mock.finish().await;
+
+        match recorder.outcome() {
+            SuggestionOutcome::Rejected { reason } => {
+                assert!(reason.contains("another region"), "got: {reason}");
+            }
+            SuggestionOutcome::Accepted { suggestion } => {
+                panic!("the suggestion must be discarded, got: {suggestion}");
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn a_secret_in_the_region_is_redacted_before_the_request_leaves() {
+        // The conflict region is repository content, so the same sanitizer
+        // that guards a diff guards it. The mock records the request body
+        // it received, so this asserts on what actually left the process.
+        let mut region = conflict_region();
+        region.ours = String::from("let api_key = \"super-secret-value-1234\";\n");
+        let answer = format!("{}\nlet a = 1;\n", region.id());
+        let mock = MockSseServer::start(MockCfg::ok(answer_frames(&answer))).await;
+        let manager = Arc::new(ReviewManager::new());
+        let recorder = Arc::new(ConflictRecorder::default());
+        let emitter: Arc<dyn ConflictEmitter> = recorder.clone();
+        let started = spawn_conflict(
+            Arc::clone(&manager),
+            emitter,
+            Some(String::from("k")),
+            region,
+            start_conflict_args(&mock.base_url()),
+        )
+        .await
+        .expect("the arbitration starts");
+        assert_eq!(
+            started.redactions, 1,
+            "one secret-shaped span in the region must be reported"
+        );
+
+        wait_for_conflict(&recorder, "the done event", |e| {
+            e.iter().any(|x| matches!(x, ConflictEvent::Done { .. }))
+        })
+        .await;
+        let _ = manager.cancel().await;
+        let body = mock.request_body();
+        mock.finish().await;
+
+        assert!(
+            body.contains(gitgit::ai::sanitize::REDACTED),
+            "body: {body}"
+        );
+        assert!(
+            !body.contains("super-secret-value-1234"),
+            "the secret reached the provider unredacted: {body}"
+        );
+        assert!(body.contains("<untrusted"), "body: {body}");
+    }
+
+    #[tokio::test]
+    async fn without_a_key_the_three_non_ai_choices_still_work() {
+        // ADR-0024 §3.7.1: "the conflict dialog stays fully usable without
+        // a key: keep ours / keep theirs / hand-edit all work as usual."
+        let manager = Arc::new(ReviewManager::new());
+        let recorder = Arc::new(ConflictRecorder::default());
+        let emitter: Arc<dyn ConflictEmitter> = recorder.clone();
+        let region = conflict_region();
+        let err = spawn_conflict(
+            manager,
+            emitter,
+            None,
+            region.clone(),
+            ConflictArgs::default(),
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(err.kind(), "AiReviewNoKey", "got: {err}");
+        assert!(
+            err.to_string().contains(gitgit::ai::API_KEY_ENV),
+            "the message must name the variable: {err}"
+        );
+
+        // The three options that do not need the model are unaffected.
+        assert_eq!(
+            region.resolve(DialogChoice::KeepOurs, None).unwrap(),
+            "let a = 1;\n"
+        );
+        assert_eq!(
+            region.resolve(DialogChoice::KeepTheirs, None).unwrap(),
+            "let a = 2;\n"
+        );
+        assert_eq!(
+            region
+                .resolve(DialogChoice::Manual, Some("let a = 9;\n"))
+                .unwrap(),
+            "let a = 9;\n"
+        );
+        assert!(recorder.events().is_empty(), "nothing may be emitted");
+    }
+
+    #[tokio::test]
+    async fn anthropic_is_refused_before_any_network_round_trip_for_a_conflict() {
+        // ADR-0024 Lane B acceptance test 7: a provider that cannot stream
+        // is refused before the request goes out.
+        let manager = Arc::new(ReviewManager::new());
+        let recorder = Arc::new(ConflictRecorder::default());
+        let emitter: Arc<dyn ConflictEmitter> = recorder.clone();
+        let args = ConflictArgs {
+            provider: Some(String::from("anthropic")),
+            ..ConflictArgs::default()
+        };
+        let err = spawn_conflict(
+            manager,
+            emitter,
+            Some(String::from("k")),
+            conflict_region(),
+            args,
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(err.kind(), "AiReviewUnsupported", "got: {err}");
+        assert!(recorder.events().is_empty(), "nothing may be emitted");
+    }
+
+    #[tokio::test]
+    async fn every_conflict_event_variant_has_its_own_event_name() {
+        let names = [
+            ConflictEvent::Token {
+                session_id: String::from("s"),
+                region_id: String::from("r"),
+                delta: String::from("x"),
+            }
+            .name(),
+            ConflictEvent::Model {
+                session_id: String::from("s"),
+                region_id: String::from("r"),
+                model: String::from("m"),
+            }
+            .name(),
+            ConflictEvent::Done {
+                session_id: String::from("s"),
+                region_id: String::from("r"),
+                tokens: 1,
+                outcome: SuggestionOutcome::Rejected {
+                    reason: String::from("r"),
+                },
+            }
+            .name(),
+            ConflictEvent::Failed {
+                session_id: String::from("s"),
+                region_id: String::from("r"),
+                message: String::from("e"),
+            }
+            .name(),
+            ConflictEvent::Cancelled {
+                session_id: String::from("s"),
+            }
+            .name(),
+        ];
+        let unique: std::collections::BTreeSet<&str> = names.iter().copied().collect();
+        assert_eq!(unique.len(), names.len(), "event names must be distinct");
+        assert!(names.contains(&EVENT_CONFLICT_CANCELLED));
+        // The conflict channel is its own: a review listener must not pick
+        // up conflict tokens and vice versa.
+        assert!(names.iter().all(|n| n.starts_with("ai-conflict://")));
+    }
+
+    /* ---------------- key resolution (ADR-0024 §3.9) --------------------- */
+
+    /// A file-backed vault in a fresh temporary directory.
+    fn temp_vault(label: &str) -> gitgit::server::vault::FileVault {
+        let dir = unique_temp(label);
+        std::fs::create_dir_all(&dir).expect("temp dir");
+        gitgit::server::vault::FileVault::new(dir)
+    }
+
+    #[tokio::test]
+    async fn the_vault_key_wins_over_the_environment() {
+        let vault = temp_vault("vault-wins");
+        vault
+            .set_with_version("ai/openai", "sk-from-vault")
+            .await
+            .expect("store the key");
+        let resolved =
+            resolve_ai_key_with(&vault, "openai", Some(String::from("sk-from-env"))).await;
+        assert_eq!(resolved.as_deref(), Some("sk-from-vault"));
+    }
+
+    #[tokio::test]
+    async fn the_environment_is_the_fallback_when_the_vault_is_empty() {
+        let vault = temp_vault("env-fallback");
+        let resolved =
+            resolve_ai_key_with(&vault, "openai", Some(String::from("sk-from-env"))).await;
+        assert_eq!(resolved.as_deref(), Some("sk-from-env"));
+    }
+
+    #[tokio::test]
+    async fn neither_source_yields_no_key() {
+        let vault = temp_vault("no-key");
+        let resolved = resolve_ai_key_with(&vault, "openai", None).await;
+        assert!(resolved.is_none(), "no source, no key");
+    }
+
+    #[tokio::test]
+    async fn a_stored_key_is_not_readable_through_the_generic_vault_path() {
+        // ADR-0024 §3.9 item 3: a provider key never travels to the
+        // webview, so the generic read path refuses the namespace.
+        let vault = temp_vault("key-not-readable");
+        ai_key_set_inner(&vault, "openai", "sk-secret-value")
+            .await
+            .expect("the key is stored");
+        let err = crate::commands::vault::vault_get_inner(&vault, "ai/openai")
+            .await
+            .expect_err("the ai/ namespace is refused");
+        assert_eq!(err.kind(), "Vault");
+        assert!(
+            !err.to_string().contains("sk-secret-value"),
+            "the key must not be echoed: {err}"
+        );
+        // The AI path reads it, though.
+        let resolved = resolve_ai_key_with(&vault, "openai", None).await;
+        assert_eq!(resolved.as_deref(), Some("sk-secret-value"));
+    }
+
+    #[tokio::test]
+    async fn a_provider_name_that_could_leave_the_namespace_is_refused() {
+        let vault = temp_vault("bad-provider");
+        let err = ai_key_set_inner(&vault, "openai/../secrets", "sk-x")
+            .await
+            .expect_err("the provider name is refused");
+        assert_eq!(err.kind(), "AiReviewInvalid", "got: {err}");
     }
 }
