@@ -20,6 +20,7 @@
     { href: '/vault', labelKey: 'nav.vault', icon: '🔐' },
     { href: '/graph', labelKey: 'nav.graph', icon: '🕸️' },
     { href: '/review', labelKey: 'nav.review', icon: '🔍' },
+    { href: '/conflicts', labelKey: 'nav.conflicts', icon: '⚖️' },
     { href: '/settings', labelKey: 'nav.settings', icon: '⚙️' },
   ];
 
