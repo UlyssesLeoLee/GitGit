@@ -46,6 +46,9 @@ pub async fn backup(
     repos_dir: &Path,
     disk_name: &str,
 ) -> Result<(SnapshotMeta, String)> {
+    // The name becomes a path ✓ — `<repos_dir>/<name>.git` ✓ — so it is
+    // checked before it is used ✓.
+    validate_cloud_repo_name(repo)?;
     let dir = repo_dir(repos_dir, repo);
     if !dir.is_dir() {
         return Err(GitGitError::Cloud(format!(
@@ -106,6 +109,16 @@ pub async fn restore(
         Some(requested) => requested.to_string(),
         None => meta.repo.clone(),
     };
+    // `[FACT]` The repository name becomes a path ✓ — `<repos_dir>/<name>.git`
+    // ✓ — and when the caller does not name one, the name comes from the
+    // **snapshot's metadata** ✓, which came from the far end ✓. So it is
+    // checked before it is used ✓, with the same rule the rest of the
+    // product applies to a repository name ✓
+    // (`crate::config::validate_repo_name` ✓): no separator ✓, no `..` ✓,
+    // no leading dot ✓, and — because on Windows `C:` is a drive prefix
+    // and `Path::join` would discard the repositories directory ✓ — no
+    // colon ✓.
+    validate_cloud_repo_name(&target_repo)?;
     let digest = hex::encode(Sha256::digest(&archive));
     if digest != meta.sha256 {
         return Err(GitGitError::Cloud(format!(
@@ -120,8 +133,15 @@ pub async fn restore(
     // Every path is checked **before** anything is written ✓: a snapshot
     // that carries an unsafe path must not leave half a repository behind
     // ✓, and must not write a single byte outside the staging directory ✓.
+    //
+    // `[FACT]` The rule is the product's own ✓ — the same one the conflict
+    // core applies before it writes into a work tree ✓
+    // (`crate::repo::status::validate_rel_path` ✓): repository-relative ✓,
+    // no `..` ✓, no backslash ✓, and no colon ✓ — a colon is a Windows
+    // drive prefix ✓, and `Path::join("C:/x")` would throw the staging
+    // directory away ✓.
     for entry in &entries {
-        if is_unsafe_path(&entry.path) {
+        if crate::repo::status::validate_rel_path(&entry.path).is_err() {
             return Err(GitGitError::Cloud(format!(
                 "the snapshot contains an unsafe path: {:?}",
                 entry.path
@@ -205,13 +225,27 @@ fn remove_path(path: &Path) -> std::io::Result<()> {
     }
 }
 
-/// Whether a path inside a snapshot may be written ✓.
+/// Check a repository name that is about to become a path ✓.
 ///
-/// `[FACT]` A path that climbs out of the archive — an absolute path ✓, a
-/// `..` component ✓, or a backslash ✓ — is refused ✓: it would name a
-/// file outside the repository ✓.
-fn is_unsafe_path(path: &str) -> bool {
-    path.starts_with('/') || path.split('/').any(|part| part == "..") || path.contains('\\')
+/// `[FACT]` The rule is the product's own ✓ — the one
+/// `crate::config::validate_repo_name` applies ✓ and the one the HTTP
+/// layer applies ✓ — plus the colon ✓, because on Windows `C:` is a
+/// drive prefix ✓ and `Path::join` would discard the repositories
+/// directory ✓.
+///
+/// `[FACT]` It matters on both sides ✓: the name a backup reads from ✓ is
+/// the caller's ✓, and the name a restore writes to ✓ may come from the
+/// snapshot's metadata ✓, which came from the far end ✓.
+fn validate_cloud_repo_name(name: &str) -> Result<()> {
+    crate::config::validate_repo_name(name)?;
+    let stem = name.strip_suffix(".git").unwrap_or(name);
+    crate::config::validate_repo_name(stem)?;
+    if stem.contains(':') {
+        return Err(GitGitError::Cloud(format!(
+            "the snapshot names an unsafe repository: {name:?}"
+        )));
+    }
+    Ok(())
 }
 
 /// Split a snapshot file into its metadata and its archive.
@@ -536,6 +570,88 @@ mod tests {
         // The staged copy is gone.
         assert!(!staging.exists(), "the staged copy must be dropped");
         assert!(!retired.exists(), "the retired copy must be gone");
+    }
+
+    /// A snapshot file: the magic, the metadata line, the archive ✓.
+    fn snapshot_bytes(meta: &SnapshotMeta, archive: &[u8]) -> Vec<u8> {
+        let mut file = Vec::new();
+        file.extend_from_slice(SNAPSHOT_MAGIC);
+        file.extend_from_slice(&serde_json::to_vec(meta).unwrap());
+        file.push(b'\n');
+        file.extend_from_slice(archive);
+        file
+    }
+
+    #[tokio::test]
+    async fn a_snapshot_that_names_another_directory_is_refused() {
+        // The repository name in the snapshot's metadata becomes a path:
+        // `<repos_dir>/<name>.git`. A name that climbs out of the
+        // repositories directory must be refused before anything is
+        // written — the metadata came from the far end, so it is not
+        // trusted.
+        let disk = MemoryDisk::default();
+        let repos = temp_dir("escape-repo-name");
+        let archive = tar::write(&[Entry {
+            path: "HEAD".to_string(),
+            data: b"ref: refs/heads/main\n".to_vec(),
+            mode: 0o644,
+            mtime: 0,
+        }])
+        .unwrap();
+        let meta = SnapshotMeta {
+            version: SNAPSHOT_VERSION,
+            disk: "oss".to_string(),
+            repo: "../escape".to_string(),
+            created_unix: 0,
+            entries: 1,
+            sha256: hex::encode(Sha256::digest(&archive)),
+        };
+        disk.put("snapshots/demo/x.tar", &snapshot_bytes(&meta, &archive))
+            .await
+            .unwrap();
+
+        let err = restore(&disk, "snapshots/demo/x.tar", None, &repos)
+            .await
+            .unwrap_err();
+        assert!(format!("{err}").contains("invalid repo name"), "got: {err}");
+        // Nothing may be written outside the repositories directory.
+        assert!(
+            !repos.parent().unwrap().join("escape.git").exists(),
+            "nothing may be written outside the repositories directory"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_snapshot_with_a_drive_qualified_path_is_refused() {
+        // On Windows `C:/x` is a drive-qualified path, and joining it to
+        // the staging directory throws the staging directory away. The
+        // path has no `..` and no backslash, so only the drive prefix
+        // gives it away.
+        let disk = MemoryDisk::default();
+        let repos = temp_dir("drive-path");
+        let archive = tar::write(&[Entry {
+            path: "C:/escaped.txt".to_string(),
+            data: b"owned".to_vec(),
+            mode: 0o644,
+            mtime: 0,
+        }])
+        .unwrap();
+        let meta = SnapshotMeta {
+            version: SNAPSHOT_VERSION,
+            disk: "oss".to_string(),
+            repo: "demo".to_string(),
+            created_unix: 0,
+            entries: 1,
+            sha256: hex::encode(Sha256::digest(&archive)),
+        };
+        disk.put("snapshots/demo/x.tar", &snapshot_bytes(&meta, &archive))
+            .await
+            .unwrap();
+
+        let err = restore(&disk, "snapshots/demo/x.tar", Some("demo"), &repos)
+            .await
+            .unwrap_err();
+        assert!(format!("{err}").contains("unsafe path"), "got: {err}");
     }
 
     #[tokio::test]
