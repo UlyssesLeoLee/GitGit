@@ -27,6 +27,7 @@
   import Settings from './routes/Settings.svelte';
   import Graph from './routes/Graph.svelte';
   import Review from './routes/Review.svelte';
+  import Conflicts from './routes/Conflicts.svelte';
   import NotFound from './routes/NotFound.svelte';
   import { catalog } from '$lib/i18n';
 
@@ -41,6 +42,11 @@
     '/vault': { component: Vault },
     '/graph': { component: Graph },
     '/review': { component: Review },
+    // `[PROPOSAL]` ADR-0024 §3.5: the conflict arbitration is its own
+    // route, not a modal and not an extension of `/review` — the two pages
+    // carry different mental models (a diff to comment on vs. a region to
+    // decide).
+    '/conflicts': { component: Conflicts },
     '/settings': { component: Settings },
     '*': { component: NotFound },
   };

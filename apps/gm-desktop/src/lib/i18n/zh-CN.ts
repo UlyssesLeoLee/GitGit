@@ -32,6 +32,7 @@ const zh: Readonly<Record<string, string>> = {
   'nav.graph': '知识图谱',
   'nav.settings': '设置',
   'nav.review': 'AI 评审',
+  'nav.conflicts': '冲突仲裁',
 
   // 概览 / 服务器
   'dashboard.heading': '服务总览',
@@ -227,6 +228,62 @@ const zh: Readonly<Record<string, string>> = {
   'review.truncated': '内容过长，显示已截断。',
   'review.invalidDiff': '请先粘贴 diff。',
   'review.invalidBaseUrl': '请输入 http(s) 开头的 URL，留空则使用 provider 默认值。',
+
+  // 冲突仲裁（ADR-0024）
+  'conflict.heading': '冲突仲裁',
+  'conflict.subhead': '一次一个区域·AI 只是一个选项，裁决权在你',
+  'conflict.repoLabel': '仓库',
+  'conflict.loadFailed': '无法读取冲突区域。',
+  'conflict.noRegions': '该仓库没有需要仲裁的冲突区域。',
+  'conflict.regionIndex': '区域 {n}',
+  'conflict.scope': '作用域：{scope}',
+  'conflict.ours': 'ours 侧',
+  'conflict.base': 'base 侧',
+  'conflict.theirs': 'theirs 侧',
+  'conflict.keepOurs': '保留 ours',
+  'conflict.keepTheirs': '保留 theirs',
+  'conflict.manualEdit': '手工编辑',
+  'conflict.askAi': '问 AI',
+  'conflict.accept': '接受建议',
+  'conflict.stop': '停止',
+  'conflict.close': '关闭该区域',
+  'conflict.showDiff': '查看差异',
+  'conflict.hideDiff': '收起差异',
+  'conflict.diffOursLabel': 'ours 侧原文',
+  'conflict.diffSuggestionLabel': 'AI 建议',
+  'conflict.rawAnswer': '模型返回的原文',
+  'conflict.manualLabel': '替换文本',
+  'conflict.providerLabel': 'Provider',
+  'conflict.modelLabel': '模型（可选）',
+  'conflict.modelPlaceholder': '使用 provider 默认值',
+  'conflict.redacted': '发送前已过滤 {n} 处疑似密钥的片段',
+  'conflict.modelServed': '模型：{model}',
+  // `[PROPOSAL]` ADR-0024 §3.7.1:该选项存在但不可用,并说明 key 填在哪里。
+  // 不需要凭据的三个选项照常可用。
+  'conflict.noKey':
+    '该 provider 没有配置 API key，因此「问 AI」不可用。保留 ours、保留 theirs、手工编辑照常可用。请在 Settings → AI provider key 中填写，或在启动应用的环境中设置 GITGIT_AI_API_KEY。',
+  // `[PROPOSAL]` ADR-0024 §3.4.1:不能流式的 provider 会被拒绝而非降级,
+  // 并把拒绝的理由说出来。
+  'conflict.unsupported':
+    '{provider} 不支持流式输出。其协议没有流式实现，因此不会发出请求（否则只会一次性返回，看起来像卡住）。保留 ours、保留 theirs、手工编辑仍然可用。',
+  'conflict.rejected': '建议已被拒绝：{reason}',
+  'conflict.status.starting': '启动中…',
+  'conflict.status.streaming': '流式接收中…',
+  'conflict.status.done': '建议已就绪',
+  'conflict.status.cancelled': '已停止',
+  'conflict.resolution.ours': '已保留 ours',
+  'conflict.resolution.theirs': '已保留 theirs',
+  'conflict.resolution.manual': '手工替换文本',
+  'conflict.resolution.ai': '已接受 AI 建议',
+  'conflict.key.heading': 'AI provider key',
+  'conflict.key.hint': '写入凭证库的 ai/<provider> 命名空间。key 不会被读回本窗口。',
+  'conflict.key.providerLabel': 'Provider',
+  'conflict.key.label': 'API key',
+  'conflict.key.placeholder': 'sk-…',
+  'conflict.key.save': '保存 key',
+  'conflict.key.saved': 'key 已写入凭证库。',
+  'conflict.key.status.present': '{provider} 已配置 key。',
+  'conflict.key.status.absent': '{provider} 未配置 key。',
 };
 
 export default zh;

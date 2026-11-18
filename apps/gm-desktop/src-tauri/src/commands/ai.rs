@@ -921,6 +921,58 @@ pub async fn ai_key_set(
     ai_key_set_inner(state.vault.as_ref(), &provider, &key).await
 }
 
+/// Whether a key can be resolved for `provider`.
+///
+/// `[PROPOSAL]` ADR-0024 §3.7.1: the conflict dialog shows the "ask AI"
+/// option but disables it when there is no key, and it says where the
+/// key goes. That needs the app to *know* there is no key **before** the
+/// request — and the webview cannot know, because the key may come from
+/// the process environment, which the webview cannot read.
+///
+/// `[FACT]` The answer is a presence, never a value: the key is resolved
+/// in the backend and used in the backend. This is the same rule as
+/// `ai_key_get` not existing, and it is why this command returns a
+/// `bool` rather than a `String`.
+///
+/// `[FACT]` The precedence is the one ADR-0024 §3.9 fixes — the vault
+/// first, `GITGIT_AI_API_KEY` second — because
+/// [`resolve_ai_key`] implements exactly that.
+#[tauri::command]
+pub async fn ai_key_status(state: State<'_, DesktopState>, provider: String) -> AppResult<bool> {
+    // `[FACT]` `ai_key_set_inner` trims the provider name before it
+    // stores the key, so the lookup trims it the same way: a key saved
+    // as " openai" lives under `ai/openai`, and looking it up as
+    // `ai/ openai` would report a key that is in fact there as absent.
+    //
+    // `[FACT]` A blank name falls back to [`DEFAULT_PROVIDER`], the same
+    // rule `ai_conflict_start` applies, so the answer is honest about
+    // the key that request would actually use.
+    let trimmed = provider.trim();
+    let provider_key = if trimmed.is_empty() {
+        DEFAULT_PROVIDER
+    } else {
+        trimmed
+    };
+    Ok(ai_key_status_inner(state.vault.as_ref(), provider_key, read_api_key_env()).await)
+}
+
+/// The presence of a key, without the Tauri state, so a test can drive
+/// it against a vault it owns.
+///
+/// `[INFERENCE]` The environment value is an argument rather than being
+/// read here, for the reason [`resolve_ai_key_with`] gives: the process
+/// environment is global, and a test that mutated it would race every
+/// other test in the binary.
+pub async fn ai_key_status_inner<V: Vault + ?Sized>(
+    vault: &V,
+    provider: &str,
+    env_value: Option<String>,
+) -> bool {
+    resolve_ai_key_with(vault, provider, env_value)
+        .await
+        .is_some()
+}
+
 #[cfg(test)]
 mod tests {
     //! Tests for the streaming review command layer (V0 task T9).
@@ -2355,5 +2407,37 @@ mod tests {
             .await
             .expect_err("the provider name is refused");
         assert_eq!(err.kind(), "AiReviewInvalid", "got: {err}");
+    }
+
+    #[tokio::test]
+    async fn the_key_status_is_a_presence_and_never_the_key() {
+        // ADR-0024 §3.7.1: the dialog has to know there is no key before
+        // the request, and §3.9 forbids the key from travelling to the
+        // webview. So the answer is a bool, and the two sources are the
+        // same two the resolution uses.
+        let vault = temp_vault("key-status");
+        assert!(
+            !ai_key_status_inner(&vault, "openai", None).await,
+            "no vault key and no environment key means no key"
+        );
+        assert!(
+            ai_key_status_inner(&vault, "openai", Some(String::from("sk-from-env"))).await,
+            "the environment is the fallback"
+        );
+        ai_key_set_inner(&vault, "openai", "sk-secret-value")
+            .await
+            .expect("the key is stored");
+        assert!(
+            ai_key_status_inner(&vault, "openai", None).await,
+            "the vault holds a key"
+        );
+        // The stored key is still not readable through the generic path.
+        let err = crate::commands::vault::vault_get_inner(&vault, "ai/openai")
+            .await
+            .expect_err("the ai/ namespace is refused");
+        assert!(
+            !err.to_string().contains("sk-secret-value"),
+            "the key must not be echoed: {err}"
+        );
     }
 }
