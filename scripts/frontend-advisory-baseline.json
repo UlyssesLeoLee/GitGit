@@ -1,43 +1,44 @@
 {
   "$comment": "GitGit frontend dependency-advisory baseline — a RECORD of what is known, NOT an ignore list. Every entry below (open and resolved) carries the GHSA id, the module, the exact version that was found and the patched range, so scripts/frontend-advisory-check.ps1 can re-verify it against the npm advisory database on every run. An entry the npm database cannot corroborate is rejected by the checker and fails the build — that is what stops this file from being used to smuggle in a suppression. There is deliberately no 'ignore', 'allow' or 'waiver' list anywhere in this repository's frontend path: `pnpm audit --ignore` and `pnpm.overrides` pinning a vulnerable version are both forbidden, because a gate that can be silenced is not a gate. The checker fails on any advisory that is NOT in `open`; an advisory in `open` that no longer appears in the audit is reported as informational (it was resolved) and does not fail the build.",
   "schemaVersion": "1.0",
-  "capturedAt": "2026-10-25",
+  "capturedAt": "2026-11-18",
   "capturedFrom": {
-    "branch": "ci/gm-console-toolchain",
-    "head": "f7aaa9e",
+    "branch": "chore/advisory-quinn",
+    "head": "c1ed8ef",
     "pnpm": "9.15.9",
     "node": "22.19.0",
     "os": "Windows 11 (PowerShell 7.6.8)",
     "registry": "https://registry.npmjs.org",
     "auditCommand": "corepack pnpm@9.15.9 --dir apps/<app> audit --json",
-    "note": "Measured on this branch with the gm-console dependency change applied to the WORKING TREE and not yet committed, on top of the baseline commit f7aaa9e. The gm-console entries below were measured against that working tree; the 'before' count was measured the same day against the pre-upgrade committed lockfile at f7aaa9e, which was restored into a scratch directory for the measurement. The gm-desktop entries are carried over unchanged from the 2026-10-24 capture at head 255ab92 — gm-desktop's committed lockfile is untouched by this branch, and the same run re-measured it at 0 advisories, so no gm-desktop entry changed."
+    "note": "Re-measured 2026-11-18 with `corepack pnpm@9.15.9 --dir apps/<app> audit --json`, against the registry, on the working tree of chore/advisory-quinn at c1ed8ef (the QUIC bumps; no npm dependency changed in this lane). Both apps now report the same single advisory at two versions, GHSA-fc5q-39xc-vjpf (picomatch 4.0.7 and 2.3.2), so each app's counts are total 2 / high 2. The deepmerge entry GHSA-gcqx-w48m-w2h4 is GONE, not moved: that advisory was WITHDRAWN on 2026-11-16 because it does not describe a security vulnerability, so the npm advisory database no longer reports it for deepmerge@4.3.1, and the checker corroborates every entry (open and resolved alike) against that database — an entry naming a withdrawn advisory is rejected as fabricated and fails the build."
   },
   "apps": {
     "gm-desktop": {
       "auditExitCode": 1,
       "counts": {
-        "total": 1,
+        "total": 2,
         "critical": 0,
-        "high": 0,
+        "high": 2,
         "moderate": 0,
-        "low": 1
+        "low": 0
       },
       "open": [
         {
-          "id": "GHSA-gcqx-w48m-w2h4",
-          "npmAdvisoryId": 1243505,
-          "module": "deepmerge",
-          "severity": "low",
-          "version": "4.3.1",
-          "vulnerableVersions": ">=4.2.0 <=4.3.1",
+          "id": "GHSA-fc5q-39xc-vjpf",
+          "npmAdvisoryId": 1247710,
+          "module": "picomatch",
+          "severity": "high",
+          "version": "4.0.7,2.3.2",
+          "vulnerableVersions": "<=4.0.7",
           "patchedVersions": "<0.0.0",
           "tree": "dev",
           "roots": [
-            "@sveltejs/vite-plugin-svelte"
+            "@typescript-eslint/eslint-plugin",
+            "tailwindcss"
           ],
-          "title": "deepmerge mergeObject() allows prototype poisoning of returned objects",
-          "recordedOn": "2026-10-28",
-          "note": "The npm advisory database gained this advisory after the baseline was captured, and the ratchet refused it, which is what the ratchet is for. [FACT] There is NO patched version: the advisory's patched range is `<0.0.0`. It is also a development-only dependency (`@sveltejs/vite-plugin-svelte` -> `deepmerge` -> nothing that ships), so it is not in the shipped product's dependency path. Severity is low, and the advisory is about prototype pollution of the objects a build-time merge returns. [FACT] The parent declares `deepmerge: ^4.3.1` (measured with `pnpm view @sveltejs/vite-plugin-svelte@6.2.4 dependencies`) and the advisory's vulnerable range is `>=4.2.0 <=4.3.1`. The published 4.x versions are 4.0.0, 4.1.0, 4.1.1, 4.1.2, 4.2.0, 4.2.1, 4.2.2, 4.3.0 and 4.3.1 (measured with `pnpm view deepmerge versions`), so the newest version the parent's range allows is 4.3.1, which is vulnerable, and the only published 4.x versions OUTSIDE the vulnerable range are 4.0.0 to 4.1.2 - which are BELOW the parent's range. [FACT] So today no version choice inside the range fixes it, and reaching an unaffected published version would be a forced downgrade rather than a fix. [INFERENCE] It is NOT impossible in principle: `^4.3.1` admits a future 4.x release, so if an unaffected 4.x is published, the dependency can move to it while staying inside the range, with no override at all. That is the fix to watch for, and the reason this entry says the advisory is open rather than closed. [FACT] It was NOT silenced: `pnpm audit --ignore` and `pnpm.overrides` pinning a vulnerable version are both forbidden in this repository, and neither is used here. The entry is a RECORD of a real advisory, and the checker re-verifies it against the npm advisory database on every run."
+          "title": "picomatch vulnerable to ReDoS through single-branch repeated extglobs",
+          "recordedOn": "2026-11-18",
+          "note": "[FACT] The npm advisory database gained this advisory after the baseline was captured (published 2026-10-19, updated 2026-11-17), and the ratchet refused it, which is what the ratchet is for. [FACT] There is NO patched version: picomatch 4.0.7 is the newest version npm publishes (checked 2026-11-18: dist-tags.latest 4.0.7, and the GitHub advisory's first_patched_version is null), and the advisory's vulnerable range is `<= 4.0.7`, so every published version is inside it. [FACT] The advisory is CVE-2026-112366 / CWE-1333: a single-branch repeated extglob such as `+(*)` or `+(*a)` makes picomatch's `analyzeRepeatedExtglob` skip the pattern, and the compiled regex then backtracks exponentially against a short crafted string — a denial of service on the Node event loop, not code execution and not data access. [FACT] The tree holds two versions of picomatch inside that range: 4.0.7 through `@typescript-eslint/eslint-plugin -> @typescript-eslint/typescript-estree -> tinyglobby -> picomatch`, and 2.3.2 through `tailwindcss -> chokidar -> anymatch -> picomatch`. [FACT] Both roots are declared as devDependencies in this app's package.json, so picomatch is lint and build tooling and is not in the shipped product's dependency path. [FACT] It was NOT silenced: `pnpm audit --ignore` and `pnpm.overrides` pinning a vulnerable version are both forbidden in this repository, and neither is used here. The entry is a RECORD of a real advisory, and the checker re-verifies it against the npm advisory database on every run."
         }
       ],
       "resolved": [
@@ -158,15 +159,33 @@
       ]
     },
     "gm-console": {
-      "auditExitCode": 0,
+      "auditExitCode": 1,
       "counts": {
-        "total": 0,
+        "total": 2,
         "critical": 0,
-        "high": 0,
+        "high": 2,
         "moderate": 0,
         "low": 0
       },
-      "open": [],
+      "open": [
+        {
+          "id": "GHSA-fc5q-39xc-vjpf",
+          "npmAdvisoryId": 1247710,
+          "module": "picomatch",
+          "severity": "high",
+          "version": "4.0.7,2.3.2",
+          "vulnerableVersions": "<=4.0.7",
+          "patchedVersions": "<0.0.0",
+          "tree": "dev",
+          "roots": [
+            "@typescript-eslint/eslint-plugin",
+            "tailwindcss"
+          ],
+          "title": "picomatch vulnerable to ReDoS through single-branch repeated extglobs",
+          "recordedOn": "2026-11-18",
+          "note": "[FACT] The npm advisory database gained this advisory after the baseline was captured (published 2026-10-19, updated 2026-11-17), and the ratchet refused it, which is what the ratchet is for. [FACT] There is NO patched version: picomatch 4.0.7 is the newest version npm publishes (checked 2026-11-18: dist-tags.latest 4.0.7, and the GitHub advisory's first_patched_version is null), and the advisory's vulnerable range is `<= 4.0.7`, so every published version is inside it. [FACT] The advisory is CVE-2026-112366 / CWE-1333: a single-branch repeated extglob such as `+(*)` or `+(*a)` makes picomatch's `analyzeRepeatedExtglob` skip the pattern, and the compiled regex then backtracks exponentially against a short crafted string — a denial of service on the Node event loop, not code execution and not data access. [FACT] The tree holds two versions of picomatch inside that range: 4.0.7 through `@typescript-eslint/eslint-plugin -> @typescript-eslint/typescript-estree -> tinyglobby -> picomatch`, and 2.3.2 through `tailwindcss -> chokidar -> anymatch -> picomatch`. [FACT] Both roots are declared as devDependencies in this app's package.json, so picomatch is lint and build tooling and is not in the shipped product's dependency path. [FACT] It was NOT silenced: `pnpm audit --ignore` and `pnpm.overrides` pinning a vulnerable version are both forbidden in this repository, and neither is used here. The entry is a RECORD of a real advisory, and the checker re-verifies it against the npm advisory database on every run."
+        }
+      ],
       "resolved": [
         {
           "id": "GHSA-g3hv-75wg-m249",
