@@ -141,6 +141,9 @@ pub enum GitGitError {
     /// Remote registry or `gitremote` operation failure (V0 T8).
     #[error("remote error: {0}")]
     Remote(String),
+    /// Cloud disk failure (snapshot upload, download or restore).
+    #[error("cloud disk error: {0}")]
+    Cloud(String),
 }
 
 /// Convenience alias used throughout the codebase.
