@@ -1,14 +1,14 @@
 {
   "$comment": "GitGit advisory baseline — the committed 'known-bad' contract that scripts/check-advisories.ps1 must satisfy. Plain `cargo audit` exits 0 when the only findings are unmaintained / unsound / yanked, so an advisory in those three classes passes CI without a word; this baseline is what turns that silence into a red build. Updating any entry here is a deliberate baseline change, not a silent drift, and the commit that changes it has to say why. Same discipline, and same rationale-field convention, as scripts/regression-baseline.json.",
   "schemaVersion": "1.0",
-  "capturedAt": "2026-11-12",
+  "capturedAt": "2026-11-18",
   "capturedFrom": {
     "branch": "origin/dev",
-    "head": "91d5e0d",
+    "head": "362ebe1",
     "cargoAudit": "cargo-audit 0.22.2",
     "advisoryDb": {
-      "advisoryCount": 1475,
-      "lastCommit": "5fe96cf51fde2fd4e749d51ac8bdc59edbdce77b",
+      "advisoryCount": 1537,
+      "lastCommit": "472a4c9a785030434f15d7da84964d60fbe789ab",
       "path": "E:/DevCache/cargo/advisory-db"
     },
     "rustToolchain": "cargo 1.98.1",
@@ -17,7 +17,7 @@
   "scopes": {
     "root": {
       "lockfile": "Cargo.lock",
-      "rationale": "[FACT] Measured 2026-10-24 with cargo-audit 0.22.2 against the advisory database at E:/DevCache/cargo/advisory-db (1352 advisories, last commit 21d909e4c8bd4e14c7aea58bf980c881a0053ab1): `cargo audit --file Cargo.lock` reports 0 vulnerabilities and 0 warnings over 240 crate dependencies. The list is empty because the root lock's only finding was closed in this lane, not because the scan was skipped: tokio 1.53.1 carried RUSTSEC-2026-0386 (`AsyncFd::new` and related constructors violate I/O safety`, unsound, disclosed 2026-10-13, patched: >= 1.51.6, < 1.52.0 and >= 1.53.3) and tokio is now 1.53.3. An empty list is still recorded rather than omitted, because the checker fails on ANY advisory that is not in the baseline — a root lock that grows a new finding has to go red through the same machinery that guards the Tauri lock. Re-agree whenever the root lock's dependency set changes.",
+      "rationale": "[FACT] Measured 2026-10-24 with cargo-audit 0.22.2 against the advisory database at E:/DevCache/cargo/advisory-db (1352 advisories, last commit 21d909e4c8bd4e14c7aea58bf980c881a0053ab1): `cargo audit --file Cargo.lock` reports 0 vulnerabilities and 0 warnings over 240 crate dependencies. The list is empty because the root lock's only finding was closed in this lane, not because the scan was skipped: tokio 1.53.1 carried RUSTSEC-2026-0386 (`AsyncFd::new` and related constructors violate I/O safety`, unsound, disclosed 2026-10-13, patched: >= 1.51.6, < 1.52.0 and >= 1.53.3) and tokio is now 1.53.3. An empty list is still recorded rather than omitted, because the checker fails on ANY advisory that is not in the baseline — a root lock that grows a new finding has to go red through the same machinery that guards the Tauri lock. Re-agree whenever the root lock's dependency set changes. RE-AGREEED 2026-11-18, after the QUIC advisories landed in the root lockfile: three advisories arrived through reqwest's QUIC support — RUSTSEC-2026-0524 (quinn-proto 0.11.18, a long Retry token can panic or exhaust memory in a QUIC client), RUSTSEC-2026-0523 (quinn-proto 0.11.18, a MAX_STREAM_DATA frame can open streams beyond the stream limit) and RUSTSEC-2026-0538 (quinn-udp 0.5.15, the receive loop can spin after a truncated datagram). All three have a fixed release upstream, so they are closed by a version bump (quinn-proto 0.11.18 -> 0.11.19, quinn-udp 0.5.15 -> 0.5.16) and not by a baseline entry — the same decision the rustix advisory got in #93, and the same reason: a baseline entry is a promise that the finding is acceptable, and these are not. The list stays empty. Measured 2026-11-18 with cargo-audit 0.22.2 against the advisory database at E:/DevCache/cargo/advisory-db (1537 advisory IDs, last commit 472a4c9a785030434f15d7da84964d60fbe789ab): `cargo audit --file Cargo.lock` reports 0 vulnerabilities and 0 warnings over 240 crate dependencies, and `scripts/check-advisories.ps1 -Scope root` reports 0 advisories reported, all in the baseline, 0 stale.",
       "advisories": []
     },
     "tauri": {
