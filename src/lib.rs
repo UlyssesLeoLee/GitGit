@@ -15,6 +15,7 @@
 
 pub mod ai;
 pub mod cli;
+pub mod cloud;
 pub mod config;
 pub mod error;
 pub mod objectstore;
