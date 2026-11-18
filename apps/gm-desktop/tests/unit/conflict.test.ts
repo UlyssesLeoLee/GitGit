@@ -36,6 +36,7 @@ import {
   markDiffSeen,
   resetArbitration,
   resolveChoice,
+  selectRegion,
   startArbitration,
   stopArbitration,
 } from '../../src/lib/stores/conflict';
@@ -340,6 +341,100 @@ describe('the conflict store — the /review discipline', () => {
     const status = await loadKeyStatus('openai', async () => true);
     expect(status).toBe('present');
     expect(canAskAi(get(conflict), true)).toBe(true);
+  });
+
+  it('clears the previous region\'s result when another region is opened', async () => {
+    // `[FACT]` An arbitration result belongs to the region it was asked
+    // about. Opening another region must clear it — otherwise the dialog
+    // shows the first region's answer against the second region's text,
+    // and can let the user accept it there.
+    const bridge = fakeSubscribe();
+    await startArbitration(REGION, { provider: 'openai', subscribe: bridge.subscribe });
+    bridge.emit({
+      type: 'done',
+      sessionId: currentSession(),
+      regionId: currentRegionId(),
+      tokens: 1,
+      outcome: { state: 'accepted', suggestion: 'const timeout = 45;' },
+    });
+    markDiffSeen();
+    expect(canAccept(get(conflict))).toBe(true);
+
+    selectRegion('ffffffffffffffffffffffffffffffff');
+    const s = get(conflict);
+    expect(s.status).toBe('idle');
+    expect(s.suggestion).toBe(null);
+    expect(s.outcome).toBe(null);
+    expect(s.diffSeen).toBe(false);
+    expect(s.text).toBe('');
+    expect(s.resolution).toBe(null);
+    expect(s.selectedRegionId).toBe('ffffffffffffffffffffffffffffffff');
+    // Nothing may be accepted on the strength of the old region.
+    expect(canAccept(s)).toBe(false);
+  });
+
+  it('does not let a closed region\'s stream write into the next one', async () => {
+    // `[FACT]` A stream that outlives its arbitration must not write into
+    // the next one: the session and region filters cannot catch it,
+    // because a reset clears both.
+    //
+    // The handler is captured rather than driven through the bridge,
+    // because the switch also detaches the subscription — the point of
+    // the case is that the STORE drops the event, not that the event
+    // never arrives.
+    let captured: ((e: ConflictEventDto) => void) | null = null;
+    const subscribe = async (h: (e: ConflictEventDto) => void) => {
+      captured = h;
+      return () => undefined;
+    };
+    await startArbitration(REGION, { provider: 'openai', subscribe });
+    const session = currentSession();
+    const region = currentRegionId();
+
+    selectRegion('ffffffffffffffffffffffffffffffff');
+    captured!({ type: 'token', sessionId: session, regionId: region, delta: 'STALE' });
+    expect(get(conflict).text).toBe('');
+  });
+
+  it('carries a stop through a startup that was still in flight', async () => {
+    // `[FACT]` The Rust side installs the session after the provider
+    // call returns, so a cancel issued while the start is in flight
+    // finds nothing to cancel — and the stream would carry on. The
+    // intent has to be carried through startup.
+    const bridge = fakeSubscribe();
+    let cancelled = 0;
+    let release: (() => void) | null = null;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    withInvoke({
+      ai_conflict_start: () => {
+        // The start does not settle until the gate opens.
+        return gate.then(() => ({
+          sessionId: 'session-1',
+          regionId: REGION.id,
+          provider: 'openai',
+          model: 'gpt-x',
+          streaming: true,
+          redactions: 0,
+        }));
+      },
+      ai_conflict_cancel: () => {
+        cancelled += 1;
+        return 'session-1';
+      },
+    });
+
+    const running = startArbitration(REGION, { provider: 'openai', subscribe: bridge.subscribe });
+    // The start has not settled: there is no session to cancel yet.
+    expect(get(conflict).status).toBe('starting');
+    await stopArbitration();
+    expect(cancelled).toBe(0);
+
+    release!();
+    await running;
+    expect(cancelled).toBe(1);
+    expect(get(conflict).status).toBe('cancelled');
   });
 
   it('refuses a hand-written replacement that carries a conflict marker', () => {

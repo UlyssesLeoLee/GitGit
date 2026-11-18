@@ -265,6 +265,31 @@ let terminalSeen = false;
  */
 let pendingModel: string | null = null;
 
+/**
+ * Whether an arbitration is currently allowed to write events.
+ *
+ * `[FACT]` The status alone cannot say this: a stream that outlived its
+ * arbitration — because the user opened another region, or because the
+ * page went away — carries events that belong to an arbitration which is
+ * no longer running. The session and region filters cannot catch that
+ * either, because a reset clears both, and an event with no session id
+ * to compare against would pass. This flag is the ground truth: only an
+ * arbitration that is running owns events.
+ */
+let armed = false;
+
+/**
+ * A stop that was asked for while the start was still in flight.
+ *
+ * `[FACT]` The Rust side installs the session after the provider call
+ * returns, so a cancel issued while `ai_conflict_start` is still in
+ * flight can find nothing to cancel and answers `AiReviewNotRunning` —
+ * while the start goes on to open a stream the user believes they
+ * stopped. The intent is therefore carried through startup and issued
+ * the moment the session exists.
+ */
+let cancelRequested = false;
+
 function releaseSubscription(): void {
   if (detach) {
     detach();
@@ -277,6 +302,8 @@ export function resetArbitration(): void {
   releaseSubscription();
   terminalSeen = false;
   pendingModel = null;
+  armed = false;
+  cancelRequested = false;
   conflict.set({ ...INITIAL });
 }
 
@@ -285,6 +312,11 @@ export function resetArbitration(): void {
  */
 function applyConflictEvent(e: ConflictEventDto): void {
   const s = get(conflict);
+  // `[FACT]` Only an arbitration that is running owns events. A stream
+  // that outlived its arbitration — the user opened another region, or
+  // left the page — must not write into the next one, and the session
+  // and region filters cannot catch it, because a reset clears both.
+  if (!armed) return;
   // `[FACT]` A known session means anything else is a leftover from a
   // stream we already stopped. An unknown one means the start command has
   // not resolved yet, and this subscription can only carry the new stream.
@@ -321,6 +353,7 @@ function applyConflictEvent(e: ConflictEventDto): void {
     }
     case 'done': {
       terminalSeen = true;
+      armed = false;
       const outcome = e.outcome;
       conflict.set({
         ...s,
@@ -340,6 +373,7 @@ function applyConflictEvent(e: ConflictEventDto): void {
     }
     case 'failed': {
       terminalSeen = true;
+      armed = false;
       conflict.set({
         ...s,
         status: 'error',
@@ -351,6 +385,7 @@ function applyConflictEvent(e: ConflictEventDto): void {
     }
     case 'cancelled': {
       terminalSeen = true;
+      armed = false;
       conflict.set({ ...s, status: 'cancelled' });
       releaseSubscription();
       return;
@@ -410,6 +445,7 @@ export async function startArbitration(
   const provider = opts.provider ?? null;
   releaseSubscription();
   terminalSeen = false;
+  cancelRequested = false;
   const before = get(conflict);
   conflict.set({
     ...INITIAL,
@@ -423,9 +459,15 @@ export async function startArbitration(
   });
 
   const subscribe = opts.subscribe ?? tauri.listenConflictEvents;
+  // `[FACT]` Armed before the subscription is attached: the Rust side
+  // emits immediately, and a provider reports its served model in the
+  // first frame of the stream — which can arrive while the subscribe
+  // call is still returning.
+  armed = true;
   try {
     detach = await subscribe(applyConflictEvent);
   } catch (e) {
+    armed = false;
     conflict.set({ ...get(conflict), status: 'error', ...normalizeError(e) });
     return;
   }
@@ -441,6 +483,7 @@ export async function startArbitration(
   } catch (e) {
     const err = normalizeError(e);
     releaseSubscription();
+    armed = false;
     // `[FACT]` A start that produced no session must not leave a held
     // model behind for the next arbitration to pick up.
     pendingModel = null;
@@ -476,6 +519,23 @@ export async function startArbitration(
     redactions: started.redactions,
   });
   pendingModel = null;
+
+  // `[FACT]` A stop that was asked for while this start was in flight is
+  // issued now: the session exists from here on, so the cancel can find
+  // it. Without this, "stop" during the provider handshake would answer
+  // `AiReviewNotRunning` and the stream would carry on.
+  if (cancelRequested) {
+    cancelRequested = false;
+    armed = false;
+    try {
+      await tauri.aiConflictCancel();
+    } catch {
+      // `[INFERENCE]` A session that is already gone needs no complaint:
+      // the user asked for it to stop, and it is not running.
+    }
+    conflict.set({ ...get(conflict), status: 'cancelled' });
+    releaseSubscription();
+  }
 }
 
 /**
@@ -489,7 +549,18 @@ export async function startArbitration(
  * alone.
  */
 export async function stopArbitration(): Promise<void> {
-  if (!isBusy(get(conflict))) return;
+  const s = get(conflict);
+  if (!isBusy(s)) return;
+  if (s.sessionId === null) {
+    // `[FACT]` The Rust side installs the session after the provider
+    // call returns, so a cancel issued now finds nothing to cancel and
+    // answers `AiReviewNotRunning` — while the start goes on to open a
+    // stream the user believes they stopped. The intent is carried
+    // through startup instead: `startArbitration` issues the cancel the
+    // moment the session exists.
+    cancelRequested = true;
+    return;
+  }
   try {
     await tauri.aiConflictCancel();
   } catch (e) {
@@ -507,6 +578,7 @@ export async function stopArbitration(): Promise<void> {
     return;
   }
   terminalSeen = true;
+  armed = false;
   conflict.set({ ...get(conflict), status: 'cancelled' });
   releaseSubscription();
 }
@@ -584,7 +656,38 @@ export async function loadRegions(
   }
 }
 
-/** Open one region in the dialog. */
+/**
+ * Open one region in the dialog.
+ *
+ * `[FACT]` An arbitration result belongs to the region it was asked
+ * about. Opening another region therefore clears it: the status, the
+ * accumulated text, the suggestion, the diff-seen flag and the
+ * resolution all describe the region that was just closed, and leaving
+ * them in place would show one region's answer against another's text
+ * — and would let the user accept it there.
+ *
+ * `[FACT]` A stream that is still running belongs to the closed
+ * region, so it is cancelled and its events are no longer accepted.
+ * The cancellation is not awaited: the state is replaced immediately,
+ * and the `armed` flag is what stops the old stream from writing into
+ * the new one.
+ */
 export function selectRegion(regionId: string): void {
-  conflict.set({ ...get(conflict), selectedRegionId: regionId });
+  const s = get(conflict);
+  if (s.selectedRegionId === regionId) return;
+  if (isBusy(s)) {
+    armed = false;
+    releaseSubscription();
+    void tauri.aiConflictCancel().catch(() => undefined);
+  }
+  terminalSeen = false;
+  pendingModel = null;
+  cancelRequested = false;
+  const before = get(conflict);
+  conflict.set({
+    ...INITIAL,
+    regions: before.regions,
+    selectedRegionId: regionId,
+    keyStatus: before.keyStatus,
+  });
 }
