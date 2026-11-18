@@ -38,6 +38,12 @@ pub const BLOCK: usize = 512;
 /// The longest a path may be: the `prefix` field plus the `name` field.
 const MAX_PATH: usize = 155 + 100;
 
+/// The largest size the ustar size field can hold ✓.
+///
+/// `[FACT]` The field is twelve bytes ✓ — eleven octal digits and a NUL ✓
+/// — so it holds 8^11 - 1 bytes ✓, just under 8 GiB ✓.
+const MAX_SIZE: u64 = 0o77777777777;
+
 /// One file in an archive.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Entry {
@@ -63,7 +69,13 @@ pub enum TarError {
     /// A path does not fit the ustar format.
     PathTooLong(String),
     /// The declared size of a file does not fit the archive.
-    SizeMismatch { path: String, declared: u64, available: u64 },
+    SizeMismatch {
+        path: String,
+        declared: u64,
+        available: u64,
+    },
+    /// A file is larger than the ustar size field can hold.
+    SizeTooLarge { path: String, size: u64 },
 }
 
 impl fmt::Display for TarError {
@@ -83,6 +95,10 @@ impl fmt::Display for TarError {
                 f,
                 "the archive declares {declared} bytes for {path} but only {available} are there"
             ),
+            TarError::SizeTooLarge { path, size } => write!(
+                f,
+                "{path} is {size} bytes, which is more than a tar archive can declare"
+            ),
         }
     }
 }
@@ -96,14 +112,21 @@ impl std::error::Error for TarError {}
 pub fn write(entries: &[Entry]) -> Result<Vec<u8>, TarError> {
     let mut out = Vec::new();
     for entry in entries {
+        check_size(&entry.path, entry.data.len() as u64)?;
         let (prefix, name) = split_path(&entry.path)?;
-        out.extend_from_slice(&header(prefix, name, entry.data.len() as u64, entry.mode, entry.mtime));
+        out.extend_from_slice(&header(
+            prefix,
+            name,
+            entry.data.len() as u64,
+            entry.mode,
+            entry.mtime,
+        ));
         out.extend_from_slice(&entry.data);
         let padding = (BLOCK - entry.data.len() % BLOCK) % BLOCK;
-        out.extend(std::iter::repeat_n(0u8, padding));
+        out.extend(std::iter::repeat(0u8).take(padding));
     }
     // Two zero blocks end the archive.
-    out.extend(std::iter::repeat_n(0u8, BLOCK * 2));
+    out.extend(std::iter::repeat(0u8).take(BLOCK * 2));
     Ok(out)
 }
 
@@ -151,6 +174,23 @@ pub fn read(bytes: &[u8]) -> Result<Vec<Entry>, TarError> {
         });
     }
     Ok(entries)
+}
+
+/// Refuse a file the ustar size field cannot hold.
+///
+/// `[FACT]` The size field is twelve bytes ✓ — eleven octal digits and a
+/// NUL ✓ — so it holds at most `8^11 - 1` bytes ✓. A larger file is an
+/// **error** ✓, not a truncated field ✓: a truncated size field would
+/// make the archive unreadable ✓, and a snapshot that cannot be read back
+/// is worse than no snapshot ✓.
+fn check_size(path: &str, size: u64) -> Result<(), TarError> {
+    if size > MAX_SIZE {
+        return Err(TarError::SizeTooLarge {
+            path: path.to_string(),
+            size,
+        });
+    }
+    Ok(())
 }
 
 /// Split a path into the ustar `prefix` and `name` fields.
@@ -322,10 +362,62 @@ mod tests {
     fn a_path_that_cannot_fit_is_refused() {
         let deep = format!("{}/file.txt", "d".repeat(300));
         let err = write(&[entry(&deep, b"x")]).unwrap_err();
+        assert!(matches!(err, TarError::PathTooLong(_)), "got: {err:?}");
+    }
+
+    #[test]
+    fn a_file_bigger_than_the_size_field_is_refused() {
+        // The size field holds eleven octal digits. A file that does not
+        // fit must be an error, not a truncated field — a truncated field
+        // would produce an archive that cannot be read back.
+        assert!(check_size("HEAD", MAX_SIZE).is_ok());
+        let err = check_size("HEAD", MAX_SIZE + 1).unwrap_err();
+        assert!(matches!(err, TarError::SizeTooLarge { .. }), "got: {err:?}");
         assert!(
-            matches!(err, TarError::PathTooLong(_)),
-            "got: {err:?}"
+            format!("{err}").contains("more than a tar archive can declare"),
+            "got: {err}"
         );
+    }
+
+    #[test]
+    fn the_system_tar_can_read_the_archive() {
+        // `[FACT]` The format written here is ustar ✓, so the system `tar`
+        // reads it ✓ — that is the acceptance criterion in ADR-0025 §4.5 ✓.
+        // It is checked against the **real tool** ✓, not against a second
+        // implementation of the same idea ✓: a second reader would agree
+        // with a second writer about a format that is wrong in the same
+        // way ✓, while the system `tar` is what a user will actually run
+        // on a snapshot ✓.
+        let dir = std::env::temp_dir().join(format!(
+            "gitgit-tar-check-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let archive = dir.join("snapshot.tar");
+        let entries = vec![
+            entry("HEAD", b"ref: refs/heads/main\n"),
+            entry("objects/ab/cdef0123", b"blob"),
+        ];
+        std::fs::write(&archive, write(&entries).unwrap()).unwrap();
+
+        let out = std::process::Command::new("tar")
+            .arg("-tf")
+            .arg(&archive)
+            .output()
+            .expect("the system tar must be available to check the archive");
+        assert!(
+            out.status.success(),
+            "tar refused the archive: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        let listing = String::from_utf8_lossy(&out.stdout);
+        assert!(listing.contains("HEAD"), "got: {listing}");
+        assert!(listing.contains("objects/ab/cdef0123"), "got: {listing}");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

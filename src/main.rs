@@ -525,8 +525,10 @@ async fn run_cloud(config: &Config, sub: CloudCommand) -> anyhow::Result<()> {
         CloudCommand::Snapshots { disk, repo } => {
             let entry = pick_disk(&registry, disk.as_deref())?;
             let disk = cloud::S3CloudDisk::connect(entry).await?;
-            let prefix = format!("{}{}", entry.key_prefix(), cloud::backup::SNAPSHOT_PREFIX);
-            let objects = disk.list(&prefix).await?;
+            // The disk owns its key prefix ✓ — the listing is asked for the
+            // snapshots in the disk's own namespace ✓, and the names it
+            // prints are the names a restore takes ✓.
+            let objects = disk.list(cloud::backup::SNAPSHOT_PREFIX).await?;
             let mut shown = 0;
             for object in objects {
                 if let Some(name) = &repo {
@@ -545,13 +547,8 @@ async fn run_cloud(config: &Config, sub: CloudCommand) -> anyhow::Result<()> {
         CloudCommand::Restore { key, disk, repo } => {
             let entry = pick_disk(&registry, disk.as_deref())?;
             let disk = cloud::S3CloudDisk::connect(entry).await?;
-            let meta = cloud::backup::restore(
-                &disk,
-                &key,
-                repo.as_deref(),
-                &config.repos_dir,
-            )
-            .await?;
+            let meta =
+                cloud::backup::restore(&disk, &key, repo.as_deref(), &config.repos_dir).await?;
             println!("restored {} from {key}", meta.repo);
             Ok(())
         }

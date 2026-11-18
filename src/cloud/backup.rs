@@ -78,10 +78,7 @@ pub async fn backup(
     file.push(b'\n');
     file.extend_from_slice(&archive);
 
-    let key = format!(
-        "{SNAPSHOT_PREFIX}{repo}/{created}-{}.tar",
-        &digest[..8]
-    );
+    let key = format!("{SNAPSHOT_PREFIX}{repo}/{created}-{}.tar", &digest[..8]);
     disk.put(&key, &file).await?;
     Ok((meta, key))
 }
@@ -119,25 +116,28 @@ pub async fn restore(
 
     let entries = tar::read(&archive).map_err(|e| GitGitError::Cloud(e.to_string()))?;
     let target = repo_dir(repos_dir, &target_repo);
-    // Extract beside the repository and swap it in, so a failure never
-    // leaves a half-written repository.
-    let staging = repos_dir.join(format!(".{target_repo}.restore-staging"));
-    if staging.exists() {
-        std::fs::remove_dir_all(&staging)?;
-    }
-    std::fs::create_dir_all(&staging)?;
+
+    // Every path is checked **before** anything is written ✓: a snapshot
+    // that carries an unsafe path must not leave half a repository behind
+    // ✓, and must not write a single byte outside the staging directory ✓.
     for entry in &entries {
-        // A path that climbs out of the archive must not escape it.
-        if entry.path.starts_with('/')
-            || entry.path.split('/').any(|part| part == "..")
-            || entry.path.contains('\\')
-        {
-            let _ = std::fs::remove_dir_all(&staging);
+        if is_unsafe_path(&entry.path) {
             return Err(GitGitError::Cloud(format!(
                 "the snapshot contains an unsafe path: {:?}",
                 entry.path
             )));
         }
+    }
+
+    // Extract beside the repository and swap it in, so a failure never
+    // leaves a half-written repository.
+    let staging = repos_dir.join(format!(".{target_repo}.restore-staging"));
+    let retired = repos_dir.join(format!(".{target_repo}.restore-retired"));
+    for scratch in [&staging, &retired] {
+        remove_path(scratch)?;
+    }
+    std::fs::create_dir_all(&staging)?;
+    for entry in &entries {
         let path = staging.join(&entry.path);
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
@@ -150,11 +150,68 @@ pub async fn restore(
         }
     }
 
-    if target.exists() {
-        std::fs::remove_dir_all(&target)?;
-    }
-    std::fs::rename(&staging, &target)?;
+    // The swap ✓.
+    swap_in(&staging, &target, &retired)?;
     Ok(meta)
+}
+
+/// Put the restored repository in place of the one that is there.
+///
+/// `[FACT]` Three steps ✓: the old repository steps aside ✓, the restored
+/// one takes its place ✓, the old one is removed ✓. If the second step
+/// fails, the old repository **goes back where it was** ✓ — a failed
+/// restore must not leave the repository gone ✓.
+fn swap_in(staging: &Path, target: &Path, retired: &Path) -> Result<()> {
+    swap_in_with(staging, target, retired, |from, to| {
+        std::fs::rename(from, to)
+    })
+}
+
+/// The swap, with the rename injected ✓ — so the failure path can be
+/// exercised by a test ✓ instead of being taken on faith ✓.
+fn swap_in_with(
+    staging: &Path,
+    target: &Path,
+    retired: &Path,
+    mut rename: impl FnMut(&Path, &Path) -> std::io::Result<()>,
+) -> Result<()> {
+    if target.exists() {
+        rename(target, retired)?;
+    }
+    if let Err(e) = rename(staging, target) {
+        // The old repository goes back ✓, and the staged copy is dropped ✓.
+        if retired.exists() {
+            let _ = rename(retired, target);
+        }
+        let _ = remove_path(staging);
+        return Err(GitGitError::Io(e));
+    }
+    if retired.exists() {
+        remove_path(retired)?;
+    }
+    Ok(())
+}
+
+/// Remove a file or a directory, whichever it is ✓.
+///
+/// `[FACT]` A missing path is not an error ✓ — the caller wants the path
+/// gone ✓, and it already is ✓.
+fn remove_path(path: &Path) -> std::io::Result<()> {
+    match std::fs::symlink_metadata(path) {
+        Ok(meta) if meta.is_dir() => std::fs::remove_dir_all(path),
+        Ok(_) => std::fs::remove_file(path),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(e) => Err(e),
+    }
+}
+
+/// Whether a path inside a snapshot may be written ✓.
+///
+/// `[FACT]` A path that climbs out of the archive — an absolute path ✓, a
+/// `..` component ✓, or a backslash ✓ — is refused ✓: it would name a
+/// file outside the repository ✓.
+fn is_unsafe_path(path: &str) -> bool {
+    path.starts_with('/') || path.split('/').any(|part| part == "..") || path.contains('\\')
 }
 
 /// Split a snapshot file into its metadata and its archive.
@@ -165,12 +222,12 @@ fn split_snapshot(file: &[u8]) -> Result<(SnapshotMeta, Vec<u8>)> {
         ));
     }
     let rest = &file[SNAPSHOT_MAGIC.len()..];
-    let newline = rest.iter().position(|b| *b == b'\n').ok_or_else(|| {
-        GitGitError::Cloud("the snapshot has no metadata line".to_string())
-    })?;
-    let meta: SnapshotMeta = serde_json::from_slice(&rest[..newline]).map_err(|e| {
-        GitGitError::Cloud(format!("the snapshot metadata is unreadable: {e}"))
-    })?;
+    let newline = rest
+        .iter()
+        .position(|b| *b == b'\n')
+        .ok_or_else(|| GitGitError::Cloud("the snapshot has no metadata line".to_string()))?;
+    let meta: SnapshotMeta = serde_json::from_slice(&rest[..newline])
+        .map_err(|e| GitGitError::Cloud(format!("the snapshot metadata is unreadable: {e}")))?;
     Ok((meta, rest[newline + 1..].to_vec()))
 }
 
@@ -239,7 +296,9 @@ fn mode_of(meta: &std::fs::Metadata) -> u32 {
 #[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 mod tests {
     use super::*;
-    use crate::cloud::{CloudObject, SNAPSHOT_MAGIC};
+    use crate::cloud::{
+        access_key_env, secret_key_env, CloudDiskEntry, CloudObject, SNAPSHOT_MAGIC,
+    };
 
     /// A disk that keeps objects in memory ✓ — the tests must not need a
     /// network ✓.
@@ -325,12 +384,18 @@ mod tests {
         assert!(!meta.sha256.is_empty());
 
         // Change the repository, then roll it back.
-        std::fs::write(repo_dir(&repos, "demo").join("HEAD"), "ref: refs/heads/other\n").unwrap();
+        std::fs::write(
+            repo_dir(&repos, "demo").join("HEAD"),
+            "ref: refs/heads/other\n",
+        )
+        .unwrap();
         let restored = restore(&disk, &key, Some("demo"), &repos).await.unwrap();
         assert_eq!(restored.repo, "demo");
         let head = std::fs::read_to_string(repo_dir(&repos, "demo").join("HEAD")).unwrap();
         assert_eq!(head, "ref: refs/heads/main\n");
-        assert!(repo_dir(&repos, "demo").join("objects/ab/cdef0123").exists());
+        assert!(repo_dir(&repos, "demo")
+            .join("objects/ab/cdef0123")
+            .exists());
         // The staging directory must be gone.
         assert!(!repos.join(".demo.restore-staging").exists());
     }
@@ -356,7 +421,9 @@ mod tests {
         bytes[len - 1] ^= 0xff;
         disk.put(&key, &bytes).await.unwrap();
 
-        let err = restore(&disk, &key, Some("demo"), &repos).await.unwrap_err();
+        let err = restore(&disk, &key, Some("demo"), &repos)
+            .await
+            .unwrap_err();
         assert!(format!("{err}").contains("damaged"), "got: {err}");
     }
 
@@ -364,11 +431,16 @@ mod tests {
     async fn a_file_that_is_not_a_snapshot_is_refused() {
         let disk = MemoryDisk::default();
         let repos = temp_dir("not-a-snapshot");
-        disk.put("snapshots/demo/x.tar", b"just some bytes").await.unwrap();
+        disk.put("snapshots/demo/x.tar", b"just some bytes")
+            .await
+            .unwrap();
         let err = restore(&disk, "snapshots/demo/x.tar", Some("demo"), &repos)
             .await
             .unwrap_err();
-        assert!(format!("{err}").contains("not a gitgit snapshot"), "got: {err}");
+        assert!(
+            format!("{err}").contains("not a gitgit snapshot"),
+            "got: {err}"
+        );
     }
 
     #[tokio::test]
@@ -377,8 +449,151 @@ mod tests {
         let repos = temp_dir("wrong-repo");
         make_repo(&repos, "demo", "ref: refs/heads/main\n");
         let (_, key) = backup(&disk, "demo", &repos, "oss").await.unwrap();
-        let err = restore(&disk, &key, Some("other"), &repos).await.unwrap_err();
+        let err = restore(&disk, &key, Some("other"), &repos)
+            .await
+            .unwrap_err();
         assert!(format!("{err}").contains("other"), "got: {err}");
+    }
+
+    #[tokio::test]
+    async fn a_snapshot_cannot_write_outside_the_repository() {
+        // A snapshot is a file that came from somewhere else; an entry
+        // whose path climbs out of the archive must not be written next to
+        // the repository.
+        let disk = MemoryDisk::default();
+        let repos = temp_dir("escape-path");
+        let archive = tar::write(&[Entry {
+            path: "../escaped.txt".to_string(),
+            data: b"owned".to_vec(),
+            mode: 0o644,
+            mtime: 0,
+        }])
+        .unwrap();
+        let meta = SnapshotMeta {
+            version: SNAPSHOT_VERSION,
+            disk: "oss".to_string(),
+            repo: "demo".to_string(),
+            created_unix: 0,
+            entries: 1,
+            sha256: hex::encode(Sha256::digest(&archive)),
+        };
+        let mut file = Vec::new();
+        file.extend_from_slice(SNAPSHOT_MAGIC);
+        file.extend_from_slice(&serde_json::to_vec(&meta).unwrap());
+        file.push(b'\n');
+        file.extend_from_slice(&archive);
+        disk.put("snapshots/demo/x.tar", &file).await.unwrap();
+
+        let err = restore(&disk, "snapshots/demo/x.tar", Some("demo"), &repos)
+            .await
+            .unwrap_err();
+        assert!(format!("{err}").contains("unsafe path"), "got: {err}");
+        assert!(
+            !repos.join("escaped.txt").exists(),
+            "nothing may be written outside the repository"
+        );
+        assert!(
+            !repos.parent().unwrap().join("escaped.txt").exists(),
+            "nothing may be written outside the repository"
+        );
+    }
+
+    #[test]
+    fn a_failed_swap_puts_the_old_repository_back() {
+        // The second rename fails ⇒ the old repository must be back where
+        // it was, and the staged copy must be gone. The failure is
+        // injected, not waited for.
+        let dir = temp_dir("failed-swap");
+        let staging = dir.join("staging");
+        let target = dir.join("repo.git");
+        let retired = dir.join("retired");
+        std::fs::create_dir_all(&staging).unwrap();
+        std::fs::create_dir_all(&target).unwrap();
+        std::fs::write(target.join("HEAD"), "ref: refs/heads/main\n").unwrap();
+
+        let mut calls = 0;
+        let err = swap_in_with(&staging, &target, &retired, |from, to| {
+            calls += 1;
+            if calls == 2 {
+                return Err(std::io::Error::other("the rename was refused"));
+            }
+            std::fs::rename(from, to)
+        })
+        .unwrap_err();
+        assert!(
+            format!("{err}").contains("the rename was refused"),
+            "got: {err}"
+        );
+        // The old repository is back where it was.
+        assert!(
+            target.join("HEAD").is_file(),
+            "the old repository must be back"
+        );
+        assert_eq!(
+            std::fs::read_to_string(target.join("HEAD")).unwrap(),
+            "ref: refs/heads/main\n"
+        );
+        // The staged copy is gone.
+        assert!(!staging.exists(), "the staged copy must be dropped");
+        assert!(!retired.exists(), "the retired copy must be gone");
+    }
+
+    #[tokio::test]
+    async fn a_snapshot_survives_a_real_object_store() {
+        // `[FACT]` This repository **is** an S3-compatible server ✓, so
+        // the whole S3 path runs end to end here ✓: no network ✓, no
+        // third-party service ✓, no skipped test ✓. It is the only test
+        // that exercises `S3CloudDisk` itself ✓ — the others use an
+        // in-memory disk ✓.
+        let server = crate::server::vault::test_support::start_object_store("cloud").await;
+        let disk_name = format!("cloud-e2e-{}", std::process::id());
+        // The credentials come from the environment only ✓ — so the test
+        // puts them there ✓, exactly as an operator would ✓.
+        std::env::set_var(
+            access_key_env(&disk_name),
+            crate::server::vault::test_support::ACCESS_KEY,
+        );
+        std::env::set_var(
+            secret_key_env(&disk_name),
+            crate::server::vault::test_support::SECRET_KEY,
+        );
+
+        let entry = CloudDiskEntry {
+            name: disk_name.clone(),
+            endpoint: server.endpoint.clone(),
+            bucket: crate::server::vault::test_support::BUCKET.to_string(),
+            region: "us-east-1".to_string(),
+            prefix: "gitgit/".to_string(),
+        };
+        let disk = crate::cloud::S3CloudDisk::connect(&entry).await.unwrap();
+
+        let repos = temp_dir("real-store");
+        make_repo(&repos, "demo", "ref: refs/heads/main\n");
+        let (meta, key) = backup(&disk, "demo", &repos, &disk_name).await.unwrap();
+        assert!(key.starts_with("snapshots/demo/"), "got: {key}");
+
+        // The listing must find it under the disk's own prefix ✓, and
+        // report the disk-local name ✓ — the name a restore takes ✓.
+        let listed = disk.list(SNAPSHOT_PREFIX).await.unwrap();
+        assert!(
+            listed.iter().any(|o| o.key == key),
+            "the snapshot is missing from the listing: {listed:?}"
+        );
+
+        // Change the repository, then roll it back.
+        std::fs::write(
+            repo_dir(&repos, "demo").join("HEAD"),
+            "ref: refs/heads/other\n",
+        )
+        .unwrap();
+        let restored = restore(&disk, &key, Some("demo"), &repos).await.unwrap();
+        assert_eq!(restored.repo, "demo");
+        assert_eq!(restored.sha256, meta.sha256);
+        let head = std::fs::read_to_string(repo_dir(&repos, "demo").join("HEAD")).unwrap();
+        assert_eq!(head, "ref: refs/heads/main\n");
+        // The swap leaves nothing behind ✓.
+        assert!(!repos.join(".demo.restore-staging").exists());
+        assert!(!repos.join(".demo.restore-retired").exists());
     }
 
     #[test]

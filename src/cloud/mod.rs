@@ -71,7 +71,13 @@ pub const FALLBACK_SECRET_KEY_ENV: &str = "GITGIT_CLOUD_SECRET_KEY";
 /// The disk name as it appears in an environment variable name.
 fn env_suffix(name: &str) -> String {
     name.chars()
-        .map(|c| if c.is_ascii_alphanumeric() { c.to_ascii_uppercase() } else { '_' })
+        .map(|c| {
+            if c.is_ascii_alphanumeric() {
+                c.to_ascii_uppercase()
+            } else {
+                '_'
+            }
+        })
         .collect()
 }
 
@@ -182,7 +188,8 @@ fn read_secret(name: &str) -> Option<String> {
 /// One object on a cloud disk.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CloudObject {
-    /// The key the object is stored under.
+    /// The key the object is stored under ✓ — the **disk-local** name ✓,
+    /// so it is the name a restore takes ✓.
     pub key: String,
     /// The object's size in bytes.
     pub size: u64,
@@ -249,8 +256,9 @@ impl CloudRegistry {
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
         }
-        let bytes = serde_json::to_vec_pretty(self)
-            .map_err(|e| GitGitError::Cloud(format!("the cloud disk registry is unwritable: {e}")))?;
+        let bytes = serde_json::to_vec_pretty(self).map_err(|e| {
+            GitGitError::Cloud(format!("the cloud disk registry is unwritable: {e}"))
+        })?;
         std::fs::write(path, bytes)?;
         Ok(())
     }
@@ -267,7 +275,12 @@ impl CloudRegistry {
     /// The only connected disk, when there is exactly one ✓.
     pub fn only(&self) -> Result<&CloudDiskEntry> {
         match self.disks.len() {
-            1 => Ok(self.disks.values().next().expect("one disk")),
+            1 => match self.disks.values().next() {
+                Some(entry) => Ok(entry),
+                None => Err(GitGitError::Cloud(
+                    "no cloud disk is connected (gitgit cloud add ...)".to_string(),
+                )),
+            },
             0 => Err(GitGitError::Cloud(
                 "no cloud disk is connected (gitgit cloud add ...)".to_string(),
             )),
@@ -278,20 +291,49 @@ impl CloudRegistry {
     }
 }
 
+/// The key an object named `name` is stored under on a disk whose prefix
+/// is `prefix` ✓.
+///
+/// `[FACT]` The prefix belongs to the **disk** ✓, not to the caller ✓:
+/// everything above this module speaks *disk-local* names ✓, and the disk
+/// adds its own prefix on the way out ✓. One place composes the key ✓, so
+/// a snapshot cannot be written under one prefix and looked for under
+/// another ✓.
+pub fn object_key(prefix: &str, name: &str) -> String {
+    format!("{prefix}{name}")
+}
+
+/// The disk-local name of the object stored under `key` on a disk whose
+/// prefix is `prefix` ✓.
+///
+/// `[FACT]` A key that does not carry the prefix is returned unchanged ✓:
+/// the listing strips what it added ✓, and a key from another disk is not
+/// silently renamed into this one ✓.
+pub fn local_name(prefix: &str, key: &str) -> String {
+    key.strip_prefix(prefix).unwrap_or(key).to_string()
+}
+
 /// A remote that holds snapshots.
+///
+/// `[FACT]` Every name in this trait is **disk-local** ✓: the disk's own
+/// key prefix is applied by the disk ✓, on the way in ✓ and on the way out
+/// ✓, and the listing reports the local names ✓ — so a caller that
+/// writes `snapshots/demo/x.tar` and later lists or restores that same
+/// name is talking about the same object ✓, whatever prefix the disk was
+/// configured with ✓.
 #[async_trait::async_trait]
 pub trait CloudDisk: Send + Sync {
-    /// Store `bytes` under `key` ✓ and return the server's version id ✓,
-    /// when it has one ✓.
+    /// Store `bytes` under the local name `key` ✓ and return the server's
+    /// version id ✓, when it has one ✓.
     async fn put(&self, key: &str, bytes: &[u8]) -> Result<Option<String>>;
 
-    /// Read the object at `key` ✓.
+    /// Read the object at the local name `key` ✓.
     async fn get(&self, key: &str) -> Result<Vec<u8>>;
 
-    /// List the objects whose key starts with `prefix` ✓.
+    /// List the objects whose local name starts with `prefix` ✓.
     async fn list(&self, prefix: &str) -> Result<Vec<CloudObject>>;
 
-    /// Delete the object at `key` ✓.
+    /// Delete the object at the local name `key` ✓.
     async fn delete(&self, key: &str) -> Result<()>;
 }
 
@@ -330,8 +372,10 @@ impl S3CloudDisk {
     }
 
     /// The key an object of this disk is stored under ✓.
+    ///
+    /// `[FACT]` The disk's prefix is applied here ✓ — and only here ✓.
     pub fn key(&self, name: &str) -> String {
-        format!("{}{}", self.key_prefix, name)
+        object_key(&self.key_prefix, name)
     }
 }
 
@@ -340,7 +384,7 @@ impl CloudDisk for S3CloudDisk {
     async fn put(&self, key: &str, bytes: &[u8]) -> Result<Option<String>> {
         let response = self
             .bucket
-            .put_object(key, bytes)
+            .put_object(&self.key(key), bytes)
             .await
             .map_err(|e| GitGitError::Cloud(format!("the snapshot could not be uploaded: {e}")))?;
         let headers = response.headers();
@@ -351,25 +395,25 @@ impl CloudDisk for S3CloudDisk {
     }
 
     async fn get(&self, key: &str) -> Result<Vec<u8>> {
-        let object = self
-            .bucket
-            .get_object(key)
-            .await
-            .map_err(|e| GitGitError::Cloud(format!("the snapshot could not be downloaded: {e}")))?;
+        let object = self.bucket.get_object(&self.key(key)).await.map_err(|e| {
+            GitGitError::Cloud(format!("the snapshot could not be downloaded: {e}"))
+        })?;
         Ok(object.bytes().to_vec())
     }
 
     async fn list(&self, prefix: &str) -> Result<Vec<CloudObject>> {
         let pages = self
             .bucket
-            .list(prefix.to_string(), None)
+            .list(self.key(prefix), None)
             .await
             .map_err(|e| GitGitError::Cloud(format!("the snapshots could not be listed: {e}")))?;
         let mut out = Vec::new();
         for page in pages {
             for object in page.contents {
                 out.push(CloudObject {
-                    key: object.key,
+                    // The listing reports the disk-local name ✓, so the
+                    // name a caller sees is the name it can restore from ✓.
+                    key: local_name(&self.key_prefix, &object.key),
                     size: object.size,
                     version_id: None,
                     modified: object.last_modified,
@@ -382,7 +426,7 @@ impl CloudDisk for S3CloudDisk {
 
     async fn delete(&self, key: &str) -> Result<()> {
         self.bucket
-            .delete_object(key)
+            .delete_object(&self.key(key))
             .await
             .map_err(|e| GitGitError::Cloud(format!("the snapshot could not be deleted: {e}")))?;
         Ok(())
@@ -425,6 +469,25 @@ mod tests {
     fn the_environment_variable_names_follow_the_disk_name() {
         assert_eq!(access_key_env("oss"), "GITGIT_CLOUD_OSS_ACCESS_KEY");
         assert_eq!(secret_key_env("my-disk"), "GITGIT_CLOUD_MY_DISK_SECRET_KEY");
+    }
+
+    #[test]
+    fn the_disk_prefix_is_added_on_the_way_out_and_stripped_on_the_way_in() {
+        // The prefix belongs to the disk. Everything above it speaks
+        // disk-local names, so a snapshot written as
+        // `snapshots/demo/x.tar` lands under `<prefix>snapshots/demo/x.tar`
+        // and is listed and restored under the name it was written with.
+        let prefix = "gitgit/";
+        let name = "snapshots/demo/x.tar";
+        assert_eq!(object_key(prefix, name), "gitgit/snapshots/demo/x.tar");
+        assert_eq!(
+            local_name(prefix, &object_key(prefix, name)),
+            "snapshots/demo/x.tar"
+        );
+        // A key that carries no prefix is not renamed into this disk.
+        assert_eq!(local_name(prefix, "other/x.tar"), "other/x.tar");
+        // An empty prefix is the disk's own key space.
+        assert_eq!(object_key("", name), name);
     }
 
     #[test]
