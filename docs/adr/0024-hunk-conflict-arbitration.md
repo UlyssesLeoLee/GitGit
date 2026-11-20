@@ -500,7 +500,7 @@ merge-file 产出冲突区域  →  scope 层给每个区域定位 scope  →  �
 |---|---|---|---|
 | A | #84 | `src/repo/conflict.rs` ✓：区域解析 ✓、scope 层 ✓、写回路径 ✓ | `repo::conflict` 33 个 ✓ |
 | B | #92 | `src/ai/{conflict,keys,prompt}.rs` ✓ + 桌面端 `ai_conflict_start` / `ai_conflict_cancel` / `ai_key_set` / `ai_key_status` ✓ | `ai::conflict` 22 个 ✓、`ai::keys` 8 个 ✓、`ai::prompt` 8 个 ✓、桌面端 crate 54 个 ✓ |
-| C | #96 | `/conflicts` 路由 ✓、`ConflictDialog.svelte` ✓、`stores/conflict.ts` ✓、`api/conflict.ts` ✓、`utils/linediff.ts` ✓、i18n `conflict.*` ✓ | 前端 `conflict.test.ts` 35 个 ✓ |
+| C | #96 | `/conflicts` 路由 ✓、`ConflictDialog.svelte` ✓、`stores/conflict.ts` ✓、`api/conflict.ts` ✓、`utils/linediff.ts` ✓、i18n `conflict.*` ✓ | 前端 `conflict.test.ts` 36 个 ✓ |
 | D | 本 PR | ADR 状态收口 ✓ + capability surface 门禁管到**应用自己的命令面** ✓ + 桌面端 `conflict_regions` 命令 ✓ | 门禁 37 个 ✓；桌面端 crate 57 个 ✓（54 + 新命令的 3 个 ✓） |
 
 `[FACT]` Lane D 补上了 `conflict_regions` 这个命令 ✓ —— 门禁在 dev 上报出「前端调用了 Rust 侧没注册的命令」✓，而这正是 ADR §3.1 说的区域来源 ✓：命令读的是**进行中 merge 的 index stage** ✓，再交给 `src/repo/conflict.rs` 的核心解析 ✓。
@@ -640,7 +640,7 @@ merge-file 产出冲突区域  →  scope 层给每个区域定位 scope  →  �
 |---|---|---|
 | A + B | CI 的 `fmt + clippy + test` job（`cargo test --all-targets --locked`） | 全量绿 ✓；`repo::conflict` 33 个 ✓、`ai::conflict` 22 个 ✓、`ai::keys` 8 个 ✓、`ai::prompt` 8 个 ✓ |
 | A + B | CI 的桌面端 job（`lint + check + test + build + cargo check`） | 全量绿 ✓；桌面端 crate 54 个 ✓ |
-| C | 前端 `vitest run`（`tests/unit/conflict.test.ts`） | 35 个通过 ✓；本地全量 741 通过 / 11 失败 ✓ —— 失败全在三个**要 shell 出去找 bash 与 jq** 的文件里 ✓（`release-tag-resolution` ✓、`corresponding-source-notice` ✓、`workflow-step-isolation` ✓）：这台 Windows 上没有 `jq` ✓，于是那些测试跑 5–200 秒并撞上 5000ms 的上限 ✓。这三个文件本 lane 未触碰 ✓，CI 的前端 job（ubuntu ✓，有 bash 与 jq ✓）在 Lane C 的 PR 上是绿的 ✓。 |
+| C | 前端 `vitest run`（`tests/unit/conflict.test.ts`） | 36 个通过 ✓；本地全量 741 通过 / 11 失败 ✓ —— 失败全在三个**要 shell 出去找 bash 与 jq** 的文件里 ✓（`release-tag-resolution` ✓、`corresponding-source-notice` ✓、`workflow-step-isolation` ✓）：这台 Windows 上没有 `jq` ✓，于是那些测试跑 5–200 秒并撞上 5000ms 的上限 ✓。这三个文件本 lane 未触碰 ✓，CI 的前端 job（ubuntu ✓，有 bash 与 jq ✓）在 Lane C 的 PR 上是绿的 ✓。 |
 | D | 门禁 `vitest run tests/unit/capability-surface-gate.test.ts` | 37 个通过 ✓；**6 个变异全部变红** ✓（见下） |
 
 `[FACT]` Lane D 的门禁**当场抓到一个真缺陷** ✓：前端调用的 `conflict_regions` 在 Rust 侧**没有注册** ✓ —— 那不是测试写错 ✓，而是「点了按钮才在运行时炸」的那种缺陷 ✓。本 PR 因此补上了那个命令 ✓（`apps/gm-desktop/src-tauri/src/commands/conflict.rs` ✓）：它读**进行中 merge 的 index stage** ✓，再交给 `src/repo/conflict.rs` 的核心解析 ✓。
