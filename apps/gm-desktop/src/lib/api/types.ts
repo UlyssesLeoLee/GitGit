@@ -305,6 +305,25 @@ export interface ConflictRegion {
 }
 
 /**
+ * The conflict regions of a repository, and the paths git has to handle.
+ *
+ * `[FACT]` Two lists, because they answer two different questions: the
+ * regions the user can arbitrate here, and the paths the core refused to
+ * read — an add/delete or rename conflict has no base stage, and binary
+ * content is not text (ADR §3.7.4).
+ *
+ * `[PROPOSAL]` The needs-git paths are **reported**, not dropped: a page
+ * that said "no conflict regions" while git still had work to do would be
+ * lying.
+ */
+export interface ConflictRegions {
+  /** The regions, in the order the merged output produced them. */
+  regions: ConflictRegion[];
+  /** The repository-relative paths the core leaves to git. */
+  needsGit: string[];
+}
+
+/**
  * What the UI learns when an arbitration starts.
  *
  * `[FACT]` Mirrors `ConflictStarted`: the fields are renamed to

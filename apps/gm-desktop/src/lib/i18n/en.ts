@@ -233,6 +233,7 @@ const en: Readonly<Record<string, string>> = {
   'conflict.repoLabel': 'Repository',
   'conflict.loadFailed': 'The conflict regions could not be read.',
   'conflict.noRegions': 'This repository has no conflict region to arbitrate.',
+  'conflict.needsGitHeading': 'Git has to resolve these paths itself:',
   'conflict.regionIndex': 'Region {n}',
   'conflict.scope': 'Scope: {scope}',
   'conflict.ours': 'ours',

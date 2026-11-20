@@ -141,6 +141,15 @@ export interface ConflictState {
   resolution: { choice: ConflictChoice; text: string } | null;
   /** The regions of the selected repository. */
   regions: ConflictRegion[];
+  /**
+   * The paths the core leaves to git.
+   *
+   * `[PROPOSAL]` They are reported, not dropped: an add/delete or rename
+   * conflict has no base stage, and binary content is not text
+   * (ADR §3.7.4). A page that said "no conflict regions" while git still
+   * had work to do would be lying.
+   */
+  needsGit: string[];
   /** The region currently open in the dialog. */
   selectedRegionId: string | null;
 }
@@ -165,6 +174,7 @@ const INITIAL: ConflictState = {
   keyStatus: 'unknown',
   resolution: null,
   regions: [],
+  needsGit: [],
   selectedRegionId: null,
 };
 
@@ -636,17 +646,29 @@ export function setResolution(choice: ConflictChoice, text: string): void {
  */
 export async function loadRegions(
   repo: string,
+  root: string | null = null,
   seam: typeof tauri.conflictRegions = tauri.conflictRegions
 ): Promise<ConflictRegion[]> {
   try {
-    const regions = await seam(repo);
-    conflict.set({ ...get(conflict), regions, selectedRegionId: regions[0]?.id ?? null });
+    // `[FACT]` The root travels with the name: the desktop keeps its
+    // repositories as bare `<name>.git` directories, and the checkouts live
+    // under the root the user picked. Without it the command would resolve
+    // a bare repository, where `git` answers `NotAWorkTree`.
+    const payload = await seam(repo, root);
+    const regions = payload.regions;
+    conflict.set({
+      ...get(conflict),
+      regions,
+      needsGit: payload.needsGit,
+      selectedRegionId: regions[0]?.id ?? null,
+    });
     return regions;
   } catch (e) {
     const err = normalizeError(e);
     conflict.set({
       ...get(conflict),
       regions: [],
+      needsGit: [],
       selectedRegionId: null,
       status: 'error',
       errorKind: err.kind,

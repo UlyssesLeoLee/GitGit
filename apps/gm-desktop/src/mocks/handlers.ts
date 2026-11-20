@@ -630,7 +630,14 @@ async function handle(cmd: string, args?: Record<string, unknown>): Promise<unkn
      * network (`ProviderSpec::supports_streaming`).
      */
     case 'conflict_regions':
-      return clone(conflictFixtureRegions());
+      // `[FACT]` The shape the Rust command answers: the regions, and the
+      // paths the core leaves to git. The fixture carries one of each, so
+      // the dev mock shows what a real merge looks like: a region the user
+      // can arbitrate, and a path git has to resolve itself.
+      return clone({
+        regions: conflictFixtureRegions(),
+        needsGit: ['assets/logo.png'],
+      });
     case 'ai_conflict_start': {
       const provider = String(args?.provider ?? 'openai');
       if (provider === 'anthropic') {

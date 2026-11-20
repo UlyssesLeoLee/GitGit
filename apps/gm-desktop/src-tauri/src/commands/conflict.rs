@@ -27,6 +27,23 @@ use crate::state::DesktopState;
 /// How many lines of context the webview gets on each side of a region.
 const CONTEXT_LINES: usize = 3;
 
+/// The conflict regions of `repo`, and the paths git has to handle itself.
+///
+/// `[FACT]` Two lists, because they answer two different questions ✓: the
+/// regions the user can arbitrate here ✓, and the paths the core refused
+/// to read ✓ — an add/delete or rename conflict has no base stage ✓, and
+/// binary content is not text ✓ (ADR §3.7.4) ✓. Those paths are **not**
+/// dropped ✓: a page that said "no conflict regions" while git still had
+/// work to do would be lying ✓.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConflictRegionsDto {
+    /// The regions, in the order the merged output produced them.
+    pub regions: Vec<ConflictRegionDto>,
+    /// The repository-relative paths the core leaves to git.
+    pub needs_git: Vec<String>,
+}
+
 /// One conflict region, as the webview holds it.
 ///
 /// `[FACT]` The field names mirror `ConflictRegion` in
@@ -64,27 +81,42 @@ pub struct ConflictRegionDto {
 /// path's regions are the ones `git merge-file` produced ✓ — the scope
 /// layer never removes one ✓ (ADR §3.8.3) ✓.
 ///
+/// `[FACT]` `root` is the working-tree root the repository name is
+/// resolved under ✓ — the same argument `repo_status` and `repo_diff`
+/// take ✓ — because the desktop keeps its repositories as bare
+/// `<name>.git` directories ✓ and the checkouts live under the root the
+/// user picked ✓. Without it the command would resolve a bare repository
+/// ✓, and `git` answers `NotAWorkTree` there ✓.
+///
 /// `[FACT]` A repository with no merge in progress has no unmerged paths ✓
 /// and therefore no regions ✓ — an empty list ✓, not an error ✓.
 #[tauri::command]
 pub async fn conflict_regions(
     state: State<'_, DesktopState>,
     repo: String,
-) -> AppResult<Vec<ConflictRegionDto>> {
-    let dir = resolve_worktree_dir(&state.repos_dir, &repo, None)?;
+    root: Option<String>,
+) -> AppResult<ConflictRegionsDto> {
+    let dir = resolve_worktree_dir(&state.repos_dir, &repo, root)?;
     let paths = unmerged_paths(&dir).await?;
-    let mut out = Vec::new();
+    let mut regions = Vec::new();
+    let mut needs_git = Vec::new();
     for rel in paths {
         let set = gitgit::repo::conflict_set(&dir, &rel)
             .await
             .map_err(|e| AppError::Gitgit(e.to_string()))?;
+        if set.disposition == gitgit::repo::Disposition::NeedsGit {
+            // `[FACT]` The core refused this path ✓ — no base stage ✓, or
+            // binary content ✓. It is reported, not dropped ✓.
+            needs_git.push(set.path.clone());
+            continue;
+        }
         let base_text = match &set.base_oid {
             Some(oid) => blob_text(&dir, oid).await?,
             None => String::new(),
         };
         let base_lines: Vec<&str> = base_text.lines().collect();
         for region in set.all_regions() {
-            out.push(ConflictRegionDto {
+            regions.push(ConflictRegionDto {
                 id: region.id.clone(),
                 path: set.path.clone(),
                 base_oid: set.base_oid.clone().unwrap_or_default(),
@@ -98,7 +130,7 @@ pub async fn conflict_regions(
             });
         }
     }
-    Ok(out)
+    Ok(ConflictRegionsDto { regions, needs_git })
 }
 
 /// The paths the index reports as unmerged, in the order `git` lists them.
