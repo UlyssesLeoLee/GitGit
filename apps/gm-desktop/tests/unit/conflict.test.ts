@@ -635,6 +635,16 @@ describe('the /conflicts route', () => {
     await waitFor(() => expect(screen.getByTestId('conflict-dialog')).toBeTruthy());
     expect(screen.getByTestId('conflict-regions').children.length).toBeGreaterThan(0);
   });
+
+  it('shows the paths git has to resolve itself', async () => {
+    // `[PROPOSAL]` ADR §3.7.4: a path the core refused to read is
+    // reported, not dropped. A page that said "no conflict regions" while
+    // git still had work to do would be lying — and the paths can sit
+    // beside the regions, not only replace them.
+    render(Conflicts);
+    await waitFor(() => expect(screen.getByTestId('conflicts-needs-git')).toBeTruthy());
+    expect(screen.getByTestId('conflicts-needs-git').textContent).toContain('assets/logo.png');
+  });
 });
 
 // ---------------------------------------------------------------------------

@@ -24,6 +24,7 @@
     selectRegion,
   } from '$lib/stores/conflict';
   import ConflictDialog from '$lib/components/ConflictDialog.svelte';
+  import { currentRoot } from '$lib/stores/worktreeRoot';
   import { catalog } from '$lib/i18n';
 
   let repo = $state('');
@@ -36,7 +37,10 @@
   async function onRepoChange(): Promise<void> {
     if (repo === '') return;
     loading = true;
-    await loadRegions(repo);
+    // `[FACT]` The working-tree root travels with the name: the desktop
+    // keeps its repositories as bare `<name>.git` directories, and the
+    // checkouts live under the root the user picked.
+    await loadRegions(repo, currentRoot());
     loading = false;
   }
 
@@ -123,5 +127,21 @@
         <ConflictDialog region={selected} />
       {/key}
     {/if}
+  {/if}
+
+  <!-- `[PROPOSAL]` ADR §3.7.4: a path the core refused to read is
+       reported, not dropped. An add/delete or rename conflict has no base
+       stage, and binary content is not text — git has to handle those, and
+       the user has to be told. It is shown next to the regions, not only
+       when there are none, because a repository can have both. -->
+  {#if $conflict.needsGit.length > 0}
+    <div class="card border-l-4 border-l-amber-500 text-sm" data-testid="conflicts-needs-git">
+      <p class="font-medium">{$catalog['conflict.needsGitHeading']}</p>
+      <ul class="mt-1 list-disc pl-5 font-mono text-xs text-slate-600 dark:text-slate-300">
+        {#each $conflict.needsGit as path (path)}
+          <li>{path}</li>
+        {/each}
+      </ul>
+    </div>
   {/if}
 </section>

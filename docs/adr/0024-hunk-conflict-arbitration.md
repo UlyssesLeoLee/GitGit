@@ -256,12 +256,12 @@
 
 - `[FACT]` 本仓的 AI 传输是**流式**的：`AiProvider::send_stream` 返回 `mpsc::Receiver`（`src/ai/provider.rs:207-209`、`:175-206`），`StreamEvent::Token(String)`（`src/ai/stream.rs:128-130`），错误是**带内**的（`src/ai/provider.rs:192-197`：中途失败与干净结束是两种结果，UI 分不出来就会把截断的答案当成完整的）。
 - `[FACT]` **Anthropic 没有流式实现**：`ProviderSpec::supports_streaming` 对 Anthropic 恒为 false（`src/ai/registry.rs:98-103`），且 `send_stream` 的默认实现是**拒绝**而不是回退（`src/ai/provider.rs:199-209`）。
-- `[PROPOSAL]` 因此：**「问 AI」这个选项只在 `supports_streaming == true` 的 provider 上出现。** Anthropic 用户拿到 keep ours / keep theirs / 手工编辑，外加一句明说原因的话（沿用 `review.unsupported` 的措辞风格，`apps/gm-desktop/src/lib/i18n/en.ts:223`）。**不做「一次性兜底」** —— `[FACT]` 本仓的立场是「不能流式的 provider 必须说不能」（`src/ai/provider.rs:199-206`），悄悄回退成非流式会让用户盯着一块不动的 UI 以为卡死了。
+- `[FACT]` 因此：**「问 AI」这个选项只在 `supports_streaming == true` 的 provider 上出现。** Anthropic 用户拿到 keep ours / keep theirs / 手工编辑，外加一句明说原因的话（沿用 `review.unsupported` 的措辞风格，`apps/gm-desktop/src/lib/i18n/en.ts:223`）。**不做「一次性兜底」** —— `[FACT]` 本仓的立场是「不能流式的 provider 必须说不能」（`src/ai/provider.rs:199-206`），悄悄回退成非流式会让用户盯着一块不动的 UI 以为卡死了。（Lane C：`src/lib/api/types.ts` 的 `supportsStreaming` ✓，`ConflictDialog.svelte` 的「问 AI」按钮条件 ✓，测试断言 Anthropic 上该选项**不出现** ✓。）
 - `[FACT]` 前端纪律照抄 `/review`：**订阅先于启动**（`apps/gm-desktop/src/lib/stores/review.ts:8-11`）、**非当前 sessionId 的事件丢弃**（`:152`）、**没有终止事件就等于失败**（`:19-20`）、**累积文本有上限** `REVIEW_MAX_TEXT_CHARS = 200_000`（`:36`）。
 
 #### 3.4.2 答案的校验（在展示之前）
 
-`[PROPOSAL]` 一条 AI 答案必须**全部**通过下列检查才允许出现在「建议」槽位：
+`[FACT]` 一条 AI 答案必须**全部**通过下列检查才允许出现在「建议」槽位 ✓（Lane B 实现于 `src/ai/conflict.rs` 的 `validate_replacement` ✓，测试在同文件的 `mod tests` ✓）：
 
 | # | 检查 | 不通过时 |
 |---|---|---|
@@ -275,9 +275,9 @@
 
 #### 3.4.3 呈现
 
-- `[PROPOSAL]` 建议**永远以 diff 呈现**：左 = ours 侧原文，右 = AI 建议（逐行 diff）。不是并排文本、不是「已解决」的静默替换。
-- `[PROPOSAL]` **「接受」按钮在用户看过 diff 之前是 disabled 的。**（这是一个状态机约束，不是样式。）
-- `[PROPOSAL]` 对话框始终给出三个**不依赖 AI** 的选项：保留 ours / 保留 theirs / 手工编辑。AI 建议是**第四个**选项，且**排在最后**。
+- `[FACT]` 建议**永远以 diff 呈现**：左 = ours 侧原文，右 = AI 建议（逐行 diff）。不是并排文本、不是「已解决」的静默替换。（Lane C：`apps/gm-desktop/src/lib/utils/linediff.ts` ✓，`ConflictDialog.svelte` 的左右两栏 ✓。）
+- `[FACT]` **「接受」按钮在用户看过 diff 之前是 disabled 的。**（这是一个状态机约束，不是样式。Lane C：`stores/conflict.ts` 的 `diffSeen` ✓ 与 `canAccept()` ✓，按钮绑定 `disabled={!canAccept($conflict)}` ✓。）
+- `[FACT]` 对话框始终给出三个**不依赖 AI** 的选项：保留 ours / 保留 theirs / 手工编辑。AI 建议是**第四个**选项，且**排在最后**。（Lane C：`ConflictDialog.svelte` ✓，测试 `tests/unit/conflict.test.ts` ✓。）
 - `[FACT]` 模型输出是不可信文本，进 DOM 走普通文本节点（Svelte 转义，`apps/gm-desktop/src/routes/Review.svelte:13-15` 明说该文件无 `{@html}`）。冲突对话框沿用同一约束。
 
 #### 3.4.4 失败
@@ -289,7 +289,7 @@
 | 校验不通过 | 建议被**标为「已拒绝」并附理由**；用户仍可手工编辑 |
 | 用户中途关掉对话框 | 取消流（沿用 `ai_review_cancel` 的形状） |
 
-`[PROPOSAL]` **没有任何一条失败路径会自动写文件。**
+`[FACT]` **没有任何一条失败路径会自动写文件。**（Lane B 的仲裁只**返回**校验过的结果 ✓，写回是另一条路径 ✓；测试断言失败路径上没有任何写入发生 ✓。）
 
 ### 3.5 Q5：对话框放在哪？
 
@@ -350,13 +350,13 @@
 
 `[FACT]` 本仓已有 `AiReviewNoKey` 错误（`apps/gm-desktop/src-tauri/src/commands/ai.rs:225`，测试在 `:590-601`）。
 
-`[PROPOSAL]` 冲突对话框在无 key 时**仍然完全可用**：保留 ours / 保留 theirs / 手工编辑三项照常。「问 AI」这一项**显示但 disabled**，并说明原因与「key 在哪里填」。**对话框不因为没有 AI 而降级。**
+`[FACT]` 冲突对话框在无 key 时**仍然完全可用**：保留 ours / 保留 theirs / 手工编辑三项照常。「问 AI」这一项**显示但 disabled**，并说明原因与「key 在哪里填」。**对话框不因为没有 AI 而降级。**（Lane C：`stores/conflict.ts` 的 `canAskAi()` ✓、`ConflictDialog.svelte` 的无 key 说明 ✓，测试断言三项照常可用且「问 AI」显示但 disabled ✓。）
 
 #### 3.7.2 AI 不得解决它没被展示的冲突
 
-- `[PROPOSAL]` 请求**一次只带一个区域**。多区域绝不合并成一个请求（否则模型会跨区域「统一风格」，而那正是越权）。
-- `[PROPOSAL]` 每个 region 带一个**不可伪造的 id**：`sha256(repo 相对路径 ‖ base blob oid ‖ 区域序号 ‖ 区域 ours/base/theirs 文本)` 的前 16 字节十六进制。
-- `[PROPOSAL]` 建议回传时必须带同一个 region id；Rust 侧比对，不一致 ⇒ **丢弃**该建议（§3.4.2 第 5 条）。
+- `[FACT]` 请求**一次只带一个区域**。多区域绝不合并成一个请求（否则模型会跨区域「统一风格」，而那正是越权）。（Lane B：`ai_conflict_start` 的请求体带**一个**区域 ✓。）
+- `[FACT]` 每个 region 带一个**不可伪造的 id**：`sha256(repo 相对路径 ‖ base blob oid ‖ 区域序号 ‖ 区域 ours/base/theirs 文本)` 的前 16 字节十六进制。（Lane A：`src/repo/conflict.rs` 的 `region_id` ✓；Lane C 的 DTO 带这个 id ✓。）
+- `[FACT]` 建议回传时必须带同一个 region id；Rust 侧比对，不一致 ⇒ **丢弃**该建议（§3.4.2 第 5 条）。（Lane B：`src/ai/conflict.rs` 的绑定校验 ✓，测试断言 id 不符的建议被丢弃 ✓。）
 - `[INFERENCE]` 这条堵住的是「模型串台」：流式通道复用、用户快速切换区域、上一个流的迟到 token —— 都不可能落到别的区域头上。
 
 #### 3.7.3 可审计
@@ -455,7 +455,7 @@ merge-file 产出冲突区域  →  scope 层给每个区域定位 scope  →  �
 - `[FACT]` 桌面端目前只读环境变量：`read_api_key_env()`（`apps/gm-desktop/src-tauri/src/commands/ai.rs:165-170`），命令入口传 `read_api_key_env()`（`:398`），缺 key 时报 `AiReviewNoKey`（`:225`）。
 - `[FACT]` 桌面端已有版本化凭据库通道：`vault_set` → `VersionedVault::set_with_version`（`apps/gm-desktop/src-tauri/src/commands/vault.rs:86-94`；上游 `src/server/vault_versioned.rs:199`）。
 
-**决策（`[PROPOSAL]`）**：
+**决策（`[FACT]`，Lane B 落地）**：
 
 1. **key 在设置里输入 → 落到版本化 vault。** 键名空间：`ai/<provider>`（例：`ai/openai`）。
 2. **优先级：vault 优先，环境变量兜底。**
@@ -468,13 +468,14 @@ merge-file 产出冲突区域  →  scope 层给每个区域定位 scope  →  �
    **为什么 vault 优先**：vault 是**显式、版本化、可轮换、跨会话**的用户资产（`[FACT]` ADR-0022 的版本化契约，`src/server/vault_versioned.rs:185-199`）；环境变量是**进程级的环境默认值**，通常来自 CI 或启动脚本。用户在应用里填了 key，就意味着「这是我为这个应用配的凭据」，环境变量只是「没配时的兜底」。反过来（env 优先）会让用户在 UI 里填了 key 却仍然发到别处 —— 那是更坏的意外。
    **注意 CLI 不受影响**：`gitai` 没有 UI，仍然只读 `GITGIT_AI_API_KEY`（`src/ai/mod.rs:97-135` 的 `Invocation::run` 签名就收 `api_key: &str`）。**本决策只改桌面端。**
 3. **key 从不回流到 webview。**
-   - `[PROPOSAL]` 新增 Tauri 命令 `ai_key_set(provider, key)`：写入 vault，**只返回版本号**，不返回 key。
-   - `[PROPOSAL]` **不提供** `ai_key_get`：AI 调用时 Rust 侧直接从 vault 取，**在内存里**用完即弃。
-   - `[FACT]` 现有 `vault_get`（`apps/gm-desktop/src-tauri/src/commands/vault.rs:79-84`）**会把值返回给前端**，所以 `ai/` 命名空间必须从通用 vault 列表里排除，或至少设置页永不对它调 `vault_get`。**[PROPOSAL] 落地要求**：`ai/*` 键在 vault UI 里**只列名不取值**。
+   - `[FACT]` 新增 Tauri 命令 `ai_key_set(provider, key)`：写入 vault，**不返回值** —— `[FACT]` 实现比本 ADR 当初写的「只返回版本号」更严 ✓（`apps/gm-desktop/src/lib/api/conflict.ts` 的 `aiKeySet` 返回 `Promise<void>` ✓），因为版本号对 webview 也没有用处 ✓。
+   - `[FACT]` **不提供** `ai_key_get`：AI 调用时 Rust 侧直接从 vault 取，**在内存里**用完即弃。（Lane B：`src/ai/keys.rs` ✓。）
+   - `[FACT]` 现有 `vault_get`（`apps/gm-desktop/src-tauri/src/commands/vault.rs:79-84`）**会把值返回给前端**，所以 `ai/` 命名空间必须从通用 vault 列表里排除，或至少设置页永不对它调 `vault_get`。`[FACT]` 落地要求已满足：`ai/*` 键在通用 vault 读取路径上被**拒绝** ✓，设置页只调 `ai_key_status`（存在与否）✓。
 4. **key 永不进 flag、永不进日志。**
    - `[FACT]` 既有防线：`scrub_secret`（`apps/gm-desktop/src-tauri/src/commands/ai.rs:260`、`:356`）把所有离开该模块的错误串过一遍。**新命令必须同样过这道筛**。
-   - `[PROPOSAL]` **不得**在 `tracing` 字段、审计记录、错误消息里出现 key；新增一条门禁测试：对 `ai_key_set` / `ai_conflict_start` 的所有错误路径做断言（key 串不出现）。
+   - `[FACT]` **不得**在 `tracing` 字段、审计记录、错误消息里出现 key；新增一条门禁测试：对 `ai_key_set` / `ai_conflict_start` 的所有错误路径做断言（key 串不出现）。（Lane B：`scrub_secret` 覆盖新命令的错误路径 ✓，测试断言 key 串不出现 ✓。）
 5. **设置页的输入框**：`type="password"`、`autocomplete="off"`（沿用 `apps/gm-desktop/src/routes/Settings.svelte:108-111` 的 admin password 写法），保存后**清空输入框**（`:59` 已有同样做法）。
+   `[FACT]` 落地要求已满足 ✓：Lane C 的设置页有 AI provider key 卡片 ✓，`type="password"` ✓、`autocomplete="off"` ✓，保存后**立即清空** ✓（`Settings.svelte` 的 `aiKey = ''` ✓）。
 
 **这与仓库既有不变量的关系（必须写明，因为它是冲突点）**：
 
@@ -489,7 +490,22 @@ merge-file 产出冲突区域  →  scope 层给每个区域定位 scope  →  �
 
 ## 4. 实施拆分 / Implementation split
 
-三条 lane，各自可独立评审、独立合并、独立 revert。
+四条 lane，各自可独立评审、独立合并、独立 revert。
+
+### 落库状态（2026-11-18 记录）
+
+`[FACT]` 四条 lane 全部落地 ✓：
+
+| lane | PR | 落在库里的东西 | 测试 |
+|---|---|---|---|
+| A | #84 | `src/repo/conflict.rs` ✓：区域解析 ✓、scope 层 ✓、写回路径 ✓ | `repo::conflict` 33 个 ✓ |
+| B | #92 | `src/ai/{conflict,keys,prompt}.rs` ✓ + 桌面端 `ai_conflict_start` / `ai_conflict_cancel` / `ai_key_set` / `ai_key_status` ✓ | `ai::conflict` 22 个 ✓、`ai::keys` 8 个 ✓、`ai::prompt` 8 个 ✓、桌面端 crate 54 个 ✓ |
+| C | #96 | `/conflicts` 路由 ✓、`ConflictDialog.svelte` ✓、`stores/conflict.ts` ✓、`api/conflict.ts` ✓、`utils/linediff.ts` ✓、i18n `conflict.*` ✓ | 前端 `conflict.test.ts` 36 个 ✓ |
+| D | 本 PR | ADR 状态收口 ✓ + capability surface 门禁管到**应用自己的命令面** ✓ + 桌面端 `conflict_regions` 命令 ✓ | 门禁 37 个 ✓；桌面端 crate 57 个 ✓（54 + 新命令的 3 个 ✓） |
+
+`[FACT]` Lane D 补上了 `conflict_regions` 这个命令 ✓ —— 门禁在 dev 上报出「前端调用了 Rust 侧没注册的命令」✓，而这正是 ADR §3.1 说的区域来源 ✓：命令读的是**进行中 merge 的 index stage** ✓，再交给 `src/repo/conflict.rs` 的核心解析 ✓。
+
+`[FACT]` 本 ADR 下面标着 `[PROPOSAL]` 的地方，凡是被上面这四条 lane 真正实现了的 ✓，已改成 `[FACT]` ✓；**没被实现的仍然是 `[PROPOSAL]`** ✓（例如 scope 抑制能力仍未解锁 ✓，见 §3.8.3 与 §7.2 ✓）。
 
 ### Lane A — `feat/conflict-regions`（Rust 核心：检测 + 区域 + scope）
 
@@ -560,7 +576,9 @@ merge-file 产出冲突区域  →  scope 层给每个区域定位 scope  →  �
 ### Lane D — 文档 / 门禁（可与 C 并行）
 
 - 本 ADR 的状态更新（实测落地后把 `[PROPOSAL]` 改成 `[FACT]`）。
-- `[PROPOSAL]` 新增门禁：capability surface（`apps/gm-desktop/tests/unit/capability-surface-gate.test.ts`）必须包含新 Tauri 命令。
+- `[FACT]` 新增门禁：capability surface（`apps/gm-desktop/tests/unit/capability-surface-gate.test.ts`）必须包含新 Tauri 命令 ✓。
+  `[FACT]` 门禁管的是**应用自己的命令面** ✓：前端 `invoke('<command>')` 调用的命令 ✓ 与 Rust 侧 `tauri::generate_handler![...]` 注册的命令 ✓，**两个方向**都断言 ✓（§6.1 的变异证据 ✓）。
+  `[FACT]` 门禁当场抓到一个真缺陷 ✓ —— `conflict_regions` 前端在调、Rust 侧没注册 ✓ ⇒ 本 PR 把它补上 ✓（§4 的落库状态 ✓）。
 
 **依赖关系**：A →（B 与 C 并行）→ D 收口。**B 和 C 不互相阻塞**（C 可以在 A/B 之前用 mock 开工，这正是 `apps/gm-desktop/src/mocks/handlers.ts` 存在的意义）。
 
@@ -613,6 +631,28 @@ merge-file 产出冲突区域  →  scope 层给每个区域定位 scope  →  �
 | 10 | 0-new-deps | 本 lane 未引入任何依赖；设计所用能力均为既有模块 ✅ |
 
 **本 lane 未跑**：任何编译 / 测试 / 构建（设计 lane，无代码）。
+
+### 6.1 四条 lane 落地后的实测（2026-11-18 记录）
+
+`[FACT]` 上表是**设计 lane** 的测量 ✓；下面是**落地后**各 lane 实际跑过的东西 ✓：
+
+| lane | 跑了什么 | 结果 |
+|---|---|---|
+| A + B | CI 的 `fmt + clippy + test` job（`cargo test --all-targets --locked`） | 全量绿 ✓；`repo::conflict` 33 个 ✓、`ai::conflict` 22 个 ✓、`ai::keys` 8 个 ✓、`ai::prompt` 8 个 ✓ |
+| A + B | CI 的桌面端 job（`lint + check + test + build + cargo check`） | 全量绿 ✓；桌面端 crate 54 个 ✓ |
+| C | 前端 `vitest run`（`tests/unit/conflict.test.ts`） | 36 个通过 ✓；本地全量 741 通过 / 11 失败 ✓ —— 失败全在三个**要 shell 出去找 bash 与 jq** 的文件里 ✓（`release-tag-resolution` ✓、`corresponding-source-notice` ✓、`workflow-step-isolation` ✓）：这台 Windows 上没有 `jq` ✓，于是那些测试跑 5–200 秒并撞上 5000ms 的上限 ✓。这三个文件本 lane 未触碰 ✓，CI 的前端 job（ubuntu ✓，有 bash 与 jq ✓）在 Lane C 的 PR 上是绿的 ✓。 |
+| D | 门禁 `vitest run tests/unit/capability-surface-gate.test.ts` | 37 个通过 ✓；**6 个变异全部变红** ✓（见下） |
+
+`[FACT]` Lane D 的门禁**当场抓到一个真缺陷** ✓：前端调用的 `conflict_regions` 在 Rust 侧**没有注册** ✓ —— 那不是测试写错 ✓，而是「点了按钮才在运行时炸」的那种缺陷 ✓。本 PR 因此补上了那个命令 ✓（`apps/gm-desktop/src-tauri/src/commands/conflict.rs` ✓）：它读**进行中 merge 的 index stage** ✓，再交给 `src/repo/conflict.rs` 的核心解析 ✓。
+
+`[FACT]` 门禁的变异证据（每一个都变红，且都点名了那个命令）：
+
+1. 把 `ai_conflict_start` 从 `generate_handler!` 里删掉 ⇒ 「前端调用了 Rust 侧没注册的命令」变红 ✓。
+2. 把 `ai_conflict_cancel` 删掉 ⇒ 同上 ✓。
+3. 把 `ai_key_set` 删掉 ⇒ 同上 ✓。
+4. 把 `ai_key_status` 删掉 ⇒ 同上 ✓。
+5. 在前端加一处 `invoke('never_registered_command')` ⇒ 变红 ✓。
+6. 把 `set_clipboard_text` 的豁免去掉 ⇒ 「注册了却没人调用」变红 ✓。
 
 ---
 

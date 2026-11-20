@@ -22,6 +22,7 @@ import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import type {
   ConflictEventDto,
   ConflictRegion,
+  ConflictRegions,
   ConflictStartedDto,
 } from './types';
 
@@ -135,15 +136,27 @@ export async function aiKeyStatus(provider: string): Promise<boolean> {
  * `[PROPOSAL]` ADR-0024 §3.1: the regions come from `git merge-file`'s
  * output, parsed by the Rust core in `src/repo/conflict.rs`.
  *
- * `[UNVERIFIED-FACT]` The desktop crate does not expose that core yet;
- * this call is what the route makes, and the dev mock answers it. The
- * Rust command it needs is `conflict_regions(repo)`, returning the
- * regions of the repository's unmerged paths in the `ConflictRegion`
- * shape above.
+ * `[FACT]` `root` is the working-tree root the repository name is
+ * resolved under — the same argument `repo_status` and `repo_diff` take.
+ * The desktop keeps its repositories as bare `<name>.git` directories and
+ * the checkouts live under the root the user picked, so a command that
+ * did not forward it would resolve a bare repository, where `git` answers
+ * `NotAWorkTree`.
+ *
+ * `[FACT]` The paths the core refuses to read (an add/delete or rename
+ * conflict, binary content) come back in `needsGit` rather than being
+ * dropped: they are work git still has to do.
  */
-export async function conflictRegions(repo: string): Promise<ConflictRegion[]> {
-  const regions = await tauriInvoke('conflict_regions', { repo });
-  return Array.isArray(regions) ? (regions as ConflictRegion[]) : [];
+export async function conflictRegions(
+  repo: string,
+  root: string | null
+): Promise<ConflictRegions> {
+  const result = await tauriInvoke('conflict_regions', { repo, root });
+  const payload = (result ?? {}) as Partial<ConflictRegions>;
+  return {
+    regions: Array.isArray(payload.regions) ? payload.regions : [],
+    needsGit: Array.isArray(payload.needsGit) ? payload.needsGit : [],
+  };
 }
 
 /**

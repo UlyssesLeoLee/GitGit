@@ -6,6 +6,7 @@
 
 pub mod ai;
 pub mod auth;
+pub mod conflict;
 pub mod graph;
 pub mod repos;
 pub mod server;

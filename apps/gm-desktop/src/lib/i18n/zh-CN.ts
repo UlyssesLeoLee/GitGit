@@ -235,6 +235,7 @@ const zh: Readonly<Record<string, string>> = {
   'conflict.repoLabel': '仓库',
   'conflict.loadFailed': '无法读取冲突区域。',
   'conflict.noRegions': '该仓库没有需要仲裁的冲突区域。',
+  'conflict.needsGitHeading': '这些路径需要 git 自己解决：',
   'conflict.regionIndex': '区域 {n}',
   'conflict.scope': '作用域：{scope}',
   'conflict.ours': 'ours 侧',
