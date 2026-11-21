@@ -15,6 +15,7 @@
 
 import type {
   AppInfo,
+  ConflictRegion,
   RepoDetail,
   RepoSummary,
   ServerStatus,
@@ -170,6 +171,84 @@ function graphFixtureDocs(): MockDoc[] {
     { path: 'docs/requirements/00-requirements-definition.md', title: '00 — Requirements Definition (Baseline v1.0)', preview: 'Master requirements book. 55 sections.' },
     { path: 'docs/requirements/phase6-primitives.md',         title: 'Phase 6 — Product Primitives',                preview: 'MVP substrate: Node, Edge, Event, Policy, View.' },
   ];
+}
+
+/* ---------- Conflict-region fixtures (ADR-0024) ----------
+ *
+ * `[PROPOSAL]` The regions come from the Rust core's parse of
+ * `git merge-file`'s output (`src/repo/conflict.rs`). The desktop
+ * crate does not expose that core yet, so the dev mock answers
+ * `conflict_regions` with a fixture: one file carrying two independent
+ * regions, which is the shape the ADR's own measurement found most
+ * often (36% of conflicted files carry two or more).
+ */
+
+function conflictFixtureRegions(): ConflictRegion[] {
+  const payloads = [
+    {
+      path: 'src/feature.ts',
+      baseOid: '0123456789abcdef0123456789abcdef01234567',
+      index: 0,
+      ours: 'const timeout = 30;\n',
+      base: 'const timeout = 10;\n',
+      theirs: 'const timeout = 60;\n',
+      contextBefore: 'export function connect() {\n',
+      contextAfter: '  return retry(timeout);\n}\n',
+      scopeLabel: 'connect',
+    },
+    {
+      path: 'src/feature.ts',
+      baseOid: '0123456789abcdef0123456789abcdef01234567',
+      index: 1,
+      ours: '  return retry(timeout);\n',
+      base: '  return retry(backoff);\n',
+      theirs: '  return retry(timeout, backoff);\n',
+      contextBefore: 'export function connect() {\n',
+      contextAfter: '}\n',
+      scopeLabel: 'connect',
+    },
+  ];
+  return payloads.map((p) => ({ ...p, id: mockRegionId(p) }));
+}
+
+/**
+ * A stable digest of a region's payload.
+ *
+ * `[FACT]` The real region id is the first 16 bytes of a SHA-256 digest
+ * over the region's own content (ADR-0024 §3.7.2), computed by the Rust
+ * side. The mock cannot run SHA-256 in a browser without a dependency,
+ * so it computes a different digest of the same inputs. What the mock
+ * has to reproduce is the *shape* — 32 lower-case hexadecimal
+ * characters — and the two properties that follow from it: the id is
+ * stable for a region, and two different regions never share one.
+ */
+function mockRegionId(region: {
+  path: string;
+  baseOid: string;
+  index: number;
+  ours: string;
+  base: string;
+  theirs: string;
+}): string {
+  const text = [
+    region.path,
+    region.baseOid,
+    region.index,
+    region.ours,
+    region.base,
+    region.theirs,
+  ].join(' ');
+  const fnv = (seed: number): string => {
+    let h = seed >>> 0;
+    for (let i = 0; i < text.length; i += 1) {
+      h ^= text.charCodeAt(i);
+      h = Math.imul(h, 0x01000193) >>> 0;
+    }
+    return h.toString(16).padStart(8, '0');
+  };
+  const a = fnv(0x811c9dc5);
+  const b = fnv(0x1000193);
+  return a + b + a + b;
 }
 
 async function handle(cmd: string, args?: Record<string, unknown>): Promise<unknown> {
@@ -351,6 +430,20 @@ async function handle(cmd: string, args?: Record<string, unknown>): Promise<unkn
     case 'vault_list': return Array.from(STORE.versions.keys());
     case 'vault_get': {
       const key = String(args?.key);
+      // `[FACT]` ADR-0024 §3.9 item 3: the `ai/` namespace is excluded
+      // from the generic read path on the Rust side
+      // (`commands/vault.rs::vault_get_inner`), so a provider key can
+      // never travel to the webview. The *name* still shows up in
+      // `vault_list` — the settings page can say "a key is configured"
+      // without ever seeing it.
+      if (key.startsWith('ai/')) {
+        throw {
+          kind: 'Vault',
+          message:
+            'the ai/ namespace is not readable from the ui; a provider key never leaves the backend',
+          source: '"Vault"',
+        };
+      }
       const versions = STORE.versions.get(key);
       return versions && versions.length ? `value-for-${key}` : null;
     }
@@ -523,6 +616,122 @@ async function handle(cmd: string, args?: Record<string, unknown>): Promise<unkn
       const sessionId = STORE.session;
       STORE.session = null;
       return sessionId;
+    }
+
+    /* --- Conflict arbitration (ADR-0024) ---
+     *
+     * The same shape as the review commands: the *command* is mocked,
+     * the token delivery is not, because it rides the Tauri event
+     * bridge and `@tauri-apps/api`'s `listen` needs the real runtime.
+     *
+     * `[FACT]` The refusal for `anthropic` is kept honest on purpose —
+     * a mock that streamed where production cannot would teach the
+     * wrong lesson. The Rust side refuses the same set before the
+     * network (`ProviderSpec::supports_streaming`).
+     */
+    case 'conflict_regions':
+      // `[FACT]` The shape the Rust command answers: the regions, and the
+      // paths the core leaves to git. The fixture carries one of each, so
+      // the dev mock shows what a real merge looks like: a region the user
+      // can arbitrate, and a path git has to resolve itself.
+      return clone({
+        regions: conflictFixtureRegions(),
+        needsGit: ['assets/logo.png'],
+      });
+    case 'ai_conflict_start': {
+      const provider = String(args?.provider ?? 'openai');
+      if (provider === 'anthropic') {
+        throw {
+          kind: 'AiReviewUnsupported',
+          message: 'anthropic cannot stream: its protocol has no streaming implementation',
+          source: '"AiReviewUnsupported"',
+        };
+      }
+      const region = args?.region as
+        | {
+            path?: string;
+            baseOid?: string;
+            index?: number;
+            ours?: string;
+            base?: string;
+            theirs?: string;
+          }
+        | undefined;
+      if (!region || typeof region.path !== 'string' || region.path === '') {
+        throw {
+          kind: 'AiReviewInvalid',
+          message: 'invalid conflict request: the region is missing',
+          source: '"AiReviewInvalid"',
+        };
+      }
+      const sessionId = `mock-conflict-session-${++STORE.sessionSeq}`;
+      STORE.session = sessionId;
+      return {
+        sessionId,
+        regionId: mockRegionId({
+          path: region.path,
+          baseOid: String(region.baseOid ?? ''),
+          index: Number(region.index ?? 0),
+          ours: String(region.ours ?? ''),
+          base: String(region.base ?? ''),
+          theirs: String(region.theirs ?? ''),
+        }),
+        provider,
+        model: String(args?.model ?? 'mock-model'),
+        streaming: true,
+        redactions: 0,
+      };
+    }
+    case 'ai_conflict_cancel': {
+      if (!STORE.session) {
+        throw {
+          kind: 'AiReviewNotRunning',
+          message: 'no arbitration is currently streaming',
+          source: '"AiReviewNotRunning"',
+        };
+      }
+      const sessionId = STORE.session;
+      STORE.session = null;
+      return sessionId;
+    }
+    /* --- The provider key (ADR-0024 §3.9) ---
+     *
+     * `[FACT]` The key is written under `ai/<provider>` and is never
+     * read back: `vault_get` refuses the `ai/` namespace (see above)
+     * and there is no `ai_key_get`.
+     */
+    case 'ai_key_set': {
+      const provider = String(args?.provider ?? '').trim();
+      const key = String(args?.key ?? '');
+      if (!/^[a-z0-9_-]+$/.test(provider)) {
+        throw {
+          kind: 'AiReviewInvalid',
+          message: 'the provider name must be a plain lower-case name',
+          source: '"AiReviewInvalid"',
+        };
+      }
+      if (key.trim() === '') {
+        throw {
+          kind: 'AiReviewInvalid',
+          message: 'the api key is empty',
+          source: '"AiReviewInvalid"',
+        };
+      }
+      const existing = STORE.versions.get(`ai/${provider}`) ?? [];
+      const version = existing.length + 1;
+      const newVersion: VersionEntryDto = {
+        version,
+        bytes_sha256: (version).toString(16).padStart(64, 'a'),
+        byte_len: Buffer.byteLength(key, 'utf-8'),
+        created_at_unix_ms: Date.now(),
+        change_note: null,
+      };
+      STORE.versions.set(`ai/${provider}`, [...existing, newVersion]);
+      return null;
+    }
+    case 'ai_key_status': {
+      const provider = String(args?.provider ?? '').trim();
+      return STORE.versions.has(`ai/${provider}`);
     }
 
     /* --- Knowledge-graph commands (PR-C) --- */

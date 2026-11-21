@@ -12,7 +12,7 @@
 | 阶段 | 超上流 — 企划 |
 | 主要交付物 | 企划书 |
 | 责任人 | PM + 业务负责人 |
-| 关联设计文档 | [`../requirements/phase1-5-research.md`](../../../requirements/phase1-5-research.md) (竞品分析) |
+| 关联设计文档 | [`../requirements/phase1-5-research.md`](../../../../docs/requirements/phase1-5-research.md) (竞品分析) |
 | 模板版本 | v1.0 (2026-08-20) |
 | 依据 | IPA 共通框架 2013 |
 
@@ -34,7 +34,7 @@
 ## 市场与竞品分析 / Market & Competitor
 
 
-[REFERENCE] 详细分析见 [`../requirements/phase1-5-research.md`](../../../requirements/phase1-5-research.md) §3-§4（竞品分析 + 能力矩阵）。
+[REFERENCE] 详细分析见 [`../requirements/phase1-5-research.md`](../../../../docs/requirements/phase1-5-research.md) §3-§4（竞品分析 + 能力矩阵）。
 
 
 ## 商业模式 / Business Model
@@ -46,7 +46,7 @@
 ## 项目时间表 / Project Timeline
 
 
-[REFERENCE] 详见 [`../requirements/phase13-final-baseline.md`](../../../requirements/phase13-final-baseline.md) §6（Baseline 声明 + 阶段总览）。
+[REFERENCE] 详见 [`../requirements/phase13-final-baseline.md`](../../../../docs/requirements/phase13-final-baseline.md) §6（Baseline 声明 + 阶段总览）。
 
 
 ## 投入产出比 / ROI

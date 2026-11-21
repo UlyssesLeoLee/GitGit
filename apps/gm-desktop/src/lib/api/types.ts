@@ -258,3 +258,137 @@ export const AI_PROVIDERS = [
 ] as const;
 
 export type AiProviderKey = (typeof AI_PROVIDERS)[number];
+
+/* ---------- Conflict arbitration (ADR-0024) ----------
+ *
+ * Shapes mirror `commands/ai.rs`'s `ConflictRegionDto`,
+ * `ConflictStarted` and `ConflictEvent`, plus `SuggestionOutcome`.
+ *
+ * `[FACT]` The Rust side serializes `ConflictRegionDto` with
+ * `rename_all = "camelCase"` and deserializes it the same way, so the
+ * webview sends and receives camelCase field names.
+ */
+
+/**
+ * One conflict region, as the webview holds it.
+ *
+ * `[PROPOSAL]` ADR-0024 §3.7.2: every region carries an id that is a
+ * function of its own content, so a suggestion cannot be bound to a
+ * region it was not asked about.
+ */
+export interface ConflictRegion {
+  /** The region's stable id (ADR §3.7.2). */
+  id: string;
+  /** The repository-relative path of the conflicted file. */
+  path: string;
+  /** The base blob's object id, when the base was available. */
+  baseOid: string;
+  /** The region's ordinal in the merged output. */
+  index: number;
+  /** The ours side's text, verbatim. */
+  ours: string;
+  /** The base side's text, verbatim. */
+  base: string;
+  /** The theirs side's text, verbatim. */
+  theirs: string;
+  /** The base file's lines before the region. */
+  contextBefore: string;
+  /** The base file's lines after the region. */
+  contextAfter: string;
+  /**
+   * The scope the region lives in, as a human label (ADR §3.8).
+   *
+   * `[PROPOSAL]` The scope layer only *locates* a region in the first
+   * delivery, so this is a label for the user and not a decision.
+   */
+  scopeLabel: string | null;
+}
+
+/**
+ * The conflict regions of a repository, and the paths git has to handle.
+ *
+ * `[FACT]` Two lists, because they answer two different questions: the
+ * regions the user can arbitrate here, and the paths the core refused to
+ * read — an add/delete or rename conflict has no base stage, and binary
+ * content is not text (ADR §3.7.4).
+ *
+ * `[PROPOSAL]` The needs-git paths are **reported**, not dropped: a page
+ * that said "no conflict regions" while git still had work to do would be
+ * lying.
+ */
+export interface ConflictRegions {
+  /** The regions, in the order the merged output produced them. */
+  regions: ConflictRegion[];
+  /** The repository-relative paths the core leaves to git. */
+  needsGit: string[];
+}
+
+/**
+ * What the UI learns when an arbitration starts.
+ *
+ * `[FACT]` Mirrors `ConflictStarted`: the fields are renamed to
+ * camelCase by the Rust side's `rename_all`.
+ */
+export interface ConflictStartedDto {
+  sessionId: string;
+  regionId: string;
+  provider: string;
+  model: string;
+  streaming: boolean;
+  redactions: number;
+}
+
+/**
+ * What became of the model's answer.
+ *
+ * `[FACT]` `SuggestionOutcome` is tagged with `state` on the Rust side
+ * and its two variants are `accepted` (carrying the replacement) and
+ * `rejected` (carrying the reason).
+ */
+export type SuggestionOutcomeDto =
+  | { state: 'accepted'; suggestion: string }
+  | { state: 'rejected'; reason: string };
+
+/**
+ * One event on the conflict channel.
+ *
+ * `[FACT]` Mirrors `ConflictEvent`: a `type` tag for dispatch, camelCase
+ * fields for this consumer, and a `sessionId` on every event so a late
+ * event from a cancelled stream can be discarded.
+ */
+export type ConflictEventDto =
+  | { type: 'token'; sessionId: string; regionId: string; delta: string }
+  | { type: 'model'; sessionId: string; regionId: string; model: string }
+  | {
+      type: 'done';
+      sessionId: string;
+      regionId: string;
+      tokens: number;
+      outcome: SuggestionOutcomeDto;
+    }
+  | { type: 'failed'; sessionId: string; regionId: string; message: string }
+  | { type: 'cancelled'; sessionId: string };
+
+/**
+ * Providers whose protocol has a streaming implementation.
+ *
+ * `[FACT]` Mirrors `ProviderSpec::supports_streaming`
+ * (`src/ai/registry.rs:98-103`): the OpenAI-compatible protocol streams
+ * and Anthropic's does not. `[FACT]` `send_stream`'s default
+ * implementation refuses rather than falling back
+ * (`src/ai/provider.rs:199-209`), so a provider that is not listed here
+ * cannot be asked for a stream at all.
+ */
+export const STREAMING_PROVIDERS = ['openai', 'deepseek', 'ollama', 'vllm'] as const;
+
+/**
+ * Whether `provider` can stream.
+ *
+ * `[FACT]` A mirror of the registry's rule, so the dialog can decide
+ * whether to offer the "ask AI" option *before* the request rather than
+ * after the refusal. The Rust side refuses the same set
+ * (`AiReviewUnsupported`).
+ */
+export function supportsStreaming(provider: string): boolean {
+  return (STREAMING_PROVIDERS as readonly string[]).includes(provider);
+}

@@ -7,7 +7,7 @@
 > - [基本设计 §10 受入测试方针](../design/basic-design/10-acceptance-test-policy.md) — MVP DoD
 > - [基本设计 §0.2.2 不包含](../design/basic-design/00-introduction.md#022-不包含-out-of-scope) — F14-7 缺口
 > - [Appendix B 残留 TBD](../design/basic-design/appendix-b-tbd.md) — 未决议题
-> - [phase14-ipa-compliance-review.md §F14-1〜F14-9](../requirements/phase14-ipa-compliance-review.md) — IPA 差距分析
+> - [phase14-ipa-compliance-review.md §F14-1〜F14-9](../../docs/requirements/phase14-ipa-compliance-review.md) — IPA 差距分析
 
 ---
 
@@ -36,12 +36,12 @@
 | 字段 | 内容 |
 |---|---|
 | **影响范围** | 整个 Phase 16 启动的合法性；需求 → 设计 → 实现的"无人类签核"问题 |
-| **当前状态** | §0.2.2 不包含内容明文标注此缺口；[00-requirements-definition.md §53 第 11 项](../requirements/00-requirements-definition.md) 也未补 |
+| **当前状态** | §0.2.2 不包含内容明文标注此缺口；[00-requirements-definition.md §53 第 11 项](../../docs/requirements/00-requirements-definition.md) 也未补 |
 | **后果（不解决）** | 平台以"AI 自治生成"为完整流程，无人对最终方案负责；遇监管 / 客户审查时无签核证据 |
 | **缓解措施** | (1) 由产品 owner + 工程负责人 + 安全审计三方会议签核 v1.0；(2) 在 README 与设计封面记录"签核日期 + 签核人 + 签核范围"；(3) Phase 16 启动前必须完成 |
 | **建议决策人** | 产品 owner + 工程负责人 + 安全审计 三方 |
 | **状态** | 🟡 待启动 |
-| **关联** | [phase14-ipa-compliance-review.md F14-7](../requirements/phase14-ipa-compliance-review.md) |
+| **关联** | [phase14-ipa-compliance-review.md F14-7](../../docs/requirements/phase14-ipa-compliance-review.md) |
 
 ### QA-002 — AISEC-REQ-009(a) DB role 分离的 DDL 完整度
 
@@ -92,10 +92,10 @@
 | 字段 | 内容 |
 |---|---|
 | **影响范围** | Phase 16 启动时多出"库选型 / 部署模式"等决策点 |
-| **当前状态 (2026-08-23)** | **8/8 已落地** — [ADR-0012 ~ 0019](../architecture/decisions/README.md) 全部完成,均为 **Proposed** 状态,等待 SA + TL + EM 签核后转 Accepted。详见 [tech-selection.md §18 更新](../architecture/tech-selection.md#18-后续-adr-引用-future-adrs)。 |
+| **当前状态 (2026-08-23)** | **8/8 已落地** — [ADR-0012 ~ 0019](../architecture/decisions/README.md) 全部完成,均为 **Proposed** 状态,等待 SA + TL + EM 签核后转 Accepted。详见 [tech-selection.md §18 更新](../architecture/tech-selection.md#18-后续-adr-引用--future-adrs)。 |
 | **后果（不解决）** | 实施时临时决策，文档不一致；后期追溯困难。**当前已解除**——8/8 文档就绪,仅剩签核流程。 |
 | **缓解措施 (历史)** | Phase 16 启动前**至少完成 ADR-002 (gix 读路径边界) 与 ADR-003 (OCI 容器标准)**；其余 6 个可推迟到对应功能实现前 1 周。**已超额完成**——8 个全写。 |
-| **下一步** | (1) SA + TL + EM 三方会签 8 份 ADR → 状态 `Proposed` → `Accepted`;(2) 修复 [tech-selection.md §18](../architecture/tech-selection.md#18-后续-adr-引用-future-adrs) 旧编号引用(002-008 → 0012-0018),已在本次 commit 一并处理。 |
+| **下一步** | (1) SA + TL + EM 三方会签 8 份 ADR → 状态 `Proposed` → `Accepted`;(2) 修复 [tech-selection.md §18](../architecture/tech-selection.md#18-后续-adr-引用--future-adrs) 旧编号引用(002-008 → 0012-0018),已在本次 commit 一并处理。 |
 | **建议决策人** | 工程负责人 (发起) + SA + TL + EM (签核) |
 | **状态** | 🟢 **已落地 8/8, 待签核** (2026-08-23) |
 
@@ -108,7 +108,7 @@
 | 字段 | 内容 |
 |---|---|
 | **影响范围** | MVP DoD；[§10 受入测试方针](../design/basic-design/10-acceptance-test-policy.md) |
-| **当前状态** | [§10.1 测试级别](../design/basic-design/10-acceptance-test-policy.md#101-测试级别-test-levels) + [Appendix C §C.7 受入基准](../design/basic-design/appendix-c-ipa-mapping.md#c7-受入基准-acceptance-criteria-一览) 列出 11+1 项；本轮新增 §13/§14 后增加到 22+1 项 |
+| **当前状态** | [§10.1 测试级别](../design/basic-design/10-acceptance-test-policy.md#101-测试级别--test-levels) + [Appendix C §C.7 受入基准](../design/basic-design/appendix-c-ipa-mapping.md#c7-受入基准-acceptance-criteria-一览) 列出 11+1 项；本轮新增 §13/§14 后增加到 22+1 项 |
 | **后果（不解决）** | 某些 MVP 需求未在基本设计落地（可能实际有但未引用），验收时漏判 |
 | **缓解措施** | (1) 实施前用 grep 把每个 `GIT-REQ-NNN` / `GRF-REQ-NNN` 等映射到基本设计章节；(2) Appendix B 列出"未覆盖"项清单 |
 | **建议决策人** | 工程负责人 + 产品 owner |
@@ -119,7 +119,7 @@
 | 字段 | 内容 |
 |---|---|
 | **影响范围** | MVP DoD 与实现范围的一致性 |
-| **当前状态** | 用户已在对话层确认"升级"为 MVP 必填；但 [`phase9-mvp-reduction.md`](../requirements/phase9-mvp-reduction.md) 与 [`phase10-architecture.md`](../requirements/phase10-architecture.md) 文档**未同步**反映"插件热插拔 + 集群管理 + Admin UI"为 MVP 必填 |
+| **当前状态** | 用户已在对话层确认"升级"为 MVP 必填；但 [`phase9-mvp-reduction.md`](../../docs/requirements/phase9-mvp-reduction.md) 与 [`phase10-architecture.md`](../../docs/requirements/phase10-architecture.md) 文档**未同步**反映"插件热插拔 + 集群管理 + Admin UI"为 MVP 必填 |
 | **后果（不解决）** | 实施时按"原 37 项 + 临时加"散乱进行；DoD 校验与文档不一致 |
 | **缓解措施** | (1) Phase 16 启动前**先重审** `phase9-mvp-reduction.md` 把 §13/§14 的 11+5+4+3=23 条新 REQ 列入 MVP 必填；(2) `phase10-architecture.md` §2 §6 §7 也同步更新 |
 | **建议决策人** | 产品 owner + 工程负责人 |
@@ -163,7 +163,7 @@
 | 字段 | 内容 |
 |---|---|
 | **影响范围** | 平台 AI 安全主保证；MVP DoD 关键项 |
-| **当前状态** | 9 条 AISEC-REQ 在 [§3.7.4](../design/basic-design/03-functional-design.md#374-aisec-reqai-安全的整合) + [§7.3](../design/basic-design/07-security-design.md#73-ai-安全-ai-securityaisec-req) 都有定义；但**集成测试用例**未列 |
+| **当前状态** | 9 条 AISEC-REQ 在 [§3.7.4](../design/basic-design/03-functional-design.md#374-aisec-reqai-安全的整合) + [§7.3](../design/basic-design/07-security-design.md#73-ai-安全--ai-securityaisec-req) 都有定义；但**集成测试用例**未列 |
 | **后果（不解决）** | 实施时凭直觉开发，验收时无对照基线 |
 | **缓解措施** | (1) 实施前编写 9 条 AISEC-REQ 对应的 9 个集成测试用例（attacker 模型 + 期望行为）；(2) CI 必含 |
 | **建议决策人** | 安全审计 + 工程负责人 |
@@ -199,7 +199,7 @@
 
 | 字段 | 内容 |
 |---|---|
-| **影响范围** | V1 平台兼容性矩阵（[§6.6](../design/basic-design/06-non-functional-design.md#66-系统环境与生态system-environment-ecology-ipa-grade-⑥)）|
+| **影响范围** | V1 平台兼容性矩阵（[§6.6](../design/basic-design/06-non-functional-design.md#66-系统环境与生态system-environment--ecology-ipa-grade-⑥)）|
 | **当前状态** | MVP 仅承诺 Linux x86_64 / macOS aarch64 / Windows x86_64；ARM Linux / 旧版 Windows / 商业 Unix 推迟到 V1 |
 | **后果（不解决）** | V1 发布前需重新验证完整矩阵 |
 | **缓解措施** | (1) 在 [`appendix-b-tbd.md`](../design/basic-design/appendix-b-tbd.md) 明确登记；(2) V1 启动前做兼容性测试 |
@@ -211,7 +211,7 @@
 | 字段 | 内容 |
 |---|---|
 | **影响范围** | V1+ Cloud 部署；MVP → Cloud 升级 |
-| **当前状态** | [§8.6 V1+ K8s 部署形态](../design/basic-design/08-operations-design.md#86-v1-k8s-部署形态-v1-k8s-deployment-topology) 描述迁移路径；App Manifest 抽象按"可拆 Pod"设计 |
+| **当前状态** | [§8.6 V1+ K8s 部署形态](../design/basic-design/08-operations-design.md#86-v1-k8s-部署形态--v1-k8s-deployment-topology) 描述迁移路径；App Manifest 抽象按"可拆 Pod"设计 |
 | **后果（不解决）** | V1 启动时可能需重写部分代码 |
 | **缓解措施** | (1) MVP 阶段就保证 App Manifest schema 不绑定单进程（已做）；(2) V1 启动前做一次"App 拆 Pod"试点（取 1 个真实 App）；(3) Plugin Loader V1+ 改为 K8s Operator 模式 |
 | **建议决策人** | 工程负责人 |
@@ -277,7 +277,7 @@
 | 字段 | 内容 |
 |---|---|
 | **影响范围** | 合规性：禁止 GPL/AGPL 依赖 |
-| **当前状态** | [tech-selection.md §16 风险表](../architecture/tech-selection.md#16-关键风险与缓解-risks-mitigations) 提出 CI 加 `cargo-deny`；未落地 |
+| **当前状态** | [tech-selection.md §16 风险表](../architecture/tech-selection.md#16-关键风险与缓解--risks--mitigations) 提出 CI 加 `cargo-deny`；未落地 |
 | **后果（不解决）** | 误引入 GPL 依赖 → 平台必须开源 |
 | **缓解措施** | Phase 16 启动首日加 `deny.toml` 配置 + CI 步骤 |
 | **建议决策人** | 工程负责人 |
@@ -382,11 +382,11 @@
 - [技术选型文档](tech-selection.md) — 主语言 + 库选型
 - [基本设计](../design/basic-design/) — 18 个文件（00-14 + 4 附录）
 - [详细设计](../design/detailed-design/) — 14 个文件
-- [需求定义书](../requirements/00-requirements-definition.md) — 37 项 MVP 需求
-- [需求 phase14 IPA 差距](../requirements/phase14-ipa-compliance-review.md) — F14-1〜F14-9
-- [需求 phase15 终审](../requirements/phase15-final-audit.md) — 一致性核查
+- [需求定义书](../../docs/requirements/00-requirements-definition.md) — 37 项 MVP 需求
+- [需求 phase14 IPA 差距](../../docs/requirements/phase14-ipa-compliance-review.md) — F14-1〜F14-9
+- [需求 phase15 终审](../../docs/requirements/phase15-final-audit.md) — 一致性核查
 
 ---
 
 **导航 / Navigation:**
-[← 技术选型文档](tech-selection.md) · [需求定义书](../requirements/00-requirements-definition.md) · [基本设计 README](../design/basic-design/README.md)
+[← 技术选型文档](tech-selection.md) · [需求定义书](../../docs/requirements/00-requirements-definition.md) · [基本设计 README](../design/basic-design/README.md)

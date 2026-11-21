@@ -14,7 +14,8 @@
   import ThemeToggle from '$lib/components/ThemeToggle.svelte';
   import LocaleSwitcher from '$lib/components/LocaleSwitcher.svelte';
   import WorktreeRootPicker from '$lib/components/WorktreeRootPicker.svelte';
-  import type { AdminPasswordStatus, AppInfo } from '$lib/api/types';
+  import { AI_PROVIDERS, type AdminPasswordStatus, type AppInfo } from '$lib/api/types';
+  import { aiKeySet, aiKeyStatus } from '$lib/api/conflict';
   import { catalog } from '$lib/i18n';
 
   // `[FACT]` Where section 0's fourth "Appropriate Legal Notices"
@@ -32,6 +33,53 @@
   let newPassword = $state('');
   let updating = $state(false);
   let updatesOnStartup = $state(false);
+
+  // `[PROPOSAL]` ADR-0024 §3.9: the provider key is entered here and
+  // written to the versioned vault under `ai/<provider>`. It lives in a
+  // local component state and nowhere else — not in a store, not in
+  // localStorage — and the field is cleared the moment it is saved.
+  let aiProvider = $state('openai');
+  let aiKey = $state('');
+  let aiKeyPresent = $state(false);
+  let savingAiKey = $state(false);
+
+  /**
+   * Whether a key is configured for the chosen provider.
+   *
+   * `[FACT]` The answer is a presence. The key itself is never read
+   * back: there is no `ai_key_get`, and the generic vault read path
+   * refuses the `ai/` namespace.
+   */
+  async function refreshAiKeyStatus(provider: string): Promise<void> {
+    try {
+      aiKeyPresent = await aiKeyStatus(provider);
+    } catch {
+      aiKeyPresent = false;
+    }
+  }
+
+  $effect(() => {
+    // `[FACT]` Re-reads whenever the provider changes.
+    void refreshAiKeyStatus(aiProvider);
+  });
+
+  async function onSaveAiKey(): Promise<void> {
+    const value = aiKey.trim();
+    if (value === '') {
+      pushToast('warn', $catalog['conflict.key.label']);
+      return;
+    }
+    savingAiKey = true;
+    try {
+      await aiKeySet(aiProvider, value);
+      // `[FACT]` The key leaves the window as soon as it is stored.
+      aiKey = '';
+      await refreshAiKeyStatus(aiProvider);
+      pushToast('success', $catalog['conflict.key.saved']);
+    } finally {
+      savingAiKey = false;
+    }
+  }
 
   onMount(async () => {
     try {
@@ -118,6 +166,61 @@
           {$catalog['settings.adminPasswordClear']}
         </button>
       </div>
+    </div>
+
+    <div class="card">
+      <!--
+        The AI provider key (ADR-0024 §3.9). It is written to the
+        versioned vault under `ai/<provider>` and is never read back —
+        the status line below reports a presence, not a value.
+      -->
+      <h2 class="mb-2 text-sm font-semibold">{$catalog['conflict.key.heading']}</h2>
+      <p class="mb-2 text-xs text-slate-500">{$catalog['conflict.key.hint']}</p>
+      <div class="flex flex-wrap gap-3">
+        <div>
+          <label class="label" for="ai-key-provider">{$catalog['conflict.key.providerLabel']}</label>
+          <select
+            id="ai-key-provider"
+            class="input"
+            bind:value={aiProvider}
+            data-testid="ai-key-provider"
+          >
+            {#each AI_PROVIDERS as key (key)}
+              <option value={key}>{key}</option>
+            {/each}
+          </select>
+        </div>
+        <div class="flex-1">
+          <label class="label" for="ai-key-value">{$catalog['conflict.key.label']}</label>
+          <input
+            id="ai-key-value"
+            class="input"
+            type="password"
+            bind:value={aiKey}
+            autocomplete="off"
+            placeholder={$catalog['conflict.key.placeholder']}
+            data-testid="ai-key-value"
+          />
+        </div>
+      </div>
+      <div class="mt-3 flex gap-2">
+        <button
+          class="btn-primary"
+          type="button"
+          onclick={onSaveAiKey}
+          disabled={savingAiKey}
+          data-testid="ai-key-save"
+        >
+          {$catalog['conflict.key.save']}
+        </button>
+      </div>
+      <p class="mt-2 text-xs text-slate-500" data-testid="ai-key-status">
+        {#if aiKeyPresent}
+          {$catalog['conflict.key.status.present'].replace('{provider}', aiProvider)}
+        {:else}
+          {$catalog['conflict.key.status.absent'].replace('{provider}', aiProvider)}
+        {/if}
+      </p>
     </div>
 
     <div class="card">

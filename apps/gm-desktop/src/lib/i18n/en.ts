@@ -27,6 +27,7 @@ const en: Readonly<Record<string, string>> = {
   'nav.graph': 'Knowledge Graph',
   'nav.settings': 'Settings',
   'nav.review': 'AI Review',
+  'nav.conflicts': 'Conflicts',
 
   'dashboard.heading': 'Server overview',
   'dashboard.start': 'Start server',
@@ -225,6 +226,65 @@ const en: Readonly<Record<string, string>> = {
   'review.truncated': 'Output truncated for display.',
   'review.invalidDiff': 'Paste a diff first.',
   'review.invalidBaseUrl': 'Enter an http(s) URL, or leave it empty for the provider default.',
+
+  // Conflict arbitration (ADR-0024)
+  'conflict.heading': 'Conflict arbitration',
+  'conflict.subhead': 'One region at a time — the AI is an option, never the decision',
+  'conflict.repoLabel': 'Repository',
+  'conflict.loadFailed': 'The conflict regions could not be read.',
+  'conflict.noRegions': 'This repository has no conflict region to arbitrate.',
+  'conflict.needsGitHeading': 'Git has to resolve these paths itself:',
+  'conflict.regionIndex': 'Region {n}',
+  'conflict.scope': 'Scope: {scope}',
+  'conflict.ours': 'ours',
+  'conflict.base': 'base',
+  'conflict.theirs': 'theirs',
+  'conflict.keepOurs': 'Keep ours',
+  'conflict.keepTheirs': 'Keep theirs',
+  'conflict.manualEdit': 'Edit by hand',
+  'conflict.askAi': 'Ask the AI',
+  'conflict.accept': 'Accept the suggestion',
+  'conflict.stop': 'Stop',
+  'conflict.close': 'Close this region',
+  'conflict.showDiff': 'Show the diff',
+  'conflict.hideDiff': 'Hide the diff',
+  'conflict.diffOursLabel': 'ours (original)',
+  'conflict.diffSuggestionLabel': 'AI suggestion',
+  'conflict.rawAnswer': 'The answer as it arrived',
+  'conflict.manualLabel': 'Replacement text',
+  'conflict.providerLabel': 'Provider',
+  'conflict.modelLabel': 'Model (optional)',
+  'conflict.modelPlaceholder': 'Provider default',
+  'conflict.redacted': '{n} secret-shaped span(s) were filtered before sending',
+  'conflict.modelServed': 'Model: {model}',
+  // `[PROPOSAL]` ADR-0024 §3.7.1: the option is present but disabled,
+  // and it says where the key goes. The three options that need no
+  // credential stay available.
+  'conflict.noKey':
+    'No API key is configured for this provider, so "ask the AI" is unavailable. Keep ours, keep theirs and edit-by-hand still work. Set a key in Settings → AI provider key, or set GITGIT_AI_API_KEY in the environment that launched the app.',
+  // `[PROPOSAL]` ADR-0024 §3.4.1: a provider that cannot stream is
+  // refused rather than degraded, and the refusal is stated.
+  'conflict.unsupported':
+    '{provider} cannot stream — its protocol has no streaming implementation, so the request is never sent rather than arriving in one lump behind a spinner. Keep ours, keep theirs and edit-by-hand are still available.',
+  'conflict.rejected': 'The suggestion was rejected: {reason}',
+  'conflict.status.starting': 'Starting…',
+  'conflict.status.streaming': 'Streaming…',
+  'conflict.status.done': 'The suggestion is ready',
+  'conflict.status.cancelled': 'Stopped',
+  'conflict.resolution.ours': 'Kept ours',
+  'conflict.resolution.theirs': 'Kept theirs',
+  'conflict.resolution.manual': 'Hand-written replacement',
+  'conflict.resolution.ai': 'Accepted the AI suggestion',
+  'conflict.key.heading': 'AI provider key',
+  'conflict.key.hint':
+    'Stored in the credential vault under ai/<provider>. The key is never read back into this window.',
+  'conflict.key.providerLabel': 'Provider',
+  'conflict.key.label': 'API key',
+  'conflict.key.placeholder': 'sk-…',
+  'conflict.key.save': 'Save the key',
+  'conflict.key.saved': 'The key was written to the vault.',
+  'conflict.key.status.present': 'A key is configured for {provider}.',
+  'conflict.key.status.absent': 'No key is configured for {provider}.',
 };
 
 export default en;

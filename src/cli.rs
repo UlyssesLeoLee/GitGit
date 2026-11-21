@@ -140,6 +140,84 @@ pub enum Command {
     /// and ADR-0022 already rejected wiring an external schema in.
     #[command(subcommand)]
     Gitremote(GitremoteCommand),
+
+    /// Cloud disks — remote storage for repository snapshots.
+    ///
+    /// A snapshot is one tar archive of one bare repository, uploaded to
+    /// an S3-compatible remote. Restoring a snapshot puts the repository
+    /// back the way it was.
+    ///
+    /// The credentials never appear on the command line: they come from
+    /// the environment (`GITGIT_CLOUD_<NAME>_ACCESS_KEY` and
+    /// `GITGIT_CLOUD_<NAME>_SECRET_KEY`, falling back to the names
+    /// without a disk name for a single-disk setup).
+    #[command(subcommand)]
+    Cloud(CloudCommand),
+}
+
+/// Sub-actions under `gitgit cloud`.
+#[derive(Debug, Subcommand)]
+pub enum CloudCommand {
+    /// Connect a cloud disk. The credentials come from the environment.
+    Add {
+        /// Short name used on the command line, e.g. `oss`.
+        name: String,
+        /// The endpoint URL, e.g. `https://oss-cn-hangzhou.aliyuncs.com`.
+        #[arg(long)]
+        endpoint: String,
+        /// The bucket that holds the snapshots.
+        #[arg(long)]
+        bucket: String,
+        /// The region, for services that need one.
+        #[arg(long, default_value = "us-east-1")]
+        region: String,
+        /// The key prefix every snapshot of this disk lives under.
+        #[arg(long, default_value = "gitgit")]
+        prefix: String,
+    },
+
+    /// List the connected cloud disks.
+    List,
+
+    /// Disconnect a cloud disk. The snapshots it holds are left alone.
+    Rm {
+        /// The disk to disconnect.
+        name: String,
+    },
+
+    /// Upload a snapshot of a repository, or of every repository.
+    Backup {
+        /// Which connected disk to use. Required when more than one is
+        /// connected.
+        #[arg(long)]
+        disk: Option<String>,
+        /// Which repository to snapshot. Every repository when omitted.
+        #[arg(long)]
+        repo: Option<String>,
+    },
+
+    /// List the snapshots a disk holds.
+    Snapshots {
+        /// Which connected disk to look at.
+        #[arg(long)]
+        disk: Option<String>,
+        /// Only the snapshots of this repository.
+        #[arg(long)]
+        repo: Option<String>,
+    },
+
+    /// Restore a repository from a snapshot, replacing what is there now.
+    Restore {
+        /// The snapshot's key, as `snapshots/<repo>/<stamp>-<hash>.tar`.
+        key: String,
+        /// Which connected disk holds the snapshot.
+        #[arg(long)]
+        disk: Option<String>,
+        /// Which repository to restore into. Taken from the snapshot when
+        /// omitted.
+        #[arg(long)]
+        repo: Option<String>,
+    },
 }
 
 /// Sub-actions under `gitgit gitremote`.

@@ -407,6 +407,16 @@ base64 而非加密，**无 TLS**；桌面端生成的密码只出现在日志�
 在配置之前，**打 tag 会让 release 在预检后的 `msi` job 变红**，这是设计意图
 而不是故障。
 
+`[FACT]` 证书**怎么进 CI**——secret 名、谁设置、什么时候可用、PR 与 fork 上的
+差别——记在 [`.github/CI.md`](.github/CI.md) 的「Secrets 配置」一节，那是唯一一处
+完整说明。
+
+`[FACT]` 2026-11-11 起，`release.yml` 的 `msi` job **在构建之前**先断言证书在不在
+（`Assert the signing material is configured` 步，跑
+`apps/gm-desktop/scripts/assert-signing-config.ps1 -Required`）。缺证书时**第一分钟
+就红**，而不是构建十几分钟后才红；消息里说清缺的是哪个变量、证书怎么投递、以及
+**不产出任何 release**。
+
 ### ~~P1 — 覆盖率门禁是声明而非门禁~~ 已关闭
 
 `apps/gm-desktop` 的覆盖率阈值曾经**没有任何 CI job 求值**：`Unit tests` 步骤
@@ -641,9 +651,12 @@ checkout，release 正文与并发组也都指向它。修法与证据见该 com
 
 | 目录 | 内容 |
 | --- | --- |
-| [`docs_archive_rust_impl_2026_08_26/requirements/`](docs_archive_rust_impl_2026_08_26/requirements/) | 15 阶段需求定义过程产物，含 Phase 11 红队评审、Phase 12 UX 红队评审、Phase 15 终审验收 |
 | [`docs_archive_rust_impl_2026_08_26/design/`](docs_archive_rust_impl_2026_08_26/design/) | 基本设计书与详细设计书，严格按日本 IPA 共通框架 2013 编写 |
 | [`docs_archive_rust_impl_2026_08_26/process/workflow.md`](docs_archive_rust_impl_2026_08_26/process/workflow.md) | 150 个任务 × 13 阶段的工程过程模型 |
+
+需求定义过程产物**不在归档里**：它们是活文档，在 [`docs/requirements/`](docs/requirements/)
+（见上文「文档索引」）。归档曾经留着一份同样的拷贝，两份内容逐字节相同——现在只留活的那一份，
+免得有人改了归档那份还以为改到了产品。
 
 该档案自身记录了一个当时成立、现在已不成立的判断，即「尚未有一个真正跑起来的 MVP 验证过」。
 以本文上文的实测数据为准。

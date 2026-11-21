@@ -12,7 +12,7 @@
 | 阶段 | 超上流 — 项目立项 |
 | 主要交付物 | 项目章程 |
 | 责任人 | PM + 发起人 |
-| 关联设计文档 | [`../requirements/phase13-final-baseline.md`](../../../requirements/phase13-final-baseline.md) (Baseline v1.0) |
+| 关联设计文档 | [`../requirements/phase13-final-baseline.md`](../../../../docs/requirements/phase13-final-baseline.md) (Baseline v1.0) |
 | 模板版本 | v1.0 (2026-08-20) |
 | 依据 | IPA 共通框架 2013 |
 

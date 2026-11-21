@@ -96,7 +96,7 @@
 ## References
 
 - [ADR-0015: SIEM 适配器](#)
-- [ADR-0006: OCI 容器 + K8s 部署 V1+ Cloud](../../architecture/decisions/0006-采用-OCI-容器Docker-containerd-+-K8s-部署-V1+-Cloud.md)
+- [ADR-0006: OCI 容器 + K8s 部署 V1+ Cloud](0006-采用-OCI-容器化（Docker---containerd）+-K8s-用于-V1+-Cloud.md)
 - [详细设计 §10 可观测性](../../design/detailed-design/10-observability.md)
 - [OpenTelemetry Collector — Deployment Modes](https://opentelemetry.io/docs/collector/deployment/)
 

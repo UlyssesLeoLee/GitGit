@@ -12,7 +12,7 @@
 | 阶段 | 超上流 — 经营要求确认 |
 | 主要交付物 | 经营要求确认书 |
 | 责任人 | 业务顾问 + 经营层 |
-| 关联设计文档 | [`../requirements/phase1-5-research.md`](../../../requirements/phase1-5-research.md) §1-§2 (研究计划与证据收集) |
+| 关联设计文档 | [`../requirements/phase1-5-research.md`](../../../../docs/requirements/phase1-5-research.md) §1-§2 (研究计划与证据收集) |
 | 模板版本 | v1.0 (2026-08-20) |
 | 依据 | IPA 共通框架 2013 |
 

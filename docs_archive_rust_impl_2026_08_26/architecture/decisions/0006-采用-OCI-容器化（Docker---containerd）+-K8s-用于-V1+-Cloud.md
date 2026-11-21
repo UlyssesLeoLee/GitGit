@@ -60,7 +60,7 @@
 
 ## References
 
-[`../../design/basic-design/08-operations-design.md#86-v1-k8s-部署形态`](../../design/basic-design/08-operations-design.md#86-v1-k8s-部署形态-v1-k8s-deployment-topology)
+[`../../design/basic-design/08-operations-design.md#86-v1-k8s-部署形态`](../../design/basic-design/08-operations-design.md#86-v1-k8s-部署形态--v1-k8s-deployment-topology)
 
 ## Revision History
 

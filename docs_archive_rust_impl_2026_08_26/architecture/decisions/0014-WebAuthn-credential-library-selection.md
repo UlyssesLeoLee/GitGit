@@ -8,7 +8,7 @@
 
 ## Context and Problem Statement
 
-[基本设计 §14.3.3](../../design/basic-design/14-admin-ops-ui.md) 与 [§7.5 密钥管理](../../design/basic-design/07-security-design.md#75-密钥管理-secrets-managementsec-req-005-sec-req-010) 提到 V1+ Cloud Admin 远程访问需要双因素(2FA)。技术选型 [§8](../../architecture/tech-selection.md#8-认证与凭证) 选 `jsonwebtoken` + `argon2`,但未涉及 WebAuthn / FIDO2 凭证。
+[基本设计 §14.3.3](../../design/basic-design/14-admin-ops-ui.md) 与 [§7.5 密钥管理](../../design/basic-design/07-security-design.md#75-密钥管理--secrets-managementsec-req-005-sec-req-010) 提到 V1+ Cloud Admin 远程访问需要双因素(2FA)。技术选型 [§8](../../architecture/tech-selection.md#8-认证与凭证) 选 `jsonwebtoken` + `argon2`,但未涉及 WebAuthn / FIDO2 凭证。
 
 候选方案:
 
@@ -38,7 +38,7 @@
 | 维度 | 选型 | 备注 |
 |---|---|---|
 | 库 | `webauthn-rs` 0.3+ (latest stable) | 配合 `tracing` 记录注册/认证事件 |
-| Attestation | `None` (基础);V1+ 启用 `Direct` 用于 YubiKey 验证 | 与 [§7.5 密钥管理](../../design/basic-design/07-security-design.md#75-密钥管理-secrets-managementsec-req-005-sec-req-010) 一致 |
+| Attestation | `None` (基础);V1+ 启用 `Direct` 用于 YubiKey 验证 | 与 [§7.5 密钥管理](../../design/basic-design/07-security-design.md#75-密钥管理--secrets-managementsec-req-005-sec-req-010) 一致 |
 | User verification | `Preferred` → 强制 | 安全等级递进 |
 | 凭证存储 | PostgreSQL `webauthn_credentials` 表(密文 + credential_id) | 不存私钥(私钥在硬件) |
 | Challenge TTL | 60 秒,一次性 | 防 replay |
@@ -81,7 +81,7 @@
 ## References
 
 - [技术选型 §8 认证与凭证](../tech-selection.md#8-认证与凭证)
-- [基本设计 §7.5 密钥管理](../../design/basic-design/07-security-design.md#75-密钥管理-secrets-managementsec-req-005-sec-req-010)
+- [基本设计 §7.5 密钥管理](../../design/basic-design/07-security-design.md#75-密钥管理--secrets-managementsec-req-005-sec-req-010)
 - [基本设计 §14.3.3 Admin 鉴权域](../../design/basic-design/14-admin-ops-ui.md)
 - [ADR-0017: HashiCorp Vault 集成细节](#)
 - [OWASP Cheat Sheet — Web Authentication](https://cheatsheetseries.owasp.org/cheatsheets/Authentication_Cheat_Sheet.html)

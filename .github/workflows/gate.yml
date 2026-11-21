@@ -168,6 +168,22 @@ jobs:
         shell: pwsh
         run: pwsh -NoProfile -File apps/gm-desktop/scripts/test-window-capture.ps1
 
+      # The signing pre-flight has to be able to FAIL.
+      #
+      # [FACT] `assert-signing-config.ps1` is what makes a missing MSI
+      # certificate fail the release job in its first minute instead of after
+      # a build that takes minutes. It is exercised here with synthetic
+      # environment variables - no MSI, no Windows desktop, no application,
+      # and no certificate: the values are sentinels, and nothing signs
+      # anything with them.
+      #
+      # [FACT] The cases are the ones that must fail: nothing configured, one
+      # half configured, and configured-but-blank. A check that has never been
+      # fed those is not known to be a check.
+      - name: The signing pre-flight rejects missing signing material
+        shell: pwsh
+        run: pwsh -NoProfile -File apps/gm-desktop/scripts/test-assert-signing-config.ps1
+
       # Both frontends' static checks. These are the checks a pull request
       # that touches only a frontend would otherwise get from the
       # path-filtered workflow — here they run for every pull request.

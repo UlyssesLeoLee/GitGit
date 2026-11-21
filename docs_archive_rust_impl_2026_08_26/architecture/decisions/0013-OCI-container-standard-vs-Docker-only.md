@@ -8,7 +8,7 @@
 
 ## Context and Problem Statement
 
-[基本设计 §2.3 物理架构](../../design/basic-design/02-architecture.md#23-物理架构-physical-architecture) 与 §3.5 Agent Runtime 都提到 Agent Workspace 隔离,但没有选定具体的容器运行时。候选:
+[基本设计 §2.3 物理架构](../../design/basic-design/02-architecture.md#23-物理架构--physical-architecture) 与 §3.5 Agent Runtime 都提到 Agent Workspace 隔离,但没有选定具体的容器运行时。候选:
 
 - Docker Engine (Moby) — 成熟,开发者熟悉,但 daemon 体积大、需要特权
 - containerd — CNCF 毕业,OCI 兼容,K8s 默认 CRI,daemon 轻
@@ -17,7 +17,7 @@
 
 ## Decision Drivers
 
-- [DRIVER-1] 必须支持 K8s 部署(V1+ Cloud)— 与 [ADR-0006](../../architecture/decisions/0006-采用-OCI-容器Docker-containerd-+-K8s-部署-V1+-Cloud.md) 一致
+- [DRIVER-1] 必须支持 K8s 部署(V1+ Cloud)— 与 [ADR-0006](0006-采用-OCI-容器化（Docker---containerd）+-K8s-用于-V1+-Cloud.md) 一致
 - [DRIVER-2] MVP 阶段能在 Linux 单进程 Local-First 跑通
 - [DRIVER-3] 沙箱强度(基本 OS 隔离即可,gVisor 推迟 V1+)
 - [DRIVER-4] 多租户 App 不能越权访问其他 App 的资源(详设 §12)
@@ -77,10 +77,10 @@
 
 ## References
 
-- [ADR-0006: 采用 OCI 容器 + K8s 部署 V1+ Cloud](../../architecture/decisions/0006-采用-OCI-容器Docker-containerd-+-K8s-部署-V1+-Cloud.md)
+- [ADR-0006: 采用 OCI 容器 + K8s 部署 V1+ Cloud](0006-采用-OCI-容器化（Docker---containerd）+-K8s-用于-V1+-Cloud.md)
 - [ADR-0018: OCI Plugin 包格式](#) (待写)
-- [基本设计 §2.3 物理架构](../../design/basic-design/02-architecture.md#23-物理架构-physical-architecture)
-- [基本设计 §3.5 Agent Runtime](../../design/basic-design/03-functional-design.md#35-agent-运行时子系统-agent-runtime-subsystem)
+- [基本设计 §2.3 物理架构](../../design/basic-design/02-architecture.md#23-物理架构--physical-architecture)
+- [基本设计 §3.5 Agent Runtime](../../design/basic-design/03-functional-design.md#35-agent-运行时子系统--agent-runtime-subsystem)
 - [基本设计 §7.7 App 沙箱](../../design/basic-design/07-security-design.md#77-app-沙箱-app-sandbox)
 - [详细设计 §04 Agent Runtime](../../design/detailed-design/04-agent-runtime.md)
 - [详细设计 §12 App Registry & Plugin Loader](../../design/detailed-design/12-app-registry-and-plugin-loader.md)

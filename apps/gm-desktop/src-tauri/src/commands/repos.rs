@@ -195,7 +195,11 @@ pub async fn open_repo_in_shell(state: State<'_, DesktopState>, name: String) ->
 /// validated identically, and the join can only ever produce a direct
 /// child of `root` because `..`, `/`, `\`, a leading `.` and whitespace
 /// are all rejected upstream.
-fn resolve_worktree_dir(repos_dir: &Path, name: &str, root: Option<String>) -> AppResult<PathBuf> {
+pub(crate) fn resolve_worktree_dir(
+    repos_dir: &Path,
+    name: &str,
+    root: Option<String>,
+) -> AppResult<PathBuf> {
     let base = match root {
         Some(r) if !r.trim().is_empty() => PathBuf::from(r),
         _ => repos_dir.to_path_buf(),
