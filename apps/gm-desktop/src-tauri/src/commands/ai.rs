@@ -618,6 +618,24 @@ pub struct ConflictStarted {
 /// bound. An answer this long is refused by the length check anyway.
 pub const CONFLICT_MAX_ANSWER_CHARS: usize = 200_000;
 
+/// Cut `delta` to what is left of the answer's budget.
+///
+/// `[FACT]` The budget is on the **answer** ✓, so a delta that does not
+/// fit in what is left is cut to what is left ✓. Appending it whole would
+/// let one event exceed the stated bound by an arbitrary amount ✓, and
+/// the whole delta would also cross the bridge to the webview ✓.
+///
+/// `[FACT]` The cut lands on a character boundary ✓ — a byte boundary
+/// inside a multi-byte character would panic ✓.
+fn cap_delta(answer_len: usize, delta: &str) -> &str {
+    let room = CONFLICT_MAX_ANSWER_CHARS.saturating_sub(answer_len);
+    let mut cut = delta.len().min(room);
+    while cut > 0 && !delta.is_char_boundary(cut) {
+        cut -= 1;
+    }
+    &delta[..cut]
+}
+
 /// Refuse a region that carries nothing to arbitrate.
 fn validate_region(region: &ConflictRegion) -> AppResult<()> {
     if region.path.trim().is_empty() {
@@ -822,13 +840,19 @@ async fn pump_conflict(
         match item {
             Ok(StreamEvent::Token(delta)) => {
                 tokens = tokens.saturating_add(1);
-                if answer.len() < CONFLICT_MAX_ANSWER_CHARS {
-                    answer.push_str(&delta);
-                }
+                // `[FACT]` The cap is on the **answer**, so a delta that
+                // does not fit in what is left is cut to what is left ✓ —
+                // appending it whole would let one event exceed the bound
+                // by an arbitrary amount ✓, and the whole delta would
+                // also cross the bridge to the webview ✓. The cut is on a
+                // character boundary ✓, because a byte boundary inside a
+                // multi-byte character would panic ✓.
+                let delta = cap_delta(answer.len(), &delta);
+                answer.push_str(delta);
                 let _ = emitter.emit(&ConflictEvent::Token {
                     session_id: session_id.clone(),
                     region_id: region_id.clone(),
-                    delta,
+                    delta: delta.to_string(),
                 });
             }
             Ok(StreamEvent::Model(model)) => {
@@ -2439,5 +2463,37 @@ mod tests {
             !err.to_string().contains("sk-secret-value"),
             "the key must not be echoed: {err}"
         );
+    }
+
+    /* ---------------- the answer's length bound (ADR-0024 §3.4.1) --------- */
+
+    #[test]
+    fn a_delta_is_cut_to_what_is_left_of_the_budget() {
+        // `[FACT]` The bound is on the answer, so one event may not exceed
+        // it by an arbitrary amount: a delta larger than what is left is
+        // cut to what is left.
+        let full = "x".repeat(CONFLICT_MAX_ANSWER_CHARS + 50);
+        let capped = cap_delta(0, &full);
+        assert_eq!(capped.len(), CONFLICT_MAX_ANSWER_CHARS);
+        // And the room is what is left, not the whole budget again.
+        let answer_len = CONFLICT_MAX_ANSWER_CHARS - 10;
+        let capped = cap_delta(answer_len, &full);
+        assert_eq!(capped.len(), 10);
+        // A delta that fits is untouched.
+        assert_eq!(cap_delta(0, "hello"), "hello");
+        // Nothing left, nothing appended.
+        assert_eq!(cap_delta(CONFLICT_MAX_ANSWER_CHARS, "hello"), "");
+    }
+
+    #[test]
+    fn the_cut_lands_on_a_character_boundary() {
+        // `[FACT]` A byte boundary inside a multi-byte character would
+        // panic, so the cut walks back to the nearest boundary.
+        let delta = "é".repeat(10); // two bytes each
+        let capped = cap_delta(CONFLICT_MAX_ANSWER_CHARS - 1, &delta);
+        assert!(capped.is_char_boundary(capped.len()));
+        assert_eq!(capped.len(), 0, "one byte of room is not one character");
+        let capped = cap_delta(CONFLICT_MAX_ANSWER_CHARS - 2, &delta);
+        assert_eq!(capped, "é");
     }
 }
