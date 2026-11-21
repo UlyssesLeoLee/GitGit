@@ -681,7 +681,13 @@ mod tests {
             region: "us-east-1".to_string(),
             prefix: "gitgit/".to_string(),
         };
-        let disk = crate::cloud::S3CloudDisk::connect(&entry).await.unwrap();
+        let registry = crate::cloud::CloudRegistry {
+            disks: std::collections::BTreeMap::from([(entry.name.clone(), entry.clone())]),
+        };
+        let (access_key, secret_key) = registry.credentials_for(&entry).unwrap();
+        let disk = crate::cloud::S3CloudDisk::connect(&entry, &access_key, &secret_key)
+            .await
+            .unwrap();
 
         let repos = temp_dir("real-store");
         make_repo(&repos, "demo", "ref: refs/heads/main\n");
