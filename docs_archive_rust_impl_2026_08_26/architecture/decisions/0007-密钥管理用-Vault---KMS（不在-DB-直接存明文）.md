@@ -61,7 +61,7 @@ tech-selection.md §9 / 详细设计 §09 (security-impl) / 实施前 QA QA-005
 
 ## References
 
-[`../tech-selection.md` §9](../tech-selection.md#9-加密原语rustcrypto-cryptography) · SEC-REQ-005 / 010
+[`../tech-selection.md` §9](../tech-selection.md#9-加密原语rustcrypto--cryptography) · SEC-REQ-005 / 010
 
 ## Revision History
 

@@ -522,7 +522,7 @@
 |---|---|---|
 | NFR-REQ-001 可用性 | TC-OV-002, TC-OV-004, TC-ACO-012 | 3 |
 | NFR-REQ-002 性能 | TC-OV-002, TC-GE-010, TC-PE-006, TC-API-004, TC-API-005 | 5 |
-| NFR-REQ-003 OS 矩阵 | (推迟 V1, [Appendix B TBD](../../design/basic-design/appendix-b-tbd.md)) | TBD |
+| NFR-REQ-003 OS 矩阵 | (推迟 V1, [Appendix B TBD](../design/basic-design/appendix-b-tbd.md)) | TBD |
 | NFR-REQ-004 扩展性 | (V0.5 验证) | TBD |
 | NFR-REQ-005 运维性 | TC-OV-004, TC-ACO-012 | 2 |
 | NFR-REQ-006 安全性 | (见 §15 性能 / §15 安全) | — |
@@ -589,7 +589,7 @@
 
 | OS | 架构 | 支持等级 | TC |
 |---|---|---|---|
-| Linux | x86_64 | **P0** (MVP) | (推迟 V1 矩阵, [Appendix B TBD](../../design/basic-design/appendix-b-tbd.md)) |
+| Linux | x86_64 | **P0** (MVP) | (推迟 V1 矩阵, [Appendix B TBD](../design/basic-design/appendix-b-tbd.md)) |
 | Linux | aarch64 | **P0** (V1+) | TC-APP-020 |
 | macOS | aarch64 (Apple Silicon) | P1 (开发环境) | (推迟 V1) |
 | Windows | x86_64 + WSL2 | P1 (开发环境) | (推迟 V1) |

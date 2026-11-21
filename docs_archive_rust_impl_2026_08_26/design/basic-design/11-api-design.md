@@ -15,7 +15,7 @@
 2. **可演进 (Evolvable)** — URI 中必须包含版本号（`/api/v1/...`）。同一资源的语义变更必须走新版本，禁止原地 breaking change。
 3. **幂等 (Idempotent)** — 所有非 GET 写操作必须支持 `Idempotency-Key` 头，避免网络重试导致重复副作用。
 4. **可观测 (Observable)** — 每个请求都带 trace id（`X-Trace-Id` 头），结构化记录到 `events` 表，跨服务可串联。
-5. **Policy 在前 (Policy-first)** — 端点本身只做协议解析与参数校验，**业务级授权判断全部由 Policy 引擎承担**（参见 [§3.7 Security & Access Control Subsystem](03-functional-design.md#37-安全与访问控制子系统-security-access-control-subsystem)）。
+5. **Policy 在前 (Policy-first)** — 端点本身只做协议解析与参数校验，**业务级授权判断全部由 Policy 引擎承担**（参见 [§3.7 Security & Access Control Subsystem](03-functional-design.md#37-安全与访问控制子系统--security--access-control-subsystem)）。
 6. **错误标准化 (Standardized errors)** — 错误响应体格式跨所有端点统一，便于客户端统一处理。
 
 ## 11.2 协议栈总览
@@ -63,7 +63,7 @@
 
 | Header | 必填 | 说明 |
 |---|---|---|
-| `Authorization` | ✓ (除 public 端点) | 参见 [§7.1 认证授权](07-security-design.md#71-认证-授权-authentication-authorization) |
+| `Authorization` | ✓ (除 public 端点) | 参见 [§7.1 认证授权](07-security-design.md#71-认证--授权--authentication--authorization) |
 | `X-Trace-Id` | 自动生成 | 客户端可主动提供；缺失则服务端生成 UUID v7 |
 | `Idempotency-Key` | 写操作推荐 | 写操作的幂等键，详见 [§11.3.7](#1137-幂等性) |
 | `Accept` | 推荐 | 显式声明接受 `application/json` |
@@ -242,7 +242,7 @@ MCP tool 调用必须带 **Agent credential**（OAuth 2.0 token 或短期 JWT）
 - 失败模式列表（一句）
 - 关联 Policy 引用 ID
 
-**AISEC-REQ-003（MCP tool description integrity, V1/P1）** 要求平台在 tool 描述/Schema 变化时标记为 Policy-relevant Event，需要重新审批才能继续使用。详见 [§7.3 AI 安全性](07-security-design.md#73-ai-安全-ai-securityaisec-req)。
+**AISEC-REQ-003（MCP tool description integrity, V1/P1）** 要求平台在 tool 描述/Schema 变化时标记为 Policy-relevant Event，需要重新审批才能继续使用。详见 [§7.3 AI 安全性](07-security-design.md#73-ai-安全--ai-securityaisec-req)。
 
 ## 11.5 Git 协议 API
 
@@ -254,9 +254,9 @@ MCP tool 调用必须带 **Agent credential**（OAuth 2.0 token 或短期 JWT）
 | clone/fetch/push | SSH | `git@host:{repo}.git` | SSH subsystem `git-upload-pack` / `git-receive-pack` |
 | LFS | HTTP | `https://host/{repo}.git/info/lfs` | LFS batch API（V1） |
 
-**实现：** 全部走真实 `git` 二进制子进程（参见 [§2.6 Git 存储实现](02-architecture.md#26-git-存储实现-git-storage-implementation采用-phase-10-3)）。平台不发明新协议。
+**实现：** 全部走真实 `git` 二进制子进程（参见 [§2.6 Git 存储实现](02-architecture.md#26-git-存储实现--git-storage-implementation采用-phase-10-3)）。平台不发明新协议。
 
-**Graph-aware 钩子：** 通过 Git 标准 `pre-receive` / `post-receive` / `update` 钩子回调到平台 API（参见 [§4.1 Git Server Subsystem](03-functional-design.md#31-git-server-子系统-git-server-subsystem)）。
+**Graph-aware 钩子：** 通过 Git 标准 `pre-receive` / `post-receive` / `update` 钩子回调到平台 API（参见 [§4.1 Git Server Subsystem](03-functional-design.md#31-git-server-子系统--git-server-subsystem)）。
 
 ## 11.6 Webhook (Outbound API)
 
@@ -375,7 +375,7 @@ platform webhooks test --id=0190e8a4-...  # 触发一次测试投递
 }
 ```
 
-写入由 [§7.2 审计](07-security-design.md#72-审计-audit) 描述的 append-only 通道保障。
+写入由 [§7.2 审计](07-security-design.md#72-审计--audit) 描述的 append-only 通道保障。
 
 ### 11.8.4 CORS（仅 Web UI 需要）
 

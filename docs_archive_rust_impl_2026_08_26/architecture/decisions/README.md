@@ -21,7 +21,7 @@
 | [0005](0005-Admin-运维界面独立子进程-+-独立鉴权域.md) | Admin 运维界面独立子进程 + 独立鉴权域 | Accepted | 2026-08-19 |
 | [0006](0006-采用-OCI-容器化（Docker---containerd）+-K8s-用于-V1+-Cloud.md) | 采用 OCI 容器化（Docker / containerd）+ K8s 用于 V1+ Cloud | Accepted | 2026-08-19 |
 | [0007](0007-密钥管理用-Vault---KMS（不在-DB-直接存明文）.md) | 密钥管理用 Vault / KMS（不在 DB 直接存明文） | Accepted | 2026-08-19 |
-| [0008](0008-Plugin---App-Manifest-Schema-(app.yaml)-与版本兼容策略.md) | Plugin / App Manifest Schema (app.yaml) 与版本兼容策略 | Accepted | 2026-08-19 |
+| [0008](0008-Plugin---App-Manifest-Schema-%28app.yaml%29-与版本兼容策略.md)-与版本兼容策略.md) | Plugin / App Manifest Schema (app.yaml) 与版本兼容策略 | Accepted | 2026-08-19 |
 | [0009](0009-SIEM-适配策略（wal2json-→-Kafka---Vector---直接-webhook）.md) | SIEM 适配策略（wal2json → Kafka / Vector / 直接 webhook） | Accepted | 2026-08-19 |
 | [0010](0010-app-sandbox-wasm-wasi.md) | App 沙箱采用 Wasm + WASI | Accepted | 2026-08-20 |
 | [0011](0011-observability-platform.md) | 可观测性平台采用 OpenTelemetry + Prometheus + Loki + Tempo + Grafana | Accepted | 2026-08-20 |

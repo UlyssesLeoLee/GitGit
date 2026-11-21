@@ -112,7 +112,7 @@ docs/design/
 
 - 需求定义书：[`../requirements/`](../requirements/)
 - 本书直接输入：
-  - [`../requirements/00-requirements-definition.md`](../requirements/00-requirements-definition.md) — Baseline v1.0
-  - [`../requirements/phase9-mvp-reduction.md`](../requirements/phase9-mvp-reduction.md) — MVP 37 项
-  - [`../requirements/phase10-architecture.md`](../requirements/phase10-architecture.md) — 架构输入
-  - [`../requirements/phase14-ipa-compliance-review.md`](../requirements/phase14-ipa-compliance-review.md) — IPA 差距分析
+  - [`../requirements/00-requirements-definition.md`](../../docs/requirements/00-requirements-definition.md) — Baseline v1.0
+  - [`../requirements/phase9-mvp-reduction.md`](../../docs/requirements/phase9-mvp-reduction.md) — MVP 37 项
+  - [`../requirements/phase10-architecture.md`](../../docs/requirements/phase10-architecture.md) — 架构输入
+  - [`../requirements/phase14-ipa-compliance-review.md`](../../docs/requirements/phase14-ipa-compliance-review.md) — IPA 差距分析

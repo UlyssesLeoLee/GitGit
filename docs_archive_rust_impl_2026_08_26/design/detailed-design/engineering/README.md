@@ -90,9 +90,9 @@ GitGit/
 ## 关联文档
 
 - 详细设计书：[`../`](../)
-- 实施前 QA：[`../../../../../../architecture/qa-checklist.md`](../../../../../../architecture/qa-checklist.md)
-- 技术选型：[`../../../../../../architecture/tech-selection.md`](../../../../../../architecture/tech-selection.md)
-- 流程文档：[`../../../../../process/workflow.md`](../../../../../process/workflow.md)
+- 实施前 QA：[`../../../../../../architecture/qa-checklist.md`](../../../architecture/qa-checklist.md)
+- 技术选型：[`../../../../../../architecture/tech-selection.md`](../../../architecture/tech-selection.md)
+- 流程文档：[`../../../../../process/workflow.md`](../../../process/workflow.md)
 
 
 

@@ -60,7 +60,7 @@ tech-selection.md §6 (sqlx) / 详细设计 §01 (data layer) / 实施前 QA QA-
 
 ## References
 
-[`../tech-selection.md` §6](../tech-selection.md#6-postgresql-驱动sqlx-database-driver)
+[`../tech-selection.md` §6](../tech-selection.md#6-postgresql-驱动sqlx--database-driver)
 
 ## Revision History
 

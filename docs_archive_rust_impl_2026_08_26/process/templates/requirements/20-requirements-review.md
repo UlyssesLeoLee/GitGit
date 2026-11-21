@@ -12,7 +12,7 @@
 | 阶段 | 需求定义 — 需求评审 (RD Review) |
 | 主要交付物 | 评审记录 |
 | 责任人 | PO + EM + SEC |
-| 关联设计文档 | [`../requirements/00-requirements-definition.md`](../../../requirements/00-requirements-definition.md) · [`../requirements/phase15-final-audit.md`](../../../requirements/phase15-final-audit.md) |
+| 关联设计文档 | [`../requirements/00-requirements-definition.md`](../../../../docs/requirements/00-requirements-definition.md) · [`../requirements/phase15-final-audit.md`](../../../../docs/requirements/phase15-final-audit.md) |
 | 模板版本 | v1.0 (2026-08-20) → v1.1 (2026-09-01) |
 | 依据 | IPA 共通框架 2013 |
 

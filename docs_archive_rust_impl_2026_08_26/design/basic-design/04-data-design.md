@@ -144,7 +144,7 @@ CREATE TABLE secrets (
 );
 ```
 
-> **重要：** 根据 AISEC-REQ-009(a)，Platform 进程的常规读写用 DB 角色对 `events` 表**仅授权 INSERT**。`UPDATE` / `DELETE` 权限被独立到一个角色，Platform 启动时通过 migration 剥离。详见 [§7.2 审计](07-security-design.md#72-审计-audit) 末尾"对 Platform process 完全被攻陷的耐受性"小节。
+> **重要：** 根据 AISEC-REQ-009(a)，Platform 进程的常规读写用 DB 角色对 `events` 表**仅授权 INSERT**。`UPDATE` / `DELETE` 权限被独立到一个角色，Platform 启动时通过 migration 剥离。详见 [§7.2 审计](07-security-design.md#72-审计--audit) 末尾"对 Platform process 完全被攻陷的耐受性"小节。
 
 ## 4.3 图遍历 / Graph Traversal
 
@@ -187,7 +187,7 @@ SELECT DISTINCT id, node_type FROM downstream;
 
 | 数据类型 | 创建 | 引用 | 更新 | 删除 / 归档 |
 |---|---|---|---|---|
-| Node | 图谱注册时 | 所有读操作 | 逻辑删除（设置 `deleted_at`）| 物理不删除（保留审计）※ GDPR 例外见 [§7.2](07-security-design.md#72-审计-audit) |
+| Node | 图谱注册时 | 所有读操作 | 逻辑删除（设置 `deleted_at`）| 物理不删除（保留审计）※ GDPR 例外见 [§7.2](07-security-design.md#72-审计--audit) |
 | Edge | 与 Node 同时 | 图查询 | 不可变（更正用 cancel Edge + 新 Edge）| 物理不删除 |
 | Event | 所有状态变更时 | 审计 / View | 不可（仅追加）| 主库保留 6 个月热分区；超期分区归档至 S3 冷存储后 DETACH |
 | Git 对象 | push 时 | 所有 Git 操作 | ref / object 追加 | 标准 `git gc`（V1）|

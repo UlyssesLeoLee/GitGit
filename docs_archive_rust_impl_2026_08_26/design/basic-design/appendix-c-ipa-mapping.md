@@ -1,6 +1,6 @@
 # Appendix C — IPA 共通框架 2013 过程·交付物 对照表
 
-> 本附录是 [00. 介绍 §0.0 依据宣言](00-introduction.md#00-依据宣言-compliance-declaration) 的细节展开。读者可据此判断本书每一章在 IPA 共通框架 2013 生命周期中的位置，以及哪些过程-活动-任务被本书**覆盖**、哪些被**省略**、哪些被**显式延后**。
+> 本附录是 [00. 介绍 §0.0 依据宣言](00-introduction.md#00-依据宣言--compliance-declaration) 的细节展开。读者可据此判断本书每一章在 IPA 共通框架 2013 生命周期中的位置，以及哪些过程-活动-任务被本书**覆盖**、哪些被**省略**、哪些被**显式延后**。
 
 ## C.1 范围与方法
 
@@ -68,7 +68,7 @@
 
 | 任务 | 本书对应章节 | 覆盖状态 |
 |---|---|---|
-| T-A4-1 确定系统方式设计书构成 | [00. 介绍 §0.7 本书构成](00-introduction.md#07-本书构成-document-structure) | ✅ |
+| T-A4-1 确定系统方式设计书构成 | [00. 介绍 §0.7 本书构成](00-introduction.md#07-本书构成--document-structure) | ✅ |
 | T-A4-2 编写系统方式设计书 | 全部 16 文件 | ✅ |
 | T-A4-3 实施系统方式设计书评审 | [Appendix B — 残留 TBD 项目清单](appendix-b-tbd.md)（人类签核的占位） | 🟡 |
 | T-A4-4 获取人类干系人承认 | [00. 介绍 §0.2.2 不包含](00-introduction.md#022-不包含-out-of-scope)（Phase 14 F14-7 缺口） | ⏸ |
@@ -86,7 +86,7 @@
 | T-P4-A1-1 设计软件构成 | [00. 总体概述 §2 顶层模块划分](../detailed-design/00-overview.md#02-顶层模块划分) |
 | T-P4-A1-2 设计子系统间接口 | [08. API 处理器](../detailed-design/08-api-handlers.md) |
 | T-P4-A1-3 设计数据存储 | [01. 数据层](../detailed-design/01-data-layer.md) |
-| T-P4-A1-4 设计事务控制 | [01. 数据层 §1.8 事务边界](../detailed-design/01-data-layer.md#18-事务边界-transaction-boundaries) |
+| T-P4-A1-4 设计事务控制 | [01. 数据层 §1.8 事务边界](../detailed-design/01-data-layer.md#18-事务边界--transaction-boundaries) |
 | T-P4-A1-5 设计错误处理方式 | [11. 错误处理](../detailed-design/11-error-handling.md) |
 | T-P4-A1-6 设计安全架构 | [09. 安全实现](../detailed-design/09-security-impl.md) |
 | T-P4-A1-7 设计可观测性 | [10. 可观测性](../detailed-design/10-observability.md) |
@@ -99,7 +99,7 @@
 | T-P5-A1-2 设计 DB Schema 详细 | [01. 数据层 §1.4 完整 DDL](../detailed-design/01-data-layer.md#14-完整-ddl) |
 | T-P5-A1-3 设计 API Handler 详细 | [08. API 处理器](../detailed-design/08-api-handlers.md) |
 | T-P5-A1-4 设计状态机 | [04. Agent 运行时 §4.4 状态机](../detailed-design/04-agent-runtime.md#44-状态机) |
-| T-P5-A1-5 设计并发/排他控制 | [07. App 协调 §7.6 Outbox + Relay](../detailed-design/07-app-coordination.md#76-outbox-relay) |
+| T-P5-A1-5 设计并发/排他控制 | [07. App 协调 §7.6 Outbox + Relay](../detailed-design/07-app-coordination.md#76-outbox--relay) |
 | T-P5-A1-6 设计 PL/pgSQL 函数 | [12. App 群组信息互通设计 §存储过程 API 端点](../detailed-design/07-app-coordination.md#74-存储过程plpgsql调用) |
 
 ## C.5 P9 软件受入过程 对应
@@ -108,10 +108,10 @@
 
 | 任务 | 本书对应章节 |
 |---|---|
-| T-A1 验收测试的计划 | [10. 受入测试方针 §10.1 测试级别](10-acceptance-test-policy.md#101-测试级别-test-levels) |
+| T-A1 验收测试的计划 | [10. 受入测试方针 §10.1 测试级别](10-acceptance-test-policy.md#101-测试级别--test-levels) |
 | T-A2 实施验收测试 | [10. 受入测试方针 §10.2 MVP 验收条件](10-acceptance-test-policy.md#102-mvp-验收条件重申-phase-9-6-的-definition-of-done) |
-| T-A3 评价验收测试 | [10. 受入测试方针 §10.4 发布判定](10-acceptance-test-policy.md#104-发布判定-release-decision) |
-| T-A4 验收测试的完结 | [10. 受入测试方针 §10.4](10-acceptance-test-policy.md#104-发布判定-release-decision)（PO 正式签核 = Phase 14 F14-7 缺口） |
+| T-A3 评价验收测试 | [10. 受入测试方针 §10.4 发布判定](10-acceptance-test-policy.md#104-发布判定--release-decision) |
+| T-A4 验收测试的完结 | [10. 受入测试方针 §10.4](10-acceptance-test-policy.md#104-发布判定--release-decision)（PO 正式签核 = Phase 14 F14-7 缺口） |
 
 ## C.6 IPA 共通框架 2013 以外的标准对应
 
@@ -122,8 +122,8 @@
 | **ISO/IEC 25010** (系统及软件质量模型) | [06. 非功能设计](06-non-functional-design.md)（8 质量特性与 6 大项交叉） |
 | **W3C Trace Context** | [10. 可观测性 §10.9 跨进程传播](../detailed-design/10-observability.md#109-span-跨进程传播) |
 | **OpenTelemetry** | [10. 可观测性](../detailed-design/10-observability.md) 全文 |
-| **JSON Schema Draft 2020-12** | [02. 图谱引擎 §2.4 类型注册表](../detailed-design/02-graph-engine.md#24-类型注册表-type-registry) |
-| **JWT (RFC 7519)** | [04. Agent 运行时 §4.7 凭据签发](../detailed-design/04-agent-runtime.md#47-凭据签发-credential-issuance) |
+| **JSON Schema Draft 2020-12** | [02. 图谱引擎 §2.4 类型注册表](../detailed-design/02-graph-engine.md#24-类型注册表--type-registry) |
+| **JWT (RFC 7519)** | [04. Agent 运行时 §4.7 凭据签发](../detailed-design/04-agent-runtime.md#47-凭据签发--credential-issuance) |
 | **REST (RFC 9110)** | [08. API 处理器 §8.3 路由表](../detailed-design/08-api-handlers.md#83-路由表) |
 | **OpenAPI 3.1** | [08. API 处理器 §8.10 OpenAPI 治理](../detailed-design/08-api-handlers.md#810-openapi-治理) |
 | **CEL (Common Expression Language)** | [03. 策略引擎 §3.8 ABAC 属性求值](../detailed-design/03-policy-engine.md#38-abac-属性求值) |
@@ -133,25 +133,25 @@
 **[PROPOSAL]** 本书受入的基本设计完成度判据（对应 IPA A4 T4-3 评审）：
 
 - [x] 全部 37 项 MVP 需求至少出现在一本书的章节中（直接对应 [§3 功能设计](03-functional-design.md) 或 [§6 非功能设计](06-non-functional-design.md)）
-- [x] 全部 9 条 AISEC-REQ 在 [§3.7.4](03-functional-design.md#374-aisec-reqai-安全的整合) + [§7.3](07-security-design.md#73-ai-安全-ai-securityaisec-req) 出现
+- [x] 全部 9 条 AISEC-REQ 在 [§3.7.4](03-functional-design.md#374-aisec-reqai-安全的整合) + [§7.3](07-security-design.md#73-ai-安全--ai-securityaisec-req) 出现
 - [x] 全部 3 条 NFR-REQ 在 [§6.1-6.6](06-non-functional-design.md) 出现
-- [x] 全部 6 条 SEC-REQ-008/009/010 + SEC-REQ-001-007 在 [§3.7](03-functional-design.md#37-安全与访问控制子系统-security-access-control-subsystem) + [§7](07-security-design.md) 出现
+- [x] 全部 6 条 SEC-REQ-008/009/010 + SEC-REQ-001-007 在 [§3.7](03-functional-design.md#37-安全与访问控制子系统--security--access-control-subsystem) + [§7](07-security-design.md) 出现
 - [x] 全部 6 个子系统功能（Git/Graph/AI/Ctx/Agent/CI/Sec/API）在 [§3](03-functional-design.md) 出现
 - [x] 至少 1 处数据 schema (PostgreSQL DDL) 在 [§4](04-data-design.md) 给出
 - [x] 至少 1 处 API 契约 (HTTP) 在 [§11](11-api-design.md) 给出
-- [x] 至少 1 处安全设计（信封加密）在 [§7.5](07-security-design.md#75-密钥管理-secrets-managementsec-req-005-sec-req-010) 给出
+- [x] 至少 1 处安全设计（信封加密）在 [§7.5](07-security-design.md#75-密钥管理--secrets-managementsec-req-005-sec-req-010) 给出
 - [x] 至少 1 处迁移设计在 [§9](09-migration-design.md) 给出
 - [x] 至少 1 处受入测试方针在 [§10](10-acceptance-test-policy.md) 给出
 - [x] App 升格为一级对象（App / AppInstance / AppDeployment 节点化）在 [§13.1](13-app-cluster-and-plugins.md#131-概念模型app-作为一级平台对象) 给出
 - [x] App Manifest schema 在 [§13.2](13-app-cluster-and-plugins.md#132-app-manifest-appyaml-schema) 给出
-- [x] 中心事件总线在 [§13.4](13-app-cluster-and-plugins.md#134-中心事件总线-central-event-bus) 给出
+- [x] 中心事件总线在 [§13.4](13-app-cluster-and-plugins.md#134-中心事件总线--central-event-bus) 给出
 - [x] App 集群健康心跳在 [§13.5](13-app-cluster-and-plugins.md#135-app-集群模型) 给出
-- [x] 热插拔生命周期 + 升级策略在 [§13.6-13.7](13-app-cluster-and-plugins.md#136-热插拔与生命周期-hot-plug-lifecycle) 给出
-- [x] Admin UI 独立子进程 + 独立鉴权域在 [§14.1 / §14.3](14-admin-ops-ui.md#141-部署形态-deployment-topology) 给出
+- [x] 热插拔生命周期 + 升级策略在 [§13.6-13.7](13-app-cluster-and-plugins.md#136-热插拔与生命周期--hot-plug--lifecycle) 给出
+- [x] Admin UI 独立子进程 + 独立鉴权域在 [§14.1 / §14.3](14-admin-ops-ui.md#141-部署形态--deployment-topology) 给出
 - [x] admin_audit 不可篡改（哈希链）在 [§14.2.5](14-admin-ops-ui.md#1425-审计日志) 给出
-- [x] App 沙箱 DB role 隔离（AISEC-REQ-013 强化）在 [§7.7](07-security-design.md#77-app-沙箱权限边界-app-sandbox-permission-boundary) 给出
-- [x] Plugin API 端点族 `/api/apps/<app_id>/*` 在 [§11.12](11-api-design.md#1112-plugin-api-端点族-plugin-api-endpoint-family) 给出
-- [x] V1+ K8s 部署形态在 [§8.6](08-operations-design.md#86-v1-k8s-部署形态-v1-k8s-deployment-topology) 给出
+- [x] App 沙箱 DB role 隔离（AISEC-REQ-013 强化）在 [§7.7](07-security-design.md#77-app-沙箱权限边界--app-sandbox-permission-boundary) 给出
+- [x] Plugin API 端点族 `/api/apps/<app_id>/*` 在 [§11.12](11-api-design.md#1112-plugin-api-端点族--plugin-api-endpoint-family) 给出
+- [x] V1+ K8s 部署形态在 [§8.6](08-operations-design.md#86-v1-k8s-部署形态--v1-k8s-deployment-topology) 给出
 - [ ] 全部章节"人类签核"获取 — **F14-7 缺口**，标注 [TBD]
 
 ---

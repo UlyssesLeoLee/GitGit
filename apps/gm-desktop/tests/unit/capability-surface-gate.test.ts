@@ -56,6 +56,55 @@
  *      the shipped binary; a plugin granted to the webview but never
  *      registered cannot be called at all.
  *
+ *   5. **The application's own commands cannot drift apart either.** The
+ *      frontend calls the app's own Tauri commands through
+ *      `invoke('<command>')`; the Rust side registers them in
+ *      `tauri::generate_handler![...]`. A command the frontend invokes but
+ *      the Rust side never registers fails at run time and nowhere else, and
+ *      a command the Rust side registers that the frontend never calls is
+ *      reachable surface with no feature behind it. Both directions are
+ *      asserted in the second half of this file.
+ *
+ * ## The application's own command surface
+ *
+ * The properties above are about the *plugin* capability surface: which
+ * plugins the webview may reach. The desktop app has a second surface — the
+ * app's own commands — and it drifted the same way the plugin surface did:
+ * silently, and in a way no build noticed.
+ *
+ * `[FACT]` The frontend calls the app's own commands through `invoke` from
+ * `@tauri-apps/api/core`, imported under the name `tauriInvoke` in
+ * `src/lib/api/tauri.ts`, `src/lib/api/ai.ts` and `src/lib/api/graph.ts`.
+ * `[FACT]` The Rust side registers them in `tauri::generate_handler![...]`
+ * in `apps/gm-desktop/src-tauri/src/lib.rs`.
+ *
+ * So the same two-sided check applies to that surface:
+ *
+ *   - **Every command the frontend invokes must be registered.** Otherwise
+ *     the call fails in the webview at run time, and the build says
+ *     nothing about it.
+ *   - **Every command the Rust side registers must be invoked** — or be
+ *     named, in prose, as a command whose caller has not landed yet.
+ *
+ * `[INFERENCE]` The second direction is a **failure**, not a reported list.
+ * A registered command is reachable from the webview whether or not any UI
+ * calls it — the registration IS the reachability, exactly as a plugin grant
+ * is — so a command nobody calls is surface with no feature behind it: the
+ * same defect the plugin half of this gate calls out from the other side. A
+ * reported list was considered and rejected, because a list that is only
+ * printed is not a gate: nothing goes red, and the next reader has to know
+ * to look for it. The exemptions that do exist are named, and each one
+ * carries the reason it exists; they live next to the assertion, in the
+ * same commit that introduces the asymmetry — the same discipline
+ * `RUST_ONLY_PLUGINS` below already follows.
+ *
+ * `[INFERENCE]` The command surface is deliberately **not** pinned to a
+ * snapshot of today's list, the way the plugin surface is. The plugin
+ * surface changes when somebody adds a plugin; the command surface changes
+ * whenever a lane lands a feature, and ADR-0024 has four lanes landing at
+ * different times. A snapshot would make every sibling lane's merge red for
+ * a change nobody decided against.
+ *
  * ## Two things this gate deliberately does NOT do
  *
  * It does not use an allow-list. An allow-list is a data-driven way to turn
@@ -71,6 +120,8 @@
  * `dialog:allow-confirm` are granted, and the frontend calls only
  * `dialog:allow-open`. Narrowing that is a separate decision about a
  * separate plugin, and this gate is about which plugins are reachable.
+ * That is about *plugin* commands: the application's own commands are a
+ * different surface, and the second half of this file does assert them.
  *
  * ## MUTATION EVIDENCE
  *
@@ -312,7 +363,7 @@ const usage: FrontendUsage = scanFrontend(
   frontendFiles.map((file) => ({
     path: relative(APP_ROOT, file).replace(/\\/g, '/'),
     text: readFileSync(file, 'utf8'),
-  }))
+  })),
 );
 
 // ---------------------------------------------------------------------------
@@ -413,7 +464,7 @@ describe('the capability file was actually read', () => {
     expect(
       permissions.length,
       `no permissions found in ${CAPABILITY_FILE} — the file was not read, or the ` +
-        'permissions array is empty'
+        'permissions array is empty',
     ).toBeGreaterThan(0);
   });
 
@@ -421,7 +472,7 @@ describe('the capability file was actually read', () => {
     expect(
       permissions.filter((p) => permissionPrefix(p) === 'core').length,
       'no `core:` permission found — the capability file no longer grants the Tauri ' +
-        'built-ins, so this gate is reading something it does not understand'
+        'built-ins, so this gate is reading something it does not understand',
     ).toBeGreaterThan(0);
   });
 });
@@ -430,7 +481,7 @@ describe('the frontend was actually scanned', () => {
   it('found source files', () => {
     expect(
       frontendFiles.length,
-      `no source files found under ${SRC_DIR} — the scan is looking in the wrong place`
+      `no source files found under ${SRC_DIR} — the scan is looking in the wrong place`,
     ).toBeGreaterThan(0);
   });
 
@@ -440,7 +491,7 @@ describe('the frontend was actually scanned', () => {
     expect(
       [...usage.imported],
       `no \`@tauri-apps/plugin-*\` import found under ${SRC_DIR} — the import scan is ` +
-        'not reading real code, so the drift check below would pass vacuously'
+        'not reading real code, so the drift check below would pass vacuously',
     ).not.toEqual([]);
   });
 });
@@ -462,9 +513,7 @@ describe('the import scanner finds what an import is', () => {
   });
 
   it('finds a multi-line import', () => {
-    expect(
-      scan("import {\n  open,\n} from '@tauri-apps/plugin-dialog';\n")
-    ).toEqual(['dialog']);
+    expect(scan("import {\n  open,\n} from '@tauri-apps/plugin-dialog';\n")).toEqual(['dialog']);
   });
 
   it('finds a dynamic import', () => {
@@ -484,8 +533,8 @@ describe('the import scanner finds what an import is', () => {
     // names the package in prose, in backticks. A scanner that matched
     // bare specifiers would report the mock as an importer, and the drift
     // check would then be satisfied by a file that imports nothing.
-    expect(scan(" * `open()` from `@tauri-apps/plugin-dialog` is one `invoke` away,\n")).toEqual(
-      []
+    expect(scan(' * `open()` from `@tauri-apps/plugin-dialog` is one `invoke` away,\n')).toEqual(
+      [],
     );
   });
 
@@ -503,7 +552,7 @@ describe('the import scanner finds what an import is', () => {
     // would be satisfied by the absence of the word rather than by the
     // scanner's behaviour.
     expect(
-      scan("import './side-effect';\nconst note = \" from '@tauri-apps/plugin-dialog'\";\n")
+      scan("import './side-effect';\nconst note = \" from '@tauri-apps/plugin-dialog'\";\n"),
     ).toEqual([]);
   });
 
@@ -528,7 +577,7 @@ describe('the granted surface and the frontend cannot drift apart', () => {
       'these capabilities are granted to the webview, but no file under src/ imports the ' +
         'matching `@tauri-apps/plugin-<prefix>` package, so nothing in the application can ' +
         'reach them. A grant with no caller is attack surface with no feature behind it: ' +
-        'the shipped webview inherits it, and the only way to tell is to read both sides.'
+        'the shipped webview inherits it, and the only way to tell is to read both sides.',
     ).toEqual([]);
   });
 
@@ -542,7 +591,7 @@ describe('the granted surface and the frontend cannot drift apart', () => {
       'the frontend imports these Tauri plugins, but the capability file grants them ' +
         'nothing, so the call is refused at run time by the Tauri runtime and the feature ' +
         'silently fails. This is the other half of the drift check: a grant that is missing ' +
-        'is a bug the build cannot see.'
+        'is a bug the build cannot see.',
     ).toEqual([]);
   });
 
@@ -559,7 +608,7 @@ describe('the granted surface and the frontend cannot drift apart', () => {
       rawNotGranted,
       'the frontend invokes `plugin:<name>|<command>` for these plugins, but the ' +
         'capability file grants them nothing. A raw invocation is a use of the plugin that ' +
-        'the import scan cannot see.'
+        'the import scan cannot see.',
     ).toEqual([]);
   });
 });
@@ -572,8 +621,8 @@ describe('no capability grants a broad primitive', () => {
       scopes.map((s) => `${s.identifier} -> ${s.path}`),
       'these capabilities grant a file-system scope. A scope is the dangerous half of ' +
         'the fs plugin: `fs:allow-read-text-file` on its own is inert, and a scope over ' +
-        '`$HOME/**` is a file-read/write primitive over the user\'s home directory, handed ' +
-        'to any script that reaches the webview.'
+        "`$HOME/**` is a file-read/write primitive over the user's home directory, handed " +
+        'to any script that reaches the webview.',
     ).toEqual([]);
   });
 
@@ -593,9 +642,9 @@ describe('no capability grants a broad primitive', () => {
     expect(
       offending,
       'these permissions grant a plugin this application does not use. `fs` and `shell` ' +
-        'and `opener` in particular reach the filesystem and the OS on the webview\'s ' +
+        "and `opener` in particular reach the filesystem and the OS on the webview's " +
         'behalf. Remove the grant, and remove the plugin registration and the npm ' +
-        'dependency that goes with it.'
+        'dependency that goes with it.',
     ).toEqual([]);
   });
 });
@@ -612,7 +661,7 @@ describe('the Rust side registers what the webview is allowed to use', () => {
       'these Tauri plugins are registered in lib.rs but granted to the webview by no ' +
         'capability, so they are linked into the shipped binary and cannot be called. ' +
         '`log` is the documented exception: the backend writes its own log lines through ' +
-        'it, which is a Rust-side facility and needs no webview capability.'
+        'it, which is a Rust-side facility and needs no webview capability.',
     ).toEqual([]);
   });
 
@@ -622,7 +671,7 @@ describe('the Rust side registers what the webview is allowed to use', () => {
     expect(
       grantedOnly,
       'the capability file grants these plugins, but lib.rs never registers the matching ' +
-        'crate, so the grant cannot reach an implementation.'
+        'crate, so the grant cannot reach an implementation.',
     ).toEqual([]);
   });
 });
@@ -641,7 +690,7 @@ describe('the surface, as it stands', () => {
       },
       'the capability surface changed. If the change is intended, update this assertion ' +
         'and the reason for it in the same commit; if it is not, the surface has grown ' +
-        'without anyone deciding that it should.'
+        'without anyone deciding that it should.',
     ).toEqual({
       granted: ['dialog'],
       importedByFrontend: ['dialog'],
@@ -666,5 +715,406 @@ describe('the surface, as it stands', () => {
         'dialog:allow-confirm',
       ],
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The application's own command surface
+// ---------------------------------------------------------------------------
+
+/**
+ * The command names the Rust side registers.
+ *
+ * `[FACT]` `apps/gm-desktop/src-tauri/src/lib.rs` registers the app's own
+ * commands in one `tauri::generate_handler![...]` list, one path per line
+ * (`commands::server::server_status,`). Tauri v2 names a command after the
+ * Rust function behind it, so the name on the wire is the LAST segment of
+ * the path: `commands::ai::ai_conflict_start` is the command
+ * `ai_conflict_start`.
+ *
+ * The list is read as text rather than compiled, for the same reason the
+ * plugin half of this file reads `lib.rs` as text — and the reason is
+ * stronger here: this gate has to be able to fail in CI without a Rust
+ * toolchain, and it has to fail when the two sides drift, not when the
+ * desktop crate happens to be rebuilt.
+ */
+function parseRegisteredCommands(source: string): string[] {
+  const marker = 'tauri::generate_handler![';
+  const start = source.indexOf(marker);
+  if (start === -1) return [];
+
+  const bodyStart = start + marker.length;
+  let depth = 1;
+  let end = bodyStart;
+  while (end < source.length) {
+    const ch = source[end];
+    if (ch === '[') depth += 1;
+    else if (ch === ']') depth -= 1;
+    if (depth === 0) break;
+    end += 1;
+  }
+
+  const body = source.slice(bodyStart, end);
+  const commands: string[] = [];
+  for (const entry of body.split(',')) {
+    const trimmed = entry.trim();
+    if (trimmed === '') continue;
+    const segments = trimmed.split('::');
+    const name = segments[segments.length - 1].trim();
+    if (name !== '') commands.push(name);
+  }
+  return commands;
+}
+
+/**
+ * The first argument of an `invoke(...)` call.
+ *
+ * `[FACT]` The frontend calls the app's own commands through `invoke` from
+ * `@tauri-apps/api/core`, imported under the name `tauriInvoke` in
+ * `src/lib/api/tauri.ts`, `src/lib/api/ai.ts` and `src/lib/api/graph.ts`.
+ * Every call site under `src/` passes the command name as a string literal.
+ *
+ * The alternation captures that first argument three ways — a
+ * single-quoted literal, a double-quoted literal, a template literal — and
+ * falls back to "everything up to the next comma or paren", which is what a
+ * DYNAMIC command name looks like. The fallback is not there for
+ * convenience: it is how the scan reports a call it cannot read, so a
+ * dynamic command name fails the gate instead of silently escaping it.
+ */
+const INVOKE_CALL_RE = /\b(?:tauriInvoke|invoke)\s*\(\s*('[^']*'|"[^"]*"|`[^`]*`|[^,)]*)/g;
+
+type CommandUsage = {
+  /** The command names the frontend invokes, where the name is a literal. */
+  invoked: Set<string>;
+  /** Call sites whose command name the scan could not read as a literal. */
+  dynamicSites: string[];
+  /** Per file: the command names it calls, and how many call sites it has. */
+  byFile: Map<string, { commands: string[]; callSites: number }>;
+};
+
+/**
+ * Scan sources for calls into the app's own command surface.
+ *
+ * This is a function rather than a loop over the real tree so that the
+ * scanner itself can be tested, for the reason the plugin scanner above is
+ * a function: a scanner that silently stops matching would make every
+ * drift check below pass, and a gate that has stopped looking is
+ * indistinguishable, in the log, from a gate that found nothing.
+ *
+ * `[FACT]` The dev mock (`src/mocks/handlers.ts`) answers commands from a
+ * `switch` over the command name. Those labels are a SIMULATION of the
+ * backend, not call sites, and they are deliberately not counted here: the
+ * mock answers `set_clipboard_text`, which no file in `src/` calls, and
+ * counting the mock would make that command look used.
+ */
+function scanCommandCalls(sources: Array<{ path: string; text: string }>): CommandUsage {
+  const usage: CommandUsage = {
+    invoked: new Set<string>(),
+    dynamicSites: [],
+    byFile: new Map(),
+  };
+
+  for (const { path, text } of sources) {
+    const commands: string[] = [];
+    let callSites = 0;
+
+    INVOKE_CALL_RE.lastIndex = 0;
+    let match: RegExpExecArray | null;
+    while ((match = INVOKE_CALL_RE.exec(text)) !== null) {
+      const argument = match[1].trim();
+
+      // `invoke()` with no argument at all carries no command name. The
+      // only occurrences of that shape under `src/` are two prose mentions
+      // of `invoke()` in a comment.
+      if (argument === '') continue;
+
+      callSites += 1;
+      const quote = argument[0];
+      if (quote === "'" || quote === '"' || quote === '`') {
+        const name = argument.slice(1, -1);
+        if (/^[a-z0-9_]+$/.test(name)) {
+          usage.invoked.add(name);
+          commands.push(name);
+        } else {
+          usage.dynamicSites.push(`${path}: invoke(${argument}) is not a command name`);
+        }
+        continue;
+      }
+
+      usage.dynamicSites.push(`${path}: invoke(${argument}) does not pass a literal command name`);
+    }
+
+    usage.byFile.set(path, { commands, callSites });
+  }
+
+  return usage;
+}
+
+const registeredCommands = new Set<string>(parseRegisteredCommands(libRsCode));
+const commandUsage = scanCommandCalls(
+  frontendFiles.map((file) => ({
+    path: relative(APP_ROOT, file).replace(/\\/g, '/'),
+    text: readFileSync(file, 'utf8'),
+  })),
+);
+
+/**
+ * The ADR-0024 conflict commands, by name.
+ *
+ * `[FACT]` `ai_conflict_start`, `ai_conflict_cancel` and `ai_key_set` are
+ * implemented by ADR-0024 Lane B (`apps/gm-desktop/src-tauri/src/commands/ai.rs`,
+ * merged as PR #92) and are called by ADR-0024 Lane C's frontend
+ * (`apps/gm-desktop/src/lib/api/conflict.ts`, PR #96 on `feat/conflict-ui`).
+ *
+ * `[FACT]` `ai_key_status` is Lane C's own command: Lane C implements it in
+ * `src-tauri/src/commands/ai.rs`, registers it in `src-tauri/src/lib.rs`
+ * and calls it from `src/lib/api/conflict.ts`.
+ *
+ * `[FACT]` `conflict_regions` is the command Lane C's `src/lib/api/conflict.ts`
+ * calls to read the regions out of a repository, and the command Lane C's
+ * dev mock answers (`src/mocks/handlers.ts`). It is named here because it is
+ * part of the same feature, and because on a branch that carries Lane C it
+ * is the one command the gate has something to say about.
+ *
+ * `[INFERENCE]` A command that a sibling lane has not landed yet is absent
+ * from BOTH sides of the surface, and that is not a defect: the merge order
+ * is not a property of the code. So the gate does not require every name
+ * above to exist. What it does require is that no name is HALF-wired — the
+ * dangerous half (invoked but not registered) is always a failure — and that
+ * every conflict command the surface does carry is named here, so a new one
+ * cannot appear without somebody pointing at it.
+ */
+const CONFLICT_COMMANDS = [
+  'ai_conflict_start',
+  'ai_conflict_cancel',
+  'ai_key_set',
+  'ai_key_status',
+  'conflict_regions',
+];
+
+/**
+ * The naming convention the ADR-0024 conflict feature follows.
+ *
+ * `[FACT]` The feature's commands are `ai_conflict_*` (the arbitration
+ * session), `ai_key_*` (the provider-key namespace) and `conflict_regions`
+ * (the read side). `ai_review_*` belongs to the `/review` feature and is
+ * deliberately not matched.
+ */
+const CONFLICT_COMMAND_PATTERN = /^(?:ai_conflict_|ai_key_|conflict_)/;
+
+/**
+ * The registered commands the frontend does not call, and why each one is
+ * allowed to be that way.
+ *
+ * `[INFERENCE]` **This is a failure, not a reported list.** A registered
+ * command is reachable from the webview whether or not any UI calls it —
+ * the registration IS the reachability, exactly as a plugin grant is — so a
+ * command nobody calls is surface with no feature behind it, which is the
+ * same defect the plugin half of this gate calls out from the other side.
+ * A reported list was the alternative and was rejected: a list that is only
+ * printed is not a gate, because nothing goes red and the next reader has
+ * to know to look for it.
+ *
+ * The exemption is the command's name and the reason it has no caller. The
+ * reason is data rather than a comment so that the failure message can
+ * quote it, and so that an exemption cannot be added without saying why.
+ * An exemption that has outlived its subject is itself a failure, below.
+ */
+const UNCALLED_EXEMPTIONS = new Map<string, string>([
+  [
+    'set_clipboard_text',
+    "the frontend copies through the browser's own clipboard API " +
+      '(`src/lib/utils/clipboard.ts` uses `navigator.clipboard.writeText`), so this ' +
+      'command has had no caller since the desktop app was scaffolded: ' +
+      "`git log -S 'set_clipboard_text' -- apps/gm-desktop/src` names one commit, " +
+      "`2f8b9fc`, and the only occurrence left under `src/` is the mock's dispatch case",
+  ],
+]);
+
+describe("the application's own command surface was actually read", () => {
+  it('found the generate_handler! list', () => {
+    // Guards the guard. A `lib.rs` whose registration list moved, or a
+    // parse that found nothing, would make every assertion below pass
+    // while checking nothing.
+    expect(
+      registeredCommands.size,
+      `no command was read from ${LIB_RS} — the \`tauri::generate_handler![...]\` ` +
+        'list was not found, so the command checks below would pass vacuously',
+    ).toBeGreaterThan(0);
+  });
+
+  it('found the command call sites', () => {
+    expect(
+      [...commandUsage.invoked].length,
+      `no \`invoke('<command>')\` call site found under ${SRC_DIR} — the scan is not ` +
+        'reading real code, so the drift check below would pass vacuously',
+    ).toBeGreaterThan(0);
+  });
+
+  it('reads a command name out of every module that calls one', () => {
+    // The set of commands the frontend calls is deliberately NOT pinned to
+    // a snapshot of today's list: a sibling lane landing a feature adds
+    // commands, and a snapshot would make that merge red for a change
+    // nobody decided against. What is pinned instead is the weaker, and
+    // more useful, property that a module which calls the backend at all
+    // still yields command names — so renaming one import does not quietly
+    // take one module out of the gate.
+    const silent = [...commandUsage.byFile.entries()]
+      .filter(([, info]) => info.callSites > 0 && info.commands.length === 0)
+      .map(([path]) => path)
+      .sort();
+
+    expect(
+      silent,
+      'these files call `invoke(...)` but the scan read no command name out of them, ' +
+        'so the commands they reach are on neither side of the surface this gate ' +
+        'compares. A renamed import is the likely cause.',
+    ).toEqual([]);
+  });
+
+  it('sees no call site whose command name is not a literal', () => {
+    expect(
+      commandUsage.dynamicSites,
+      'these `invoke(...)` call sites do not pass a literal command name, so this ' +
+        'scan cannot see which command they call. A dynamic command name is a hole ' +
+        'in the gate: the command it reaches is on neither side of the surface the ' +
+        'gate compares.',
+    ).toEqual([]);
+  });
+});
+
+describe('the command scanners find what they are supposed to find', () => {
+  const scan = (text: string): string[] =>
+    [...scanCommandCalls([{ path: 'synthetic.ts', text }]).invoked].sort();
+
+  it('finds a literal command name', () => {
+    expect(scan("await tauriInvoke('server_status');\n")).toEqual(['server_status']);
+    expect(scan("await invoke('server_status');\n")).toEqual(['server_status']);
+    expect(scan('await invoke(`server_status`);\n')).toEqual(['server_status']);
+  });
+
+  it('finds a call written across two lines', () => {
+    expect(scan("await tauriInvoke(\n  'server_status',\n  { bind: null }\n);\n")).toEqual([
+      'server_status',
+    ]);
+  });
+
+  it('ignores a mention of invoke() in prose', () => {
+    // The real case, not a synthetic one: `src/lib/api/tauri.ts` says
+    // "`invoke()` throws synchronously" in its header comment. A scanner
+    // that counted that as a call site would report a command with no name.
+    expect(scan(' * `invoke()` throws synchronously.\n')).toEqual([]);
+  });
+
+  it('reports a dynamic command name instead of guessing it', () => {
+    const usage = scanCommandCalls([
+      { path: 'synthetic.ts', text: 'await invoke(commandName);\n' },
+    ]);
+    expect([...usage.invoked]).toEqual([]);
+    expect(usage.dynamicSites.length).toBe(1);
+  });
+
+  it('reads the command name out of a registration path', () => {
+    const parse = (source: string): string[] => parseRegisteredCommands(source);
+    expect(parse('tauri::generate_handler![commands::ai::ai_conflict_start,]\n')).toEqual([
+      'ai_conflict_start',
+    ]);
+    expect(parse('tauri::generate_handler![\n  commands::server::server_status,\n]\n')).toEqual([
+      'server_status',
+    ]);
+  });
+});
+
+describe("the application's own command surface cannot drift apart", () => {
+  it('registers every command the frontend invokes', () => {
+    const invokedButNotRegistered = [...commandUsage.invoked]
+      .filter((command) => !registeredCommands.has(command))
+      .sort();
+
+    expect(
+      invokedButNotRegistered,
+      'the frontend invokes these commands, but the Rust side does not register them ' +
+        'in `tauri::generate_handler![...]` (`apps/gm-desktop/src-tauri/src/lib.rs`). ' +
+        'An unregistered command is not a compile error and not a build error: the ' +
+        'call fails in the webview at run time, and nothing in CI notices until ' +
+        'somebody clicks the button.',
+    ).toEqual([]);
+  });
+
+  it('registers no command the frontend never invokes', () => {
+    const unjustified = [...registeredCommands]
+      .filter((command) => !commandUsage.invoked.has(command))
+      .filter((command) => !UNCALLED_EXEMPTIONS.has(command))
+      .sort();
+
+    expect(
+      unjustified,
+      'these commands are registered in `tauri::generate_handler![...]` but no file ' +
+        'under `src/` invokes them. A registered command is reachable from the ' +
+        'webview whether or not any UI calls it, so this is surface with no feature ' +
+        'behind it. Call it, or delete the registration. A command whose caller has ' +
+        'not landed yet is named in `UNCALLED_EXEMPTIONS`, with the reason it is ' +
+        'excused.',
+    ).toEqual([]);
+  });
+
+  it('exempts no command that is no longer registered', () => {
+    const stale = [...UNCALLED_EXEMPTIONS.keys()]
+      .filter((command) => !registeredCommands.has(command))
+      .sort();
+
+    expect(
+      stale,
+      'these commands are excused from the "registered but never called" check, but ' +
+        'the Rust side does not register them any more. The excuse has outlived its ' +
+        'subject: remove it, so the list stays a list of live asymmetries.',
+    ).toEqual([]);
+  });
+});
+
+describe('the ADR-0024 conflict commands are named and are not half-wired', () => {
+  const conflictCommandsOnTheSurface = (): string[] =>
+    [...new Set([...registeredCommands, ...commandUsage.invoked])]
+      .filter((command) => CONFLICT_COMMAND_PATTERN.test(command))
+      .sort();
+
+  it('names every conflict command the surface carries', () => {
+    const unnamed = conflictCommandsOnTheSurface()
+      .filter((command) => !CONFLICT_COMMANDS.includes(command))
+      .sort();
+
+    expect(
+      unnamed,
+      'these conflict-feature commands are on the surface — registered or invoked — ' +
+        'but are not named in `CONFLICT_COMMANDS`. Naming them is the point: the ' +
+        'ADR-0024 conflict feature has a command surface somebody decided on, and a ' +
+        'new command that nobody names is a command nobody has looked at.',
+    ).toEqual([]);
+  });
+
+  it('leaves no conflict command half-wired', () => {
+    const halfWired = CONFLICT_COMMANDS.filter(
+      (command) =>
+        commandUsage.invoked.has(command) !== registeredCommands.has(command) &&
+        !UNCALLED_EXEMPTIONS.has(command),
+    ).sort();
+
+    expect(
+      halfWired,
+      'these ADR-0024 conflict commands are on one side of the surface only. ' +
+        'Invoked but not registered means the call dies at run time; registered but ' +
+        'never invoked means the registration is dead weight. A command whose ' +
+        'caller has not landed yet is on NEITHER side, and that is not a failure — ' +
+        'but half-wired always is.',
+    ).toEqual([]);
+  });
+
+  it('keeps the conflict feature on the surface', () => {
+    expect(
+      conflictCommandsOnTheSurface().length,
+      'no ADR-0024 conflict command is on the surface at all — neither registered ' +
+        'nor invoked. The conflict feature has been removed from both sides of the ' +
+        'command surface without anyone deciding that it should.',
+    ).toBeGreaterThan(0);
   });
 });

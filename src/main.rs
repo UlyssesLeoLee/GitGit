@@ -14,8 +14,10 @@ use std::path::{Path, PathBuf};
 
 use gitgit::ai::{diff::DiffRequest, Invocation, Task, API_KEY_ENV};
 use gitgit::cli::{
-    read_secret_value, Cli, Command, GitaiCommand, GitaiTaskArgs, GitremoteCommand, KeyCommand,
+    read_secret_value, Cli, CloudCommand, Command, GitaiCommand, GitaiTaskArgs, GitremoteCommand,
+    KeyCommand,
 };
+use gitgit::cloud::CloudDisk;
 use gitgit::config::{
     Config, VaultBackend, DEFAULT_S3_BUCKET, DEFAULT_S3_ENDPOINT, DEFAULT_S3_REGION,
     DEFAULT_VAULT_FILE_ROOT, S3_ACCESS_KEY_ENV, S3_BUCKET_ENV, S3_ENDPOINT_ENV, S3_KEY_PREFIX_ENV,
@@ -25,7 +27,7 @@ use gitgit::error::GitGitError;
 use gitgit::server::vault::{FileVault, S3Vault, VaultError};
 use gitgit::server::vault_versioned::VersionedVault;
 use gitgit::server::AppState;
-use gitgit::{ai, remote, repo, server};
+use gitgit::{ai, cloud, remote, repo, server};
 
 /// Initialize logging once. Honors `RUST_LOG`, defaults to `info`.
 fn init_tracing() {
@@ -445,6 +447,138 @@ async fn run_gitai_task(task: Task, args: GitaiTaskArgs) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Dispatcher for the `gitgit cloud *` subcommands.
+///
+/// The registry lives next to the remote registry, so `--vault-file-root`
+/// relocates both together.
+async fn run_cloud(config: &Config, sub: CloudCommand) -> anyhow::Result<()> {
+    let path = cloud_registry_path(config);
+    let mut registry = cloud::CloudRegistry::load(&path)?;
+    match sub {
+        CloudCommand::Add {
+            name,
+            endpoint,
+            bucket,
+            region,
+            prefix,
+        } => {
+            let entry = cloud::CloudDiskEntry {
+                name: name.clone(),
+                endpoint,
+                bucket,
+                region,
+                prefix,
+            };
+            entry.validate()?;
+            registry.disks.insert(name.clone(), entry);
+            registry.save(&path)?;
+            println!("connected {name}");
+            println!("  registry: {}", path.display());
+            println!(
+                "  keys:     {} / {}",
+                cloud::access_key_env(&name),
+                cloud::secret_key_env(&name)
+            );
+            Ok(())
+        }
+        CloudCommand::List => {
+            if registry.disks.is_empty() {
+                println!("(no cloud disks)");
+            }
+            for entry in registry.disks.values() {
+                println!(
+                    "{:<12} {}  bucket={}  prefix={}",
+                    entry.name,
+                    entry.endpoint,
+                    entry.bucket,
+                    entry.key_prefix()
+                );
+            }
+            Ok(())
+        }
+        CloudCommand::Rm { name } => {
+            if registry.disks.remove(&name).is_none() {
+                anyhow::bail!("no cloud disk called {name:?} is connected");
+            }
+            registry.save(&path)?;
+            println!("disconnected {name}  (the snapshots it holds are left alone)");
+            Ok(())
+        }
+        CloudCommand::Backup { disk, repo } => {
+            let entry = pick_disk(&registry, disk.as_deref())?;
+            let (access_key, secret_key) = registry.credentials_for(entry)?;
+            let disk = cloud::S3CloudDisk::connect(entry, &access_key, &secret_key).await?;
+            let names = match repo {
+                Some(name) => vec![name],
+                None => repo::store::list_repos(&config.repos_dir)?,
+            };
+            if names.is_empty() {
+                println!("(no repositories to snapshot)");
+            }
+            for name in names {
+                let (meta, key) =
+                    cloud::backup::backup(&disk, &name, &config.repos_dir, &entry.name).await?;
+                println!("{name} -> {key}");
+                println!("  {} files, sha256 {}", meta.entries, meta.sha256);
+            }
+            Ok(())
+        }
+        CloudCommand::Snapshots { disk, repo } => {
+            let entry = pick_disk(&registry, disk.as_deref())?;
+            let (access_key, secret_key) = registry.credentials_for(entry)?;
+            let disk = cloud::S3CloudDisk::connect(entry, &access_key, &secret_key).await?;
+            // The disk owns its key prefix ✓ — the listing is asked for the
+            // snapshots in the disk's own namespace ✓, and the names it
+            // prints are the names a restore takes ✓.
+            let objects = disk.list(cloud::backup::SNAPSHOT_PREFIX).await?;
+            let mut shown = 0;
+            for object in objects {
+                if let Some(name) = &repo {
+                    if !object.key.contains(&format!("/{name}/")) {
+                        continue;
+                    }
+                }
+                println!("{:>10}  {}", object.size, object.key);
+                shown += 1;
+            }
+            if shown == 0 {
+                println!("(no snapshots)");
+            }
+            Ok(())
+        }
+        CloudCommand::Restore { key, disk, repo } => {
+            let entry = pick_disk(&registry, disk.as_deref())?;
+            let (access_key, secret_key) = registry.credentials_for(entry)?;
+            let disk = cloud::S3CloudDisk::connect(entry, &access_key, &secret_key).await?;
+            let meta =
+                cloud::backup::restore(&disk, &key, repo.as_deref(), &config.repos_dir).await?;
+            println!("restored {} from {key}", meta.repo);
+            Ok(())
+        }
+    }
+}
+
+/// The connected disk to use: the named one, or the only one.
+fn pick_disk<'a>(
+    registry: &'a cloud::CloudRegistry,
+    name: Option<&str>,
+) -> anyhow::Result<&'a cloud::CloudDiskEntry> {
+    let entry = match name {
+        Some(name) => registry.get(name)?,
+        None => registry.only()?,
+    };
+    Ok(entry)
+}
+
+/// Where the cloud disk registry lives: next to the remote registry.
+fn cloud_registry_path(config: &Config) -> PathBuf {
+    let base = config
+        .vault_file_root
+        .parent()
+        .map_or_else(|| PathBuf::from("."), Path::to_path_buf);
+    base.join(cloud::CLOUDS_FILE_NAME)
+}
+
 /// Dispatcher for the `gitremote *` subcommands (V0 T8).
 ///
 /// The registry lives next to the `FileVault` root rather than inside it,
@@ -545,6 +679,7 @@ async fn main() -> anyhow::Result<()> {
         Command::Key(sub) => run_key(&config, sub).await,
         Command::Gitai(sub) => run_gitai(sub).await,
         Command::Gitremote(sub) => run_gitremote(&config, sub).await,
+        Command::Cloud(sub) => run_cloud(&config, sub).await,
     }
 }
 

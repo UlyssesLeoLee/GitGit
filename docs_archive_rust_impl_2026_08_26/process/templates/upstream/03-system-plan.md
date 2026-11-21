@@ -12,7 +12,7 @@
 | 阶段 | 超上流 — 系统化计划 |
 | 主要交付物 | 系统化计划书 |
 | 责任人 | PM + 架构师 |
-| 关联设计文档 | [`../requirements/phase9-mvp-reduction.md`](../../../requirements/phase9-mvp-reduction.md) (MVP 精简) · [`../requirements/phase10-architecture.md`](../../../requirements/phase10-architecture.md) (架构) |
+| 关联设计文档 | [`../requirements/phase9-mvp-reduction.md`](../../../../docs/requirements/phase9-mvp-reduction.md) (MVP 精简) · [`../requirements/phase10-architecture.md`](../../../../docs/requirements/phase10-architecture.md) (架构) |
 | 模板版本 | v1.0 (2026-08-20) |
 | 依据 | IPA 共通框架 2013 |
 
@@ -27,7 +27,7 @@
 | 阶段 | 时间 | 关键交付 |
 |---|---|---|
 | 超上流 (01-09) | Month 0-1 | 本目录全部文档 |
-| 需求 (10-21) | Month 1-2 | [`../requirements/00-requirements-definition.md`](../../../requirements/00-requirements-definition.md) |
+| 需求 (10-21) | Month 1-2 | [`../requirements/00-requirements-definition.md`](../../../../docs/requirements/00-requirements-definition.md) |
 | 基本设计 (22-41) | Month 2-3 | 18 个基本设计文件 |
 | 详细设计 (42-52) | Month 3-4 | 14 个详细设计文件 |
 | 实现 (53-58) | Month 4-7 | MVP 可运行 |

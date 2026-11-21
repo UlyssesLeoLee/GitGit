@@ -12,14 +12,14 @@
 | 阶段 | 全流程 |
 | 主要交付物 | 项目用语集 |
 | 责任人 | 工程负责人 |
-| 关联设计文档 | [`../../design/basic-design/appendix-d-glossary.md`](../../design/basic-design/appendix-d-glossary.md) (技术用语集) |
+| 关联设计文档 | [`../../design/basic-design/appendix-d-glossary.md`](../design/basic-design/appendix-d-glossary.md) (技术用语集) |
 | 模板版本 | v1.0 (2026-08-20) |
 | 依据 | IPA 共通框架 2013 |
 
 ---
 
 
-本文件是**流程管理 / 项目管理**维度的用语集，与 [`appendix-d-glossary.md`](../../design/basic-design/appendix-d-glossary.md) 的**技术维度**用语集互补。
+本文件是**流程管理 / 项目管理**维度的用语集，与 [`appendix-d-glossary.md`](../design/basic-design/appendix-d-glossary.md) 的**技术维度**用语集互补。
 
 
 ## 过程角色 / Process Roles
