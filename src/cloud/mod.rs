@@ -129,31 +129,32 @@ impl CloudDiskEntry {
     }
 
     /// The access key for this disk, read from the environment.
+    ///
+    /// `[FACT]` Only the disk's **own** variable is read here ✓ — the
+    /// generic fallback belongs to the registry ✓, because the registry is
+    /// the only place that knows how many disks are configured ✓.
     pub fn access_key(&self) -> Result<String> {
-        read_secret(&access_key_env(&self.name))
-            .or_else(|| read_secret(FALLBACK_ACCESS_KEY_ENV))
-            .ok_or_else(|| {
-                GitGitError::Cloud(format!(
-                    "no access key for the cloud disk {:?}: set {} (or {})",
-                    self.name,
-                    access_key_env(&self.name),
-                    FALLBACK_ACCESS_KEY_ENV
-                ))
-            })
+        read_secret(&access_key_env(&self.name)).ok_or_else(|| {
+            GitGitError::Cloud(format!(
+                "no access key for the cloud disk {:?}: set {}",
+                self.name,
+                access_key_env(&self.name)
+            ))
+        })
     }
 
     /// The secret key for this disk, read from the environment.
+    ///
+    /// `[FACT]` Only the disk's **own** variable is read here ✓ — see
+    /// [`CloudDiskEntry::access_key`] ✓.
     pub fn secret_key(&self) -> Result<String> {
-        read_secret(&secret_key_env(&self.name))
-            .or_else(|| read_secret(FALLBACK_SECRET_KEY_ENV))
-            .ok_or_else(|| {
-                GitGitError::Cloud(format!(
-                    "no secret key for the cloud disk {:?}: set {} (or {})",
-                    self.name,
-                    secret_key_env(&self.name),
-                    FALLBACK_SECRET_KEY_ENV
-                ))
-            })
+        read_secret(&secret_key_env(&self.name)).ok_or_else(|| {
+            GitGitError::Cloud(format!(
+                "no secret key for the cloud disk {:?}: set {}",
+                self.name,
+                secret_key_env(&self.name)
+            ))
+        })
     }
 
     /// Reject a disk that could not possibly address an object.
@@ -272,6 +273,59 @@ impl CloudRegistry {
         })
     }
 
+    /// The credentials for `entry`.
+    ///
+    /// `[FACT]` The disk's own variables win ✓.
+    ///
+    /// `[FACT]` The generic variables are a fallback for a **single-disk**
+    /// setup ✓ — the ADR says so ✓ — and they are used **only when
+    /// exactly one disk is configured** ✓. With more than one, a generic
+    /// credential would authenticate one disk with a secret meant for
+    /// another connection ✓, and the failure would name the wrong
+    /// variable ✓.
+    pub fn credentials_for(&self, entry: &CloudDiskEntry) -> Result<(String, String)> {
+        let single = self.disks.len() == 1;
+        let access = entry.access_key().or_else(|_| {
+            if single {
+                read_secret(FALLBACK_ACCESS_KEY_ENV).ok_or_else(|| {
+                    GitGitError::Cloud(format!(
+                        "no access key for the cloud disk {:?}: set {} (or {})",
+                        entry.name,
+                        access_key_env(&entry.name),
+                        FALLBACK_ACCESS_KEY_ENV
+                    ))
+                })
+            } else {
+                Err(GitGitError::Cloud(format!(
+                    "no access key for the cloud disk {:?}: set {} (the generic {} is only used when one disk is configured)",
+                    entry.name,
+                    access_key_env(&entry.name),
+                    FALLBACK_ACCESS_KEY_ENV
+                )))
+            }
+        })?;
+        let secret = entry.secret_key().or_else(|_| {
+            if single {
+                read_secret(FALLBACK_SECRET_KEY_ENV).ok_or_else(|| {
+                    GitGitError::Cloud(format!(
+                        "no secret key for the cloud disk {:?}: set {} (or {})",
+                        entry.name,
+                        secret_key_env(&entry.name),
+                        FALLBACK_SECRET_KEY_ENV
+                    ))
+                })
+            } else {
+                Err(GitGitError::Cloud(format!(
+                    "no secret key for the cloud disk {:?}: set {} (the generic {} is only used when one disk is configured)",
+                    entry.name,
+                    secret_key_env(&entry.name),
+                    FALLBACK_SECRET_KEY_ENV
+                )))
+            }
+        })?;
+        Ok((access, secret))
+    }
+
     /// The only connected disk, when there is exactly one ✓.
     pub fn only(&self) -> Result<&CloudDiskEntry> {
         match self.disks.len() {
@@ -344,16 +398,26 @@ pub struct S3CloudDisk {
 }
 
 impl S3CloudDisk {
-    /// Connect to the disk described by `entry` ✓.
-    pub async fn connect(entry: &CloudDiskEntry) -> Result<Self> {
+    /// Connect to the disk described by `entry`, with the credentials the
+    /// registry resolved for it.
+    ///
+    /// `[FACT]` The credentials are passed in ✓ rather than read from the
+    /// environment here ✓, because the **registry** is the place that
+    /// knows how many disks there are ✓ — and the generic fallback is only
+    /// for a single-disk setup ✓ (ADR-0025 §2.2) ✓.
+    pub async fn connect(
+        entry: &CloudDiskEntry,
+        access_key: &str,
+        secret_key: &str,
+    ) -> Result<Self> {
         entry.validate()?;
         let region = s3::Region::Custom {
             region: entry.region.clone(),
             endpoint: entry.endpoint.clone(),
         };
         let credentials = s3::creds::Credentials::new(
-            Some(&entry.access_key()?),
-            Some(&entry.secret_key()?),
+            Some(access_key),
+            Some(secret_key),
             None,
             None,
             None,
@@ -544,5 +608,45 @@ mod tests {
         registry.disks.insert("oss".to_string(), entry("oss"));
         registry.disks.insert("cos".to_string(), entry("cos"));
         assert!(registry.only().is_err());
+    }
+
+    #[test]
+    fn the_generic_credential_is_a_fallback_for_one_disk_only() {
+        // `[FACT]` The generic variables are documented for a single-disk
+        // setup. With two disks, a disk whose own variable is missing must
+        // NOT authenticate with a secret meant for another connection.
+        let mut one = CloudRegistry::default();
+        one.disks.insert("oss".to_string(), entry("oss"));
+        let mut two = CloudRegistry::default();
+        two.disks.insert("oss".to_string(), entry("oss"));
+        two.disks.insert("cos".to_string(), entry("cos"));
+
+        // The disk's own variable wins, in both setups.
+        std::env::set_var(access_key_env("oss"), "own-access");
+        std::env::set_var(secret_key_env("oss"), "own-secret");
+        let (access, secret) = one.credentials_for(one.get("oss").unwrap()).unwrap();
+        assert_eq!(access, "own-access");
+        assert_eq!(secret, "own-secret");
+
+        // Without it, the generic variables are the fallback — but only
+        // while there is one disk.
+        std::env::remove_var(access_key_env("oss"));
+        std::env::remove_var(secret_key_env("oss"));
+        std::env::set_var(FALLBACK_ACCESS_KEY_ENV, "generic-access");
+        std::env::set_var(FALLBACK_SECRET_KEY_ENV, "generic-secret");
+        let (access, secret) = one.credentials_for(one.get("oss").unwrap()).unwrap();
+        assert_eq!(access, "generic-access");
+        assert_eq!(secret, "generic-secret");
+
+        let err = two
+            .credentials_for(two.get("oss").unwrap())
+            .expect_err("the generic credential is not a fallback for two disks");
+        assert!(
+            format!("{err}").contains("only used when one disk is configured"),
+            "got: {err}"
+        );
+
+        std::env::remove_var(FALLBACK_ACCESS_KEY_ENV);
+        std::env::remove_var(FALLBACK_SECRET_KEY_ENV);
     }
 }
