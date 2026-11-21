@@ -38,16 +38,15 @@ pub const BLOCK: usize = 512;
 /// The longest a path may be: the `prefix` field plus the `name` field.
 /// The longest a path may be: the `prefix` field plus the `name` field.
 ///
-/// `[FACT]` Both fields are NUL-terminated ✓ — the `name` field is 100
-/// bytes and the `prefix` field is 155 ✓ — so they hold at most 99 and
-/// 154 bytes of text ✓, and a path is the two joined by a `/` ✓.
-const MAX_PATH: usize = 154 + 1 + 99;
+/// `[FACT]` The `name` field is 100 bytes and the `prefix` field is 155 ✓,
+/// and a path is the two joined by a `/` ✓.
+const MAX_PATH: usize = 155 + 1 + 100;
 
 /// The most bytes the ustar `name` field can hold.
-const MAX_NAME: usize = 99;
+const MAX_NAME: usize = 100;
 
 /// The most bytes the ustar `prefix` field can hold.
-const MAX_PREFIX: usize = 154;
+const MAX_PREFIX: usize = 155;
 
 /// The largest size the ustar size field can hold ✓.
 ///
@@ -210,10 +209,13 @@ fn check_size(path: &str, size: u64) -> Result<(), TarError> {
 /// `name` (100 bytes), joined by a `/` ✓. A path that fits in `name`
 /// alone leaves the prefix empty ✓.
 ///
-/// `[FACT]` Both fields are NUL-terminated ✓, so the name holds at most
-/// **99** bytes ✓ and the prefix at most **154** ✓. A path that does not
-/// fit exactly is an **error** ✓ — the archive would carry a truncated
-/// name ✓, and a restore would write the file under a different name ✓.
+/// `[FACT]` A field may be **completely filled** ✓ — the NUL terminator
+/// is only needed when the text is shorter than the field ✓, and every
+/// implementation reads a full field as the whole text ✓. So a name of
+/// exactly 100 bytes is representable ✓ and is written as 100 bytes ✓.
+/// A path that does not fit is an **error** ✓ — the archive would carry
+/// a truncated name ✓, and a restore would write the file under a
+/// different name ✓.
 fn split_path(path: &str) -> Result<(&str, &str), TarError> {
     if path.is_empty() || path.len() > MAX_PATH {
         return Err(TarError::PathTooLong(path.to_string()));
@@ -221,8 +223,8 @@ fn split_path(path: &str) -> Result<(&str, &str), TarError> {
     if path.len() <= MAX_NAME {
         return Ok(("", path));
     }
-    // Find the last `/` that leaves a name of at most 99 bytes and a
-    // prefix of at most 154 bytes.
+    // Find the last `/` that leaves a name of at most 100 bytes and a
+    // prefix of at most 155 bytes.
     let mut split_at = None;
     for (index, ch) in path.char_indices() {
         if ch != '/' {
@@ -324,12 +326,14 @@ fn put_str(field: &mut [u8], value: &str) {
 
 /// Write a string into a fixed-size field, refusing to truncate it.
 ///
-/// `[FACT]` The field is NUL-terminated ✓, so the value must leave room
-/// for the NUL ✓. A value that does not fit is an **error** ✓: a
-/// truncated path would restore under a different name ✓.
+/// `[FACT]` A field may be completely filled ✓ — the NUL terminator is
+/// only there for shorter text ✓, and a reader stops at the first NUL ✓,
+/// so a full field reads back as the whole text ✓. A value that does
+/// not fit is an **error** ✓: a truncated path would restore under a
+/// different name ✓.
 fn put_str_exact(field: &mut [u8], value: &str) -> Result<(), TarError> {
     let bytes = value.as_bytes();
-    if bytes.len() > field.len().saturating_sub(1) {
+    if bytes.len() > field.len() {
         return Err(TarError::PathTooLong(value.to_string()));
     }
     field[..bytes.len()].copy_from_slice(bytes);
@@ -411,33 +415,35 @@ mod tests {
     }
 
     #[test]
-    fn a_name_that_cannot_fit_the_field_exactly_is_refused() {
-        // `[FACT]` The ustar name field is 100 bytes and NUL-terminated,
-        // so it holds 99 bytes of text. A 100-byte name would be written
-        // with its last byte missing, and a restore would write the file
-        // under a different name — the repository would come back
-        // changed. So a name that does not fit exactly is an error.
-        let fits = "a".repeat(99);
-        let bytes = write(&[entry(&fits, b"x")]).expect("99 bytes fit");
+    fn a_name_that_fills_the_field_exactly_survives_the_round_trip() {
+        // `[FACT]` A ustar field may be completely filled — the NUL
+        // terminator is only there for shorter text — so a 100-byte name
+        // is representable and must survive exactly. The old code
+        // accepted it and wrote 99 bytes, and a restore then wrote the
+        // file under a different name.
+        let exact = "a".repeat(100);
+        let bytes = write(&[entry(&exact, b"x")]).expect("100 bytes fill the field");
         let back = read(&bytes).expect("the archive reads back");
-        assert_eq!(back[0].path, fits, "the name must survive exactly");
+        assert_eq!(back[0].path, exact, "the name must survive exactly");
 
-        let too_long = "a".repeat(100);
+        // One byte more does not fit.
+        let too_long = "a".repeat(101);
         let err = write(&[entry(&too_long, b"x")]).unwrap_err();
         assert!(matches!(err, TarError::PathTooLong(_)), "got: {err:?}");
     }
 
     #[test]
-    fn a_prefix_that_cannot_fit_the_field_exactly_is_refused() {
-        // `[FACT]` The prefix field is 155 bytes and NUL-terminated, so
-        // it holds 154 bytes of text.
-        let name = "n".repeat(99);
-        let path = format!("{}/{name}", "p".repeat(154));
-        let bytes = write(&[entry(&path, b"x")]).expect("254 bytes fit");
+    fn a_prefix_that_fills_the_field_exactly_survives_the_round_trip() {
+        // `[FACT]` The prefix field is 155 bytes and may be filled
+        // completely.
+        let name = "n".repeat(100);
+        let path = format!("{}/{name}", "p".repeat(155));
+        let bytes = write(&[entry(&path, b"x")]).expect("155 bytes fill the field");
         let back = read(&bytes).expect("the archive reads back");
         assert_eq!(back[0].path, path, "the path must survive exactly");
 
-        let path = format!("{}/{name}", "p".repeat(155));
+        // One byte more does not fit.
+        let path = format!("{}/{name}", "p".repeat(156));
         let err = write(&[entry(&path, b"x")]).unwrap_err();
         assert!(matches!(err, TarError::PathTooLong(_)), "got: {err:?}");
     }
