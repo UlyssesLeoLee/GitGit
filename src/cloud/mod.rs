@@ -415,14 +415,11 @@ impl S3CloudDisk {
             region: entry.region.clone(),
             endpoint: entry.endpoint.clone(),
         };
-        let credentials = s3::creds::Credentials::new(
-            Some(access_key),
-            Some(secret_key),
-            None,
-            None,
-            None,
-        )
-        .map_err(|e| GitGitError::Cloud(format!("the cloud credentials are unusable: {e}")))?;
+        let credentials =
+            s3::creds::Credentials::new(Some(access_key), Some(secret_key), None, None, None)
+                .map_err(|e| {
+                    GitGitError::Cloud(format!("the cloud credentials are unusable: {e}"))
+                })?;
         // Path-style addressing ✓ — the same choice the vault backend
         // makes ✓, because a local or non-AWS endpoint is addressed by
         // path ✓.
