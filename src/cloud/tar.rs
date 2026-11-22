@@ -133,10 +133,10 @@ pub fn write(entries: &[Entry]) -> Result<Vec<u8>, TarError> {
         )?);
         out.extend_from_slice(&entry.data);
         let padding = (BLOCK - entry.data.len() % BLOCK) % BLOCK;
-        out.extend(std::iter::repeat(0u8).take(padding));
+        out.extend(std::iter::repeat_n(0u8, padding));
     }
     // Two zero blocks end the archive.
-    out.extend(std::iter::repeat(0u8).take(BLOCK * 2));
+    out.extend(std::iter::repeat_n(0u8, BLOCK * 2));
     Ok(out)
 }
 
