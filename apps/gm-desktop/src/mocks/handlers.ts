@@ -33,6 +33,15 @@ interface MockStore {
   /** Monotonic id source for mock review sessions. */
   sessionSeq: number;
   /**
+   * The arbitration audit records (ADR-0024 §3.7.3).
+   *
+   * `[FACT]` The real command writes them to a file under the app's data
+   * directory. A browser tab has no such directory, so the mock keeps them
+   * here instead — the dev workflow needs to know that the write
+   * happened, not where it landed.
+   */
+  audit: Array<{ choice: string; path: string }>;
+  /**
    * What the directory picker returns in dev mode. A string is a
    * picked folder; `null` is a cancelled dialog, which the UI must
    * treat as "nothing happened" rather than as a failure.
@@ -99,6 +108,7 @@ function initStore(): MockStore {
     ]),
     session: null,
     sessionSeq: 0,
+    audit: [],
     dialogResult: '/home/user/checkouts/demo',
   };
 }
@@ -693,6 +703,21 @@ async function handle(cmd: string, args?: Record<string, unknown>): Promise<unkn
       const sessionId = STORE.session;
       STORE.session = null;
       return sessionId;
+    }
+    /* --- The arbitration audit trail (ADR-0024 §3.7.3) ---
+     *
+     * `[FACT]` The real command appends one JSON line to a file under the
+     * app's data directory. A browser tab has no such directory, so the
+     * mock answers the call and keeps the records in memory — the shape
+     * the dev workflow needs is "the write succeeded", not the file.
+     */
+    case 'conflict_audit_record': {
+      const region = (args?.region ?? {}) as { path?: string };
+      STORE.audit.push({
+        choice: String(args?.choice ?? ''),
+        path: String(region.path ?? ''),
+      });
+      return null;
     }
     /* --- The provider key (ADR-0024 §3.9) ---
      *

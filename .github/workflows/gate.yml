@@ -35,6 +35,10 @@
 #   * `cargo fmt --check` for the root crate and for `src-tauri`. Rust
 #     formatting is checked by the path-filtered workflows too, but a pull
 #     request that touches neither is not checked at all today.
+#   * the declared `rust-version` is one the locked dependency tree can
+#     honour. The floor is measured on every run, so a dependency that
+#     raises its own MSRV turns the declaration red instead of letting it
+#     go quietly out of date.
 #   * the generated per-user WiX template still matches its source. The
 #     generator records the source's SHA-256 in the generated file precisely
 #     so a stale one cannot go unnoticed — but only the desktop suite reads
@@ -84,6 +88,29 @@ jobs:
       - name: Rust formatting (src-tauri)
         working-directory: apps/gm-desktop/src-tauri
         run: cargo fmt --all -- --check
+
+      # The declared MSRV has to be one the locked tree can actually
+      # honour.
+      #
+      # [FACT] `rust-version` is a promise about what a user's toolchain
+      # may be, and cargo uses it to say "too old" before the build fails
+      # inside a dependency. Both manifests used to declare 1.75 while
+      # their lockfiles needed 1.88 (time 0.3.55) and 1.90 (muda
+      # 0.20.0) - so the promise was false, and a user on 1.75 would have
+      # failed deep inside a dependency instead of being told.
+      #
+      # [FACT] The floor is MEASURED on every run (`cargo metadata
+      # --locked`), not copied into the script: a copied number drifts the
+      # moment a dependency is updated, and then the declaration goes
+      # quietly out of date - which is the same rot this check exists to
+      # catch.
+      #
+      # [FACT] `cargo metadata` resolves no dependency graph of its own and
+      # builds nothing, so this costs seconds and belongs in the gate that
+      # runs on every pull request.
+      - name: The declared MSRV is one the locked tree can honour
+        shell: pwsh
+        run: pwsh -NoProfile -File scripts/ci/check-msrv.ps1
 
       # The generated per-user WiX template carries the SHA-256 of the
       # template it was generated from, so a stale one cannot go unnoticed.

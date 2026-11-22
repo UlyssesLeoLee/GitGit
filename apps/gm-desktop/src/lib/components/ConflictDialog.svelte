@@ -91,18 +91,21 @@
       manualError = outcome.reason;
       return;
     }
-    setResolution('manual', outcome.text);
+    // `[PROPOSAL]` ADR §3.7.3: the decision is what produces the audit
+    // record, and the region travels with it so the backend can recompute
+    // the id.
+    setResolution('manual', outcome.text, region);
     closeManual();
   }
 
   function onKeepOurs(): void {
     const outcome = resolveChoice(region, 'ours');
-    if (outcome.ok) setResolution('ours', outcome.text);
+    if (outcome.ok) setResolution('ours', outcome.text, region);
   }
 
   function onKeepTheirs(): void {
     const outcome = resolveChoice(region, 'theirs');
-    if (outcome.ok) setResolution('theirs', outcome.text);
+    if (outcome.ok) setResolution('theirs', outcome.text, region);
   }
 
   async function onAskAi(): Promise<void> {
@@ -122,7 +125,7 @@
   function onAccept(): void {
     const suggestion = $conflict.suggestion;
     if (suggestion === null) return;
-    setResolution('ai', suggestion);
+    setResolution('ai', suggestion, region);
   }
 
   function onStop(): void {

@@ -7,7 +7,20 @@
 name = "gitgit"
 version = "0.1.0"
 edition = "2021"
-rust-version = "1.75"
+# The minimum Rust this crate builds with is set by the LOCKED dependency
+# tree, not by this crate's own code.
+#
+# [FACT] `cargo metadata --locked` on this lockfile reports `rust_version`
+# 1.88 as the highest among the dependencies (time 0.3.55, time-core
+# 0.1.9, time-macros 0.2.32, sysinfo 0.37.2, icu_provider 2.3.1), and
+# `cargo +1.89.0 check --locked --all-targets` on this tree is green.
+#
+# [FACT] The 1.75 that stood here was never true: it predates those
+# dependencies, and nothing in the tree needed 1.75 then either. A user
+# on 1.75 would have failed deep inside a dependency instead of being
+# told, in one line, that the toolchain was too old — and the manifest
+# is the one place that can say so.
+rust-version = "1.89"
 license = "AGPL-3.0"
 publish = false
 
