@@ -398,6 +398,43 @@ jobs:
         if: steps.detect.outputs.rust_backend == 'true'
         run: pwsh -NoProfile -File scripts/verify-gitremote-e2e.ps1
 
+      - name: cloud end-to-end against this repository's own object store
+        # Same rationale again, for the same reason: the cloud-disk feature
+        # has library-level end-to-end tests (src/cloud/backup.rs drives a
+        # real S3-compatible endpoint), but the `gitgit cloud` BINARY had
+        # never been run end to end. A binary that panics on every
+        # subcommand, or a restore that silently does not restore, is
+        # invisible to a library test.
+        #
+        # What this step asserts, in order:
+        #   * the disk is connected and the registry records it, with the
+        #     disk's own credential VARIABLE names in the output;
+        #   * the disk is listed with its endpoint, bucket and key prefix;
+        #   * a REAL bare repository - built with real git, with a real
+        #     commit, a real blob under objects/ and a real ref under
+        #     refs/heads/ - is uploaded, and the snapshot key is parsed out
+        #     of the output;
+        #   * the repository is then genuinely DAMAGED: HEAD is pointed at a
+        #     branch that does not exist, the branch ref is deleted, and a
+        #     marker file is left behind;
+        #   * the snapshot the backup just took is listed;
+        #   * the restore puts the repository back EXACTLY as it was - the
+        #     HEAD, the branch ref, the commit it pointed at, the blob's
+        #     content and the absence of the marker file. This is the core
+        #     assertion: the exit code alone would not prove a rollback;
+        #   * the disk is disconnected, the registry no longer knows it,
+        #     and the snapshot is still on the remote.
+        #
+        # The endpoint is this repository's own `gitgit-objectstore` binary,
+        # started by the script on a free port with a fresh throwaway secret
+        # in its environment: no third-party server, and no credential on a
+        # command line or in a log line.
+        #
+        # No continue-on-error, no `|| true`: a cloud binary that cannot
+        # roll a repository back fails this job and blocks the merge.
+        if: steps.detect.outputs.rust_backend == 'true'
+        run: pwsh -NoProfile -File scripts/verify-cloud-e2e.ps1
+
       - name: Upload regression logs
         # [FACT] `if: always()` is left exactly as it was, deliberately.
         # This upload is diagnostic: it exists so that a FAILED tier's logs
