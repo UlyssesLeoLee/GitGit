@@ -40,6 +40,7 @@ import {
   resetArbitration,
   resolveChoice,
   selectRegion,
+  setResolution,
   startArbitration,
   stopArbitration,
 } from '../../src/lib/stores/conflict';
@@ -850,6 +851,33 @@ describe('the conflict audit trail', () => {
     // none.
     await new Promise((resolve) => setTimeout(resolve, 20));
     expect(calls.length).toBe(1);
+  });
+
+  it('writes a record for a decision in ANOTHER region, even with the same text', async () => {
+    // `[FACT]` The dedupe is keyed on the region as well as the choice and
+    // the text. `loadRegions` replaces the region list WITHOUT clearing the
+    // resolution, so a resolution from one region can still be sitting in
+    // the state when the next region is arbitrated. Two regions whose
+    // "ours" side is the same text are still two decisions, and a trail
+    // that exists to say what was decided must say both.
+    //
+    // Without the region in the key, this test's second decision would be
+    // silently dropped and the trail would name one decision where two
+    // were made.
+    const calls = captureAudit();
+    const other: ConflictRegion = {
+      ...REGION,
+      id: 'f0e1d2c3b4a5968778695a4b3c2d1e0',
+      path: 'src/other.ts',
+    };
+
+    setResolution('ours', REGION.ours, REGION);
+    await waitFor(() => expect(calls.length).toBe(1));
+
+    setResolution('ours', REGION.ours, other);
+    await waitFor(() => expect(calls.length).toBe(2));
+    expect(calls[0].path).toBe(REGION.path);
+    expect(calls[1].path).toBe(other.path);
   });
 
   it('keeps the decision when the backend cannot write the record', async () => {

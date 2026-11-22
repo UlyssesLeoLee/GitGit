@@ -149,8 +149,18 @@ export interface ConflictState {
    *
    * `[PROPOSAL]` ADR §3.4.4: no failure path writes a file, so the
    * resolution is what the dialog shows, not what it commits.
+   *
+   * `[FACT]` The resolution carries the **region it belongs to**. It has
+   * to: the state is one object, and `loadRegions` replaces the region
+   * list without clearing this field, so a resolution left over from one
+   * region can still be sitting here when the next region is arbitrated.
+   * Without the region id, "the same choice with the same text" would
+   * mean "the same decision" for two different regions — and the second
+   * region's audit record would be silently dropped (ADR §3.7.3: one
+   * decision, one record — and a decision in another region IS another
+   * decision).
    */
-  resolution: { choice: ConflictChoice; text: string } | null;
+  resolution: { choice: ConflictChoice; text: string; regionId: string } | null;
   /** The regions of the selected repository. */
   regions: ConflictRegion[];
   /**
@@ -658,14 +668,28 @@ export function markDiffSeen(): void {
  * failed write is reported on the console, which is where the app's other
  * non-fatal failures go (`App.svelte`).
  *
- * `[INFERENCE]` Re-choosing the *same* replacement is not a new decision,
- * so it does not write a second record: one decision, one record.
+ * `[INFERENCE]` Re-choosing the *same* replacement **for the same region**
+ * is not a new decision, so it does not write a second record: one
+ * decision, one record.
+ *
+ * `[FACT]` The dedupe is keyed on the region as well as the choice and
+ * the text. The state is one object shared by every region, and
+ * `loadRegions` replaces the region list **without** clearing the
+ * resolution, so a resolution from one region can still be sitting here
+ * when the next region is arbitrated. Two regions whose "ours" side
+ * happens to be the same text would otherwise be mistaken for one
+ * decision, and the second region's audit record would be dropped
+ * without a word — a hole in a trail that exists to say what was
+ * decided.
  */
 export function setResolution(choice: ConflictChoice, text: string, region: ConflictRegion): void {
   const s = get(conflict);
   const unchanged =
-    s.resolution !== null && s.resolution.choice === choice && s.resolution.text === text;
-  conflict.set({ ...s, resolution: { choice, text } });
+    s.resolution !== null &&
+    s.resolution.regionId === region.id &&
+    s.resolution.choice === choice &&
+    s.resolution.text === text;
+  conflict.set({ ...s, resolution: { choice, text, regionId: region.id } });
   if (unchanged) return;
   void writeAuditRecord(region, choice);
 }
