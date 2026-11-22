@@ -20,6 +20,7 @@
 import { invoke as tauriInvoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import type {
+  ConflictChoice,
   ConflictEventDto,
   ConflictRegion,
   ConflictRegions,
@@ -128,6 +129,29 @@ export async function aiKeySet(provider: string, key: string): Promise<void> {
  */
 export async function aiKeyStatus(provider: string): Promise<boolean> {
   return await tauriInvoke('ai_key_status', { provider });
+}
+
+/**
+ * Write the audit record for one arbitration (ADR-0024 §3.7.3).
+ *
+ * `[INFERENCE]` The webview sends the **region** and the **choice**, and
+ * nothing else: the choice is the only thing it knows that the backend
+ * does not, and the backend re-derives the rest — the region's id, the
+ * model the provider reported, the redaction count, the digest of the
+ * prompt that was sent, and the answer.
+ *
+ * `[FACT]` The command returns nothing: the record is written to a file
+ * under the app's data directory, and there is deliberately no read
+ * command for it yet (the ADR does not ask for one).
+ */
+export async function conflictAuditRecord(
+  region: ConflictRegion,
+  choice: ConflictChoice
+): Promise<void> {
+  await tauriInvoke('conflict_audit_record', {
+    region: toRegionPayload(region),
+    choice,
+  });
 }
 
 /**

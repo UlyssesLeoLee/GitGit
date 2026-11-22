@@ -127,6 +127,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
             commands::ai::ai_conflict_cancel,
             commands::ai::ai_key_set,
             commands::ai::ai_key_status,
+            commands::audit::conflict_audit_record,
             commands::conflict::conflict_regions,
         ])
         .on_window_event(handle_window_event)

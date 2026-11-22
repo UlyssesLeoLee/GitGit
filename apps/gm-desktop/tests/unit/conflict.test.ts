@@ -13,12 +13,15 @@
  *  6. The four `/review` discipline rules each have an implementation and
  *     an assertion.
  *  7. `en.ts` and `zh-CN.ts` carry the same `conflict.*` key set.
+ *  8. Every decision asks the backend for exactly one audit record
+ *     (ADR-0024 §3.7.3), and a backend that cannot write the record does
+ *     not undo the decision.
  *
  * The store is driven through its `subscribe` seam rather than through the
  * Tauri event bridge, so the cases observe the real event-ordering rules
  * without a Rust backend — the same shape `review.test.ts` uses.
  */
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { get } from 'svelte/store';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import { readFileSync } from 'node:fs';
@@ -37,6 +40,7 @@ import {
   resetArbitration,
   resolveChoice,
   selectRegion,
+  setResolution,
   startArbitration,
   stopArbitration,
 } from '../../src/lib/stores/conflict';
@@ -741,5 +745,160 @@ describe('the conflict i18n keys', () => {
   it('has a nav entry in both catalogues', () => {
     expect(en).toHaveProperty('nav.conflicts');
     expect(zh).toHaveProperty('nav.conflicts');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The audit trail (ADR-0024 §3.7.3)
+// ---------------------------------------------------------------------------
+
+describe('the conflict audit trail', () => {
+  /**
+   * The audit writes the test observed.
+   *
+   * `[INFERENCE]` The webview sends the **region** and the **choice** and
+   * nothing else: the choice is the only thing it knows that the backend
+   * does not, and the backend re-derives the region's id, the model, the
+   * redaction count and the digests. So the payload is the contract this
+   * test pins.
+   */
+  interface AuditCall {
+    choice: string;
+    path: string;
+    regionId: string;
+  }
+
+  /** Answer every audit write with a recorder instead of the dev mock. */
+  function captureAudit(): AuditCall[] {
+    const calls: AuditCall[] = [];
+    withInvoke({
+      conflict_audit_record: (args) => {
+        const region = (args.region ?? {}) as { path?: string; baseOid?: string };
+        calls.push({
+          choice: String(args.choice),
+          path: String(region.path ?? ''),
+          regionId: REGION.id,
+        });
+        return null;
+      },
+    });
+    return calls;
+  }
+
+  it('asks the backend for exactly one record when the user keeps ours', async () => {
+    // `[PROPOSAL]` ADR §3.7.3: one arbitration, one record. The record is
+    // written by the backend — the webview only says which choice was made.
+    const calls = captureAudit();
+    render(ConflictDialog, { props: { region: REGION } });
+    await fireEvent.click(screen.getByTestId('conflict-keep-ours'));
+
+    await waitFor(() => expect(calls.length).toBe(1));
+    expect(calls[0].choice).toBe('ours');
+    expect(calls[0].path).toBe(REGION.path);
+  });
+
+  it('asks the backend for exactly one record when the user keeps theirs', async () => {
+    const calls = captureAudit();
+    render(ConflictDialog, { props: { region: REGION } });
+    await fireEvent.click(screen.getByTestId('conflict-keep-theirs'));
+
+    await waitFor(() => expect(calls.length).toBe(1));
+    expect(calls[0].choice).toBe('theirs');
+  });
+
+  it('records a hand-written edit as "manual"', async () => {
+    const calls = captureAudit();
+    render(ConflictDialog, { props: { region: REGION } });
+    await fireEvent.click(screen.getByTestId('conflict-manual'));
+    const editor = screen.getByTestId('conflict-manual-text') as HTMLTextAreaElement;
+    await fireEvent.input(editor, { target: { value: 'const timeout = 45;\n' } });
+    await fireEvent.click(screen.getByTestId('conflict-manual-save'));
+
+    await waitFor(() => expect(calls.length).toBe(1));
+    expect(calls[0].choice).toBe('manual');
+  });
+
+  it('records the model\'s suggestion as "ai"', async () => {
+    const calls = captureAudit();
+    const bridge = fakeSubscribe();
+    render(ConflictDialog, { props: { region: REGION } });
+    await startArbitration(REGION, { provider: 'openai', subscribe: bridge.subscribe });
+    bridge.emit({
+      type: 'done',
+      sessionId: currentSession(),
+      regionId: currentRegionId(),
+      tokens: 1,
+      outcome: { state: 'accepted', suggestion: 'const timeout = 45;\n' },
+    });
+    await waitFor(() => expect(screen.getByTestId('conflict-accept')).toBeTruthy());
+    await fireEvent.click(screen.getByTestId('conflict-show-diff'));
+    await fireEvent.click(screen.getByTestId('conflict-accept'));
+
+    await waitFor(() => expect(calls.length).toBe(1));
+    expect(calls[0].choice).toBe('ai');
+  });
+
+  it('writes no second record for the same decision', async () => {
+    // `[INFERENCE]` One decision, one record: choosing the same side twice
+    // is not two decisions, and the trail must not say it was.
+    const calls = captureAudit();
+    render(ConflictDialog, { props: { region: REGION } });
+    await fireEvent.click(screen.getByTestId('conflict-keep-ours'));
+    await waitFor(() => expect(calls.length).toBe(1));
+    await fireEvent.click(screen.getByTestId('conflict-keep-ours'));
+
+    // Give a second write the chance to arrive before asserting there is
+    // none.
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(calls.length).toBe(1);
+  });
+
+  it('writes a record for a decision in ANOTHER region, even with the same text', async () => {
+    // `[FACT]` The dedupe is keyed on the region as well as the choice and
+    // the text. `loadRegions` replaces the region list WITHOUT clearing the
+    // resolution, so a resolution from one region can still be sitting in
+    // the state when the next region is arbitrated. Two regions whose
+    // "ours" side is the same text are still two decisions, and a trail
+    // that exists to say what was decided must say both.
+    //
+    // Without the region in the key, this test's second decision would be
+    // silently dropped and the trail would name one decision where two
+    // were made.
+    const calls = captureAudit();
+    const other: ConflictRegion = {
+      ...REGION,
+      id: 'f0e1d2c3b4a5968778695a4b3c2d1e0',
+      path: 'src/other.ts',
+    };
+
+    setResolution('ours', REGION.ours, REGION);
+    await waitFor(() => expect(calls.length).toBe(1));
+
+    setResolution('ours', REGION.ours, other);
+    await waitFor(() => expect(calls.length).toBe(2));
+    expect(calls[0].path).toBe(REGION.path);
+    expect(calls[1].path).toBe(other.path);
+  });
+
+  it('keeps the decision when the backend cannot write the record', async () => {
+    // `[INFERENCE]` The trail must not be able to undo the arbitration: the
+    // user has made a choice, it is shown, and a file that cannot be
+    // written is a problem for the trail, not for the decision.
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    try {
+      withInvoke({
+        conflict_audit_record: () => {
+          throw { kind: 'Io', message: 'the audit file is not writable' };
+        },
+      });
+      render(ConflictDialog, { props: { region: REGION } });
+      await fireEvent.click(screen.getByTestId('conflict-keep-ours'));
+
+      await waitFor(() => expect(screen.getByTestId('conflict-resolution')).toBeTruthy());
+      expect(screen.getByTestId('conflict-resolution-text').textContent).toBe(REGION.ours);
+      expect(warn).toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+    }
   });
 });
