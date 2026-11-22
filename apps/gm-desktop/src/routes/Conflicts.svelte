@@ -19,6 +19,8 @@
   import { onMount } from 'svelte';
   import { repos, refreshRepos } from '$lib/stores/repos';
   import {
+    applyDecisions,
+    canApply,
     conflict,
     loadRegions,
     selectRegion,
@@ -47,6 +49,22 @@
   async function onRefresh(): Promise<void> {
     await refreshRepos();
     if (repo !== '') await onRepoChange();
+  }
+
+  /**
+   * Write the decided regions back into the work tree and stage them
+   * (ADR-0024 §3.6).
+   *
+   * `[FACT]` The application does not drive the merge itself: it writes
+   * the resolved file back and `git add`s the path, and the user commits.
+   *
+   * `[FACT]` The button is disabled until every arbitrable region has a
+   * decision, and the store refuses as well — so a half-decided set can
+   * never reach the work tree.
+   */
+  async function onApply(): Promise<void> {
+    if (!canApply($conflict)) return;
+    await applyDecisions(repo, currentRoot());
   }
 
   onMount(async () => {
@@ -105,9 +123,12 @@
   {:else}
     <!-- `[PROPOSAL]` ADR §3.7.4: the region list stays visible — a file
          can carry several independent regions, and the user has to know
-         which one the dialog is about. -->
+         which one the dialog is about. `[FACT]` Each button says whether
+         its region has been decided: a path is only written back when
+         every one of its regions has a decision (ADR §3.6). -->
     <ul class="flex flex-wrap gap-2" data-testid="conflict-regions">
       {#each $conflict.regions as region (region.id)}
+        {@const decided = $conflict.decisions[region.id] !== undefined}
         <li>
           <button
             type="button"
@@ -115,12 +136,50 @@
             class:ring-2={region.id === $conflict.selectedRegionId}
             onclick={() => selectRegion(region.id)}
             data-testid={`conflict-region-${region.index}`}
+            data-decided={decided}
           >
             {region.path} · {$catalog['conflict.regionIndex'].replace('{n}', String(region.index + 1))}
+            <span class="ml-1 text-[10px] uppercase" data-testid={`conflict-region-state-${region.index}`}>
+              {decided ? $catalog['conflict.decided'] : $catalog['conflict.undecided']}
+            </span>
           </button>
         </li>
       {/each}
     </ul>
+
+    <!-- The write-back (ADR-0024 §3.6). -->
+    <div class="card flex flex-wrap items-center gap-3" data-testid="conflict-apply-panel">
+      <button
+        type="button"
+        class="btn-primary"
+        data-testid="conflict-apply"
+        disabled={!canApply($conflict) || $conflict.applying}
+        onclick={onApply}
+      >
+        {$catalog['conflict.apply']}
+      </button>
+      {#if !canApply($conflict)}
+        <p class="text-sm text-slate-500" data-testid="conflict-apply-hint">
+          {$catalog['conflict.applyHint']}
+        </p>
+      {/if}
+      <!-- `[FACT]` A failure is shown to the user, not only logged: the
+           write-back is the step that changes the work tree, so the user
+           has to know whether it happened. -->
+      {#if $conflict.applyError !== null}
+        <p class="text-sm text-red-600" data-testid="conflicts-apply-error">{$conflict.applyError}</p>
+      {/if}
+      {#if $conflict.applyOutcome !== null && $conflict.applyOutcome.written.length > 0}
+        <p class="text-sm text-green-700" data-testid="conflicts-apply-written">
+          {$catalog['conflict.applyWritten'].replace('{paths}', $conflict.applyOutcome.written.join(', '))}
+        </p>
+      {/if}
+      {#if $conflict.applyOutcome !== null && $conflict.applyOutcome.skipped.length > 0}
+        <p class="text-sm text-amber-700" data-testid="conflicts-apply-skipped">
+          {$catalog['conflict.applySkipped'].replace('{paths}', $conflict.applyOutcome.skipped.join(', '))}
+        </p>
+      {/if}
+    </div>
 
     {#if selected}
       {#key selected.id}

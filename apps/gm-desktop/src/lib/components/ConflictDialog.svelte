@@ -61,6 +61,17 @@
   const rows = $derived(diffLines(region.ours, $conflict.suggestion ?? ''));
 
   /**
+   * The decision for THIS region.
+   *
+   * `[FACT]` The decision is stored per region (ADR-0024 §3.6), so the
+   * dialog reads its own region's entry rather than one shared
+   * resolution: the dialog is bound to a region, and the region is what
+   * the decision is about. Reading the map also means the decision
+   * survives the user opening another region.
+   */
+  const decision = $derived($conflict.decisions[region.id] ?? null);
+
+  /**
    * Ask the backend whether a key can be resolved for the provider.
    *
    * `[PROPOSAL]` ADR §3.7.1: the "ask AI" option is shown but disabled
@@ -430,16 +441,17 @@
   {/if}
 
   <!--
-    The replacement the user chose. `[PROPOSAL]` ADR §3.4.4: nothing is
-    written from here — the write-back path is a separate step.
+    The replacement the user chose. `[PROPOSAL]` ADR §3.4.4: the decision
+    is recorded here and nothing is written from this panel — the
+    write-back is the apply action's job (ADR §3.6).
   -->
-  {#if $conflict.resolution}
+  {#if decision}
     <div class="card border-l-4 border-l-accent-500" data-testid="conflict-resolution">
       <p class="text-sm font-medium">
-        {$catalog[`conflict.resolution.${$conflict.resolution.choice}`]}
+        {$catalog[`conflict.resolution.${decision.choice}`]}
       </p>
       <pre class="mt-1 max-h-48 overflow-auto whitespace-pre-wrap break-words font-mono text-xs"
-        data-testid="conflict-resolution-text">{$conflict.resolution.text}</pre>
+        data-testid="conflict-resolution-text">{decision.text}</pre>
     </div>
   {/if}
 

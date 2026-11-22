@@ -317,21 +317,34 @@
 
 ### 3.6 Q6：结果怎么落地？
 
-**决策**：**应用把「合并后的文件」写回工作区并 `git add` 该路径**，让 git 看到这个冲突已解决。**应用不驱动 merge 本身。**
+**决策**：`[FACT]` **应用把「合并后的文件」写回工作区并 `git add` 该路径**，让 git 看到这个冲突已解决。**应用不驱动 merge 本身。**
 
-**具体流程（`[PROPOSAL]`）**：
+`[FACT]` 落地在 `conflict_resolve` 命令上（`apps/gm-desktop/src-tauri/src/commands/conflict.rs:272` ✓，已注册 ✓，`apps/gm-desktop/src-tauri/src/lib.rs` ✓）：它读**进行中 merge 的 index stage** ✓ → 合成 → 写回 → `git add` ✓。前端在 `applyDecisions`（`apps/gm-desktop/src/lib/stores/conflict.ts:955` ✓）里把决定**按路径分组** ✓，每个路径调一次命令 ✓。
+
+**具体流程（`[FACT]`）**：
 
 1. 读 index stage 1/2/3 → 跑 `merge-file` → 拿到带标记的合并文本 + 区域列表。
+   `[FACT]` 核心在 `src/repo/conflict.rs` 的 `conflict_set` ✓，桌面端命令 `conflict_regions`（`apps/gm-desktop/src-tauri/src/commands/conflict.rs:94` ✓）用它取区域 ✓。
 2. 每个区域由用户（或 AI 建议 + 用户确认）得到一个**替换文本**（ours / theirs / AI 建议 / 手工编辑）。
+   `[FACT]` 决定**按区域 id 存**（`apps/gm-desktop/src/lib/stores/conflict.ts:209` ✓）⇒ 切区域**不清**别的区域的决定 ✓（`:886` ✓），而 `resolution` 只是当前区域的**视图** ✓（`:276` ✓）。
 3. 把合并文本里每个冲突段替换成对应替换文本 → 得到**干净的合并文件**。
+   `[FACT]` `compose_resolved`（`src/repo/conflict.rs:1464` ✓），命令在 `apps/gm-desktop/src-tauri/src/commands/conflict.rs:375` ✓ 调用它 ✓；**少一个区域的决定就是错误** ✓，不是默认 ✓。
 4. 写回工作区该路径 → `git add <path>`。
+   `[FACT]` `write_resolved`（`src/repo/conflict.rs:1510` ✓），命令在 `apps/gm-desktop/src-tauri/src/commands/conflict.rs:379` ✓ 调用它 ✓。
 5. git 的 index 恢复成普通单 stage 条目；`git status` 不再报 `UU`（`[FACT]` §2.3 实测未合并路径在 porcelain v1 里就是 `UU`）。
+   `[FACT]` 测试 `the_write_back_writes_the_composed_file_and_the_path_is_no_longer_unmerged`（`apps/gm-desktop/src-tauri/src/commands/conflict.rs` ✓）钉住它 ✓。
+
+`[FACT]` **两段，但边界要说准** ✓：
+
+- **命令内部（一个路径内）是两段** ✓（`apps/gm-desktop/src-tauri/src/commands/conflict.rs:296` ✓）：**先合成校验** ✓（`compose_resolved` ✓，少一个决定就是错误 ✓），**再写回 + `git add`** ✓（`write_resolved` ✓）。所以**一个路径**失败 ⇒ **那个路径一个字节都不写** ✓（测试 `a_missing_choice_is_refused_and_not_one_byte_is_written` ✓ 钉住「文件还带着标记、`UU` 还在」✓）。
+- **跨路径**不是全有全无 ✓：前端把决定**按路径分组** ✓，**逐路径**调命令 ✓，**在第一个失败的路径停下** ✓，并**如实报告**哪些写了、哪个失败、哪些没尝试 ✓（`written` / `failed` / `skipped` ✓）。一个文件一个文件地仲裁，**路径之间本来就不互相依赖** ✓。
+- `[FACT]` **半解决的 merge 提交不了** ✓：没写回的路径在 index 里仍是 stage 1/2/3 ✓ ⇒ `git commit` 会被 git 自己拒绝（"you have unmerged paths" ✓）⇒ **git 就是那道安全网** ✓，而报告把状态说清楚 ✓。
 
 **诚实说明（这是本节最重要的一句）**：
 
 > `[INFERENCE]` **git 仍然是文件粒度的。** index 里依然只有一条路径条目；git 的合并算法没有变，git 也不知道「区域」是什么。gitgit 改的是**仲裁单位**：把「这个文件冲突了，你去解」换成「这个文件里有 N 个区域，第 i 个区域我们这么定了」。**不是**把 git 换成别的合并器。
 >
-> `[FACT]` 本仓目前**没有**任何写入 / 暂存路径：全仓 `git add` 只出现在测试夹具里（`src/repo/status.rs:772`、`:1057`、`:1085` 等），生产代码没有。所以「写回 + 暂存」是**新增**能力，且必须走既有白名单 argv 助手（`src/repo/status.rs:448`）的路子，**绝不能**拼 shell 字符串（`:441-447` 的理由）。
+> `[FACT]` 写回 + 暂存是**新增**能力，且走既有白名单 argv 助手的路子（`src/repo/status.rs:448` ✓），**绝不**拼 shell 字符串（`:441-447` 的理由 ✓）。`[FACT]` 落地在 `write_resolved`（`src/repo/conflict.rs:1510` ✓）——它在 `git add` 之前先做路径校验 ✓（`validate_rel_path` ✓，`:1511` ✓），所以越界路径**在写之前**就被拒 ✓（测试 `a_path_outside_the_work_tree_is_refused` ✓）。
 >
 > `[FACT]` `git add <path>` 在「路径含空格 / 非 ASCII / 以 `-` 开头」时的行为**已实测**（Lane A 的验收测试 `a_path_with_spaces_and_non_ascii_can_be_staged`，git 2.41.0.windows.1）：`git add -- <path>` 三种路径都能正常暂存（`git status --porcelain=v1` 里三行都是 `M ` 开头，即已进 index）。**一个会咬人的细节**：git 默认把非 ASCII 路径打印成八进制转义（`"\303\274n\303\257code.txt"`），断言「路径是否出现在 status 里」必须加 `-c core.quotePath=false`，否则会误判成「没暂存」。本仓的 `validate_rel_path` 先例（`src/repo/status.rs:413-437`）照常复用。
 
@@ -508,20 +521,24 @@ merge-file 产出冲突区域  →  scope 层给每个区域定位 scope  →  �
 
 四条 lane，各自可独立评审、独立合并、独立 revert。
 
-### 落库状态（2026-11-18 记录）
+### 落库状态（2026-11-22 更新）
 
-`[FACT]` 四条 lane 全部落地 ✓：
+`[FACT]` **六条** lane 全部落地 ✓：
 
-| lane | PR | 落在库里的东西 | 测试 |
+| lane | PR | 落在库里的东西 | 该 lane 落地时的测试数 |
 |---|---|---|---|
 | A | #84 | `src/repo/conflict.rs` ✓：区域解析 ✓、scope 层 ✓、写回路径 ✓ | `repo::conflict` 33 个 ✓ |
 | B | #92 | `src/ai/{conflict,keys,prompt}.rs` ✓ + 桌面端 `ai_conflict_start` / `ai_conflict_cancel` / `ai_key_set` / `ai_key_status` ✓ | `ai::conflict` 22 个 ✓、`ai::keys` 8 个 ✓、`ai::prompt` 8 个 ✓、桌面端 crate 54 个 ✓ |
 | C | #96 | `/conflicts` 路由 ✓、`ConflictDialog.svelte` ✓、`stores/conflict.ts` ✓、`api/conflict.ts` ✓、`utils/linediff.ts` ✓、i18n `conflict.*` ✓ | 前端 `conflict.test.ts` 36 个 ✓ |
-| D | 本 PR | ADR 状态收口 ✓ + capability surface 门禁管到**应用自己的命令面** ✓ + 桌面端 `conflict_regions` 命令 ✓ | 门禁 37 个 ✓；桌面端 crate 59 个 ✓（54 + 新命令的 3 个 ✓ + delta 上限的 2 个 ✓） |
+| D | #99 | ADR 状态收口 ✓ + capability surface 门禁管到**应用自己的命令面** ✓ + 桌面端 `conflict_regions` 命令 ✓ | 门禁 37 个 ✓；桌面端 crate 59 个 ✓（54 + 新命令的 3 个 ✓ + delta 上限的 2 个 ✓） |
+| E | #104 | 审计记录 ✓：`apps/gm-desktop/src-tauri/src/commands/audit.rs` ✓（§3.7.3 ✓）+ 前端按区域累积决定 ✓ + 去重键带 region id ✓ | 桌面端 crate 72 个 ✓；前端 `conflict.test.ts` 43 个 ✓ |
+| I | 本 PR | 写回路径 ✓：桌面端 `conflict_resolve` 命令 ✓（§3.6 ✓）+ 前端按路径分组的「应用」动作 ✓ | 桌面端 crate **82** 个 ✓（72 + 写回的 10 个 ✓）；前端 `conflict.test.ts` **56** 个 ✓（43 + 写回的 13 个 ✓） |
+
+`[FACT]` **当前实测**（2026-11-22）：前端 `conflict.test.ts` **56** 个 ✓；桌面端 crate **82** 个 ✓；capability surface 门禁 **37** 个 ✓（新命令只加了一个名字 ✓，门禁的用例数不变 ✓）。上表「该 lane 落地时的测试数」是**历史记录** ✓，不是当前值 ✓。
 
 `[FACT]` Lane D 补上了 `conflict_regions` 这个命令 ✓ —— 门禁在 dev 上报出「前端调用了 Rust 侧没注册的命令」✓，而这正是 ADR §3.1 说的区域来源 ✓：命令读的是**进行中 merge 的 index stage** ✓，再交给 `src/repo/conflict.rs` 的核心解析 ✓。
 
-`[FACT]` 本 ADR 下面标着 `[PROPOSAL]` 的地方，凡是被上面这四条 lane 真正实现了的 ✓，已改成 `[FACT]` ✓；**没被实现的仍然是 `[PROPOSAL]`** ✓（例如 scope 抑制能力仍未解锁 ✓，见 §3.8.3 与 §7.2 ✓）。
+`[FACT]` 本 ADR 下面标着 `[PROPOSAL]` 的地方，凡是被上面这些 lane 真正实现了的 ✓，已改成 `[FACT]` ✓；**没被实现的仍然是 `[PROPOSAL]`** ✓（例如 scope 抑制能力仍未解锁 ✓，见 §3.8.3 与 §7.2 ✓）。
 
 ### Lane A — `feat/conflict-regions`（Rust 核心：检测 + 区域 + scope）
 
@@ -648,7 +665,7 @@ merge-file 产出冲突区域  →  scope 层给每个区域定位 scope  →  �
 
 **本 lane 未跑**：任何编译 / 测试 / 构建（设计 lane，无代码）。
 
-### 6.1 四条 lane 落地后的实测（2026-11-18 记录）
+### 6.1 各 lane 落地后的实测（2026-11-22 更新）
 
 `[FACT]` 上表是**设计 lane** 的测量 ✓；下面是**落地后**各 lane 实际跑过的东西 ✓：
 
@@ -658,6 +675,8 @@ merge-file 产出冲突区域  →  scope 层给每个区域定位 scope  →  �
 | A + B | CI 的桌面端 job（`lint + check + test + build + cargo check`） | 全量绿 ✓；桌面端 crate 54 个 ✓ |
 | C | 前端 `vitest run`（`tests/unit/conflict.test.ts`） | 36 个通过 ✓；本地全量 741 通过 / 11 失败 ✓ —— 失败全在三个**要 shell 出去找 bash 与 jq** 的文件里 ✓（`release-tag-resolution` ✓、`corresponding-source-notice` ✓、`workflow-step-isolation` ✓）：这台 Windows 上没有 `jq` ✓，于是那些测试跑 5–200 秒并撞上 5000ms 的上限 ✓。这三个文件本 lane 未触碰 ✓，CI 的前端 job（ubuntu ✓，有 bash 与 jq ✓）在 Lane C 的 PR 上是绿的 ✓。 |
 | D | 门禁 `vitest run tests/unit/capability-surface-gate.test.ts` | 37 个通过 ✓；**6 个变异全部变红** ✓（见下） |
+| E | 桌面端 crate `cargo test --locked` | 72 个通过 ✓；前端 `conflict.test.ts` 43 个通过 ✓ |
+| I | 桌面端 crate `cargo test --locked` + `cargo clippy --all-targets --locked -- -D warnings` + `cargo fmt --all -- --check` | **82 个通过 ✓、0 失败** ✓；clippy exit 0 ✓；fmt exit 0 ✓。前端 `conflict.test.ts` **56** 个通过 ✓；本地全量 **756 通过 / 17 失败** ✓ —— 失败仍**全在**那三个要 shell 出去找 bash 与 jq 的文件里 ✓（`corresponding-source-notice` ✓、`release-tag-resolution` ✓、`workflow-step-isolation` ✓），**没有第四个失败文件** ✓。 |
 
 `[FACT]` Lane D 的门禁**当场抓到一个真缺陷** ✓：前端调用的 `conflict_regions` 在 Rust 侧**没有注册** ✓ —— 那不是测试写错 ✓，而是「点了按钮才在运行时炸」的那种缺陷 ✓。本 PR 因此补上了那个命令 ✓（`apps/gm-desktop/src-tauri/src/commands/conflict.rs` ✓）：它读**进行中 merge 的 index stage** ✓，再交给 `src/repo/conflict.rs` 的核心解析 ✓。
 
