@@ -53,6 +53,7 @@ use gitgit::server::vault::Vault;
 use gitgit::server::vault_versioned::VersionedVault;
 use tauri::{AppHandle, Emitter, State};
 
+use crate::commands::audit;
 use crate::error::{AppError, AppResult};
 use crate::state::{DesktopState, ReviewManager, REVIEW_MAX_DIFF_BYTES};
 
@@ -758,6 +759,28 @@ pub async fn spawn_conflict(
     let redactions = prompt::conflict_redactions(&region);
     sanitize::sanitize_request(&mut req);
 
+    // The digest of the prompt that is about to leave the machine, and the
+    // facts of the arbitration, are taken **here** — after the sanitizer ran
+    // and before the request went out. `[FACT]` ADR-0024 §3.7.3 wants the
+    // digest of the prompt that was *sent*, so it has to be the sanitized
+    // one, not the one the builder produced.
+    let prompt_sha256 = audit::prompt_digest(&req.messages);
+    let facts = audit::ArbitrationFacts {
+        provider: String::from(provider_key),
+        // `[FACT]` Empty until the provider reports the model it served.
+        // The *requested* model is deliberately not put here: ADR-0024
+        // §3.7.3 wants the model the server reported, and a record that
+        // named the requested one would be a different claim.
+        model: String::new(),
+        redactions,
+        prompt_sha256: prompt_sha256.clone(),
+        answer_sha256: String::new(),
+        answer_text: String::new(),
+    };
+    // `[INFERENCE]` The facts are remembered *before* the network call, so
+    // a request that never comes back still leaves a trace of what was sent.
+    audit::remember_facts(&region.id(), facts.clone());
+
     let provider = spec.build(provider_key);
     // The error is scrubbed on the way out, for the same reason the review
     // path scrubs it: a misconfigured proxy can echo the `Authorization`
@@ -774,6 +797,7 @@ pub async fn spawn_conflict(
         api_key,
         session_id.clone(),
         region.clone(),
+        facts,
         rx,
     ));
     if let Err((handle, previous)) = manager.install(session_id.clone(), join) {
@@ -820,12 +844,18 @@ pub async fn cancel_conflict(
 /// checks run on the accumulated answer *before* it is offered as a
 /// suggestion, and a refused answer is reported as a refusal with its
 /// reason. Nothing is written either way.
+///
+/// `[INFERENCE]` The second addition is the audit trail (ADR-0024 §3.7.3):
+/// the facts of the arbitration are updated as they arrive — the model the
+/// provider reported, then the answer — so that the decision the user makes
+/// later can be described in full.
 async fn pump_conflict(
     manager: Arc<ReviewManager>,
     emitter: Arc<dyn ConflictEmitter>,
     api_key: String,
     session_id: String,
     region: ConflictRegion,
+    mut facts: audit::ArbitrationFacts,
     mut rx: StreamReceiver,
 ) {
     let _slot = SlotGuard {
@@ -856,6 +886,11 @@ async fn pump_conflict(
                 });
             }
             Ok(StreamEvent::Model(model)) => {
+                // `[FACT]` The model the provider *reports* is the one the
+                // audit record carries (ADR-0024 §3.7.3) — not the model
+                // that was requested.
+                facts.model = model.clone();
+                audit::remember_facts(&region_id, facts.clone());
                 let _ = emitter.emit(&ConflictEvent::Model {
                     session_id: session_id.clone(),
                     region_id: region_id.clone(),
@@ -863,6 +898,14 @@ async fn pump_conflict(
                 });
             }
             Ok(StreamEvent::Finished) => {
+                // `[INFERENCE]` The answer is recorded whether it is accepted
+                // or refused: a refused answer is still an answer the model
+                // gave, and the trail says what was proposed and what the
+                // human chose instead.
+                let (digest, text) = audit::bounded_answer(&answer, &api_key);
+                facts.answer_sha256 = digest;
+                facts.answer_text = text;
+                audit::remember_facts(&region_id, facts.clone());
                 let outcome = match conflict::validate_answer(&region, &answer) {
                     Ok(suggestion) => SuggestionOutcome::Accepted { suggestion },
                     Err(rejection) => SuggestionOutcome::Rejected {
@@ -878,6 +921,13 @@ async fn pump_conflict(
                 return;
             }
             Err(e) => {
+                // `[INFERENCE]` A stream that failed still leaves the facts
+                // of what was sent, and whatever answer arrived before the
+                // failure.
+                let (digest, text) = audit::bounded_answer(&answer, &api_key);
+                facts.answer_sha256 = digest;
+                facts.answer_text = text;
+                audit::remember_facts(&region_id, facts.clone());
                 let _ = emitter.emit(&ConflictEvent::Failed {
                     session_id: session_id.clone(),
                     region_id: region_id.clone(),
@@ -891,6 +941,10 @@ async fn pump_conflict(
     // The channel closed with neither `Finished` nor an error. That is a
     // truncated stream, and it is reported as a failure rather than left
     // to look like a finished answer.
+    let (digest, text) = audit::bounded_answer(&answer, &api_key);
+    facts.answer_sha256 = digest;
+    facts.answer_text = text;
+    audit::remember_facts(&region_id, facts.clone());
     let _ = emitter.emit(&ConflictEvent::Failed {
         session_id,
         region_id,
@@ -1974,6 +2028,21 @@ mod tests {
         }
     }
 
+    /// A conflict region with a path of its own.
+    ///
+    /// `[INFERENCE]` The region id is a hash of the region's content, and
+    /// the backend remembers one set of arbitration facts **per region id**.
+    /// Two tests that used the same region would therefore share one set of
+    /// facts, and the second one to finish would overwrite the first — a
+    /// race that shows up as a test that fails only under load. A path of
+    /// its own gives the test its own id.
+    fn conflict_region_at(path: &str) -> ConflictRegion {
+        ConflictRegion {
+            path: String::from(path),
+            ..conflict_region()
+        }
+    }
+
     /// Collects conflict events instead of shipping them to a webview.
     #[derive(Default)]
     struct ConflictRecorder {
@@ -2365,6 +2434,121 @@ mod tests {
         // The conflict channel is its own: a review listener must not pick
         // up conflict tokens and vice versa.
         assert!(names.iter().all(|n| n.starts_with("ai-conflict://")));
+    }
+
+    /* ---------------- the audit trail (ADR-0024 §3.7.3) ------------------ */
+
+    #[tokio::test]
+    async fn the_audit_record_names_the_model_the_provider_reported() {
+        // ADR-0024 §3.7.3: the record carries the model the **server**
+        // reported, not the one that was requested. The mock reports
+        // "mock-model-1"; the request asked for "requested-model".
+        //
+        // `[INFERENCE]` The region is this test's own: the backend keeps
+        // one set of arbitration facts per region id, so a shared region
+        // would make two tests overwrite each other's facts.
+        let region = conflict_region_at("src/audit-served-model.rs");
+        let answer = format!("{}\nlet a = 1;\n", region.id());
+        let mock = MockSseServer::start(MockCfg::ok(answer_frames(&answer))).await;
+        let manager = Arc::new(ReviewManager::new());
+        let recorder = Arc::new(ConflictRecorder::default());
+        let emitter: Arc<dyn ConflictEmitter> = recorder.clone();
+        let mut args = start_conflict_args(&mock.base_url());
+        args.model = Some(String::from("requested-model"));
+        spawn_conflict(
+            Arc::clone(&manager),
+            emitter,
+            Some(String::from("sk-TEST-KEY")),
+            region.clone(),
+            args,
+        )
+        .await
+        .expect("the arbitration starts");
+
+        wait_for_conflict(&recorder, "the done event", |e| {
+            e.iter().any(|x| matches!(x, ConflictEvent::Done { .. }))
+        })
+        .await;
+        let _ = manager.cancel().await;
+        mock.finish().await;
+
+        let facts = audit::recall_facts(&region.id()).expect("the facts are remembered");
+        assert_eq!(facts.model, "mock-model-1", "the served model is the one");
+        assert_ne!(
+            facts.model, "requested-model",
+            "the requested model must not be reported as the served one"
+        );
+
+        let record = audit::build_record(
+            &region,
+            audit::ArbitrationChoice::Ai,
+            Some(&facts),
+            String::from("2026-11-21T07:05:00+00:00"),
+        );
+        assert_eq!(record.model, "mock-model-1");
+        assert_eq!(record.provider, "openai");
+        assert_eq!(record.choice, "ai");
+        assert_eq!(record.region_id, region.id());
+        assert!(
+            !record.prompt_sha256.is_empty(),
+            "the digest of the prompt that was sent is recorded"
+        );
+        assert!(
+            !record.answer_sha256.is_empty(),
+            "the digest of the answer is recorded"
+        );
+        assert!(
+            record.answer_text.contains("let a = 1;"),
+            "the answer is recorded: {}",
+            record.answer_text
+        );
+        // The credential is not in the answer, so the answer is recorded
+        // verbatim — and the credential is nowhere in the record.
+        assert!(!record.answer_text.contains("sk-TEST-KEY"));
+    }
+
+    #[tokio::test]
+    async fn an_answer_that_quotes_the_credential_is_scrubbed_before_it_is_recorded() {
+        // A misconfigured proxy echoes the `Authorization` header back
+        // inside the answer. The answer is the only provider-authored text
+        // in the record, so it is scrubbed where it is captured.
+        //
+        // `[INFERENCE]` The region is this test's own, so this test and
+        // the one above cannot overwrite each other's facts.
+        let region = conflict_region_at("src/audit-credential.rs");
+        let answer = format!("{}\nthe key is sk-TEST-KEY\n", region.id());
+        let mock = MockSseServer::start(MockCfg::ok(answer_frames(&answer))).await;
+        let manager = Arc::new(ReviewManager::new());
+        let recorder = Arc::new(ConflictRecorder::default());
+        let emitter: Arc<dyn ConflictEmitter> = recorder.clone();
+        spawn_conflict(
+            Arc::clone(&manager),
+            emitter,
+            Some(String::from("sk-TEST-KEY")),
+            region.clone(),
+            start_conflict_args(&mock.base_url()),
+        )
+        .await
+        .expect("the arbitration starts");
+
+        wait_for_conflict(&recorder, "the done event", |e| {
+            e.iter().any(|x| matches!(x, ConflictEvent::Done { .. }))
+        })
+        .await;
+        let _ = manager.cancel().await;
+        mock.finish().await;
+
+        let facts = audit::recall_facts(&region.id()).expect("the facts are remembered");
+        assert!(
+            !facts.answer_text.contains("sk-TEST-KEY"),
+            "the credential survived into the record: {}",
+            facts.answer_text
+        );
+        assert!(
+            facts.answer_text.contains(gitgit::ai::sanitize::REDACTED),
+            "the credential was not marked as redacted: {}",
+            facts.answer_text
+        );
     }
 
     /* ---------------- key resolution (ADR-0024 §3.9) --------------------- */

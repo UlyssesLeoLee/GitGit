@@ -361,11 +361,11 @@
 
 #### 3.7.3 可审计
 
-`[PROPOSAL]` 每次仲裁产生一条审计记录，字段：
+`[FACT]` 每次仲裁产生一条审计记录（Lane E 落地 ✓：`apps/gm-desktop/src-tauri/src/commands/audit.rs` ✓），字段：
 
 | 字段 | 说明 |
 |---|---|
-| `region_id` | 上面定义的 hash |
+| `region_id` | 上面定义的 hash（**由后端重算** ✓，不采信调用方给的 id ✓） |
 | `path` | repo 相对路径 |
 | `provider` / `model` | **服务端报告的 model**，不是请求的 model（沿用 `/review` 的纪律：`apps/gm-desktop/src/lib/stores/review.ts:167-176`） |
 | `redactions` | 发送前被替换的疑似机密数（`[FACT]` `src/ai/mod.rs:126-132`） |
@@ -374,7 +374,22 @@
 | `choice` | `ours` / `theirs` / `ai` / `manual` |
 | `applied_at` | 落地时间戳 |
 
-`[PROPOSAL]` **API key 绝不进审计记录、绝不进日志、绝不进 flag**（§3.10）。`[FACT]` 既有防线：`sanitize::scrub_secret(&e.to_string(), &api_key)`（`apps/gm-desktop/src-tauri/src/commands/ai.rs:260`、`:356`）—— 新命令的错误路径必须同样过这道筛。
+**落点与格式**（Lane E 定的 ✓）：
+
+- `[FACT]` **一条记录 = 一行 JSON** ✓，**只追加**地写在桌面端的 **app data 目录**下的 `conflict-audit.jsonl` ✓ —— 不是仓库 ✓（它不是项目历史 ✓），不是 vault ✓（它不是凭据 ✓）。已落盘的记录**不会被后来的仲裁改写** ✓（追加模式打开 ✓，不 truncate ✓）。
+- `[INFERENCE]` **前端发起、Rust 侧落盘** ✓：选择只有前端知道 ✓（对话框才提供那几个选项 ✓），而 model / redactions / prompt 摘要 / 回答只有后端知道 ✓（服务端报告的 model 是流里那一帧 ✓）。所以前端只发「区域 + 选择」✓，其余由后端补齐 ✓。
+- `[INFERENCE]` **不提供读取命令** ✓（YAGNI ✓）：ADR 没有要求 ✓，本 lane 也不加 ✓。
+- `[INFERENCE]` **`applied_at` 是「做出选择的时间」** ✓，不是「写回文件的时间」✓：应用**没有 merge driver** ✓（§3.6 ✓），落地是用户自己 `git commit` ✓，所以后端能观察到的唯一时刻就是选择被做出的那一刻 ✓。
+- `[INFERENCE]` **字段名照抄上表** ✓（snake_case ✓）：审计文件是后端的产物 ✓，不是 webview ↔ 后端的线上格式 ✓，所以不套用桌面端的 camelCase 约定 ✓。
+- `[INFERENCE]` **表里没有仓库名** ✓ ⇒ 这条轨迹是**按安装**的 ✓，`path` 是 repo 相对路径 ✓；要按仓库分轨就得改 ADR 的字段表 ✓，不是改实现 ✓。
+- `[INFERENCE]` **一次选择 ⇒ 一条记录** ✓：改了主意就是**另一次选择** ⇒ **另一条记录** ✓（追加写的轨迹不改写旧记录 ✓ ⇒ 旧的那条仍在文件里 ✓）。同一次选择**重复触发**（连点两下）**不写第二条** ✓。
+
+**API key 纪律**（`[FACT]` **API key 绝不进审计记录、绝不进日志、绝不进 flag**，见 §3.9 ✓）：
+
+- `[FACT]` 模型回答是记录里**唯一的 provider 文本** ✓，它在入库前就被 `sanitize::scrub_secret` 洗过 ✓（误配的代理会把 `Authorization` 头原样吐回来 ✓，与错误路径上的既有防线是同一道 ✓）。
+- `[FACT]` 写盘前对**整条记录**再断言一次 ✓：解析出的 key 串不出现在记录里 ✓，出现就**拒绝写** ✓。
+- `[FACT]` 记录里**没有** key 的字段 ✓；key 也从不进日志 ✓、从不进 flag ✓（§3.9 的既有纪律 ✓）。
+- `[FACT]` 新命令的错误路径同样过既有防线 ✓（`sanitize::scrub_secret`，`apps/gm-desktop/src-tauri/src/commands/ai.rs` ✓）：审计写失败时报的是「这条记录写不进去」✓，不是 key ✓。
 
 #### 3.7.4 边界清单（`[PROPOSAL]`）
 
@@ -474,6 +489,7 @@ merge-file 产出冲突区域  →  scope 层给每个区域定位 scope  →  �
 4. **key 永不进 flag、永不进日志。**
    - `[FACT]` 既有防线：`scrub_secret`（`apps/gm-desktop/src-tauri/src/commands/ai.rs:260`、`:356`）把所有离开该模块的错误串过一遍。**新命令必须同样过这道筛**。
    - `[FACT]` **不得**在 `tracing` 字段、审计记录、错误消息里出现 key；新增一条门禁测试：对 `ai_key_set` / `ai_conflict_start` 的所有错误路径做断言（key 串不出现）。（Lane B：`scrub_secret` 覆盖新命令的错误路径 ✓，测试断言 key 串不出现 ✓。）
+   - `[FACT]` **审计记录**（§3.7.3 ✓）同样受这条约束 ✓：模型回答在入库前被 `scrub_secret` 洗过 ✓，写盘前对整条记录再断言一次 ✓，key 不在记录里 ✓。
 5. **设置页的输入框**：`type="password"`、`autocomplete="off"`（沿用 `apps/gm-desktop/src/routes/Settings.svelte:108-111` 的 admin password 写法），保存后**清空输入框**（`:59` 已有同样做法）。
    `[FACT]` 落地要求已满足 ✓：Lane C 的设置页有 AI provider key 卡片 ✓，`type="password"` ✓、`autocomplete="off"` ✓，保存后**立即清空** ✓（`Settings.svelte` 的 `aiKey = ''` ✓）。
 
