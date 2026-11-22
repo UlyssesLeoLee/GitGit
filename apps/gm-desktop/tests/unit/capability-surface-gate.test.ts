@@ -876,6 +876,12 @@ const commandUsage = scanCommandCalls(
  * part of the same feature, and because on a branch that carries Lane C it
  * is the one command the gate has something to say about.
  *
+ * `[FACT]` `conflict_audit_record` is Lane E's command (ADR-0024 §3.7.3):
+ * it writes the audit record of one arbitration. Lane E implements it in
+ * `src-tauri/src/commands/audit.rs`, registers it in `src-tauri/src/lib.rs`
+ * and calls it from `src/lib/api/conflict.ts`, so it is on both sides of the
+ * surface.
+ *
  * `[INFERENCE]` A command that a sibling lane has not landed yet is absent
  * from BOTH sides of the surface, and that is not a defect: the merge order
  * is not a property of the code. So the gate does not require every name
@@ -890,6 +896,7 @@ const CONFLICT_COMMANDS = [
   'ai_key_set',
   'ai_key_status',
   'conflict_regions',
+  'conflict_audit_record',
 ];
 
 /**

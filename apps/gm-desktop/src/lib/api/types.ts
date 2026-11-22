@@ -350,6 +350,20 @@ export type SuggestionOutcomeDto =
   | { state: 'rejected'; reason: string };
 
 /**
+ * What the human chose for a region (ADR-0024 §3.7.3's `choice` field).
+ *
+ * `[FACT]` The four names are the ADR's own: `ours` / `theirs` / `ai` /
+ * `manual`. They are the **decision**, not the text: the text that was
+ * chosen travels with the region, and the backend recomputes the region's
+ * id rather than believing a caller about it.
+ *
+ * `[INFERENCE]` The union lives here rather than in the store because the
+ * bridge and the store both need it, and the bridge cannot import from the
+ * store without a cycle.
+ */
+export type ConflictChoice = 'ours' | 'theirs' | 'manual' | 'ai';
+
+/**
  * One event on the conflict channel.
  *
  * `[FACT]` Mirrors `ConflictEvent`: a `type` tag for dispatch, camelCase

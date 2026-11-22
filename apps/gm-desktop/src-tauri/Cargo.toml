@@ -6,7 +6,18 @@
 name = "gm-desktop"
 version = "0.1.0"
 edition = "2021"
-rust-version = "1.75"
+# The minimum Rust this crate builds with is set by the LOCKED dependency
+# tree, not by this crate's own code.
+#
+# [FACT] `cargo metadata --locked` on this crate's own lockfile reports
+# `rust_version` 1.90 as the highest among its dependencies (tauri
+# 2.12.3, tauri-utils 2.10.2, tauri-runtime-wry 2.12.3, tauri-macros
+# 2.7.4, tray-icon 0.25.1), and `cargo +1.91.1 check --locked` on this
+# tree is green. This crate has its own lockfile and its own dependency
+# set, so its floor is its own.
+#
+# [FACT] The 1.75 that stood here was never true for this tree either.
+rust-version = "1.91"
 license = "AGPL-3.0"
 publish = false
 description = "Local desktop shell for gitgit (V0, per ADR-0020)"

@@ -28,7 +28,22 @@
 import { get, writable } from 'svelte/store';
 import * as tauri from '$lib/api/conflict';
 import { normalizeError } from '$lib/utils/errors';
-import type { ConflictEventDto, ConflictRegion, ConflictStartedDto } from '$lib/api/types';
+import type {
+  ConflictChoice,
+  ConflictEventDto,
+  ConflictRegion,
+  ConflictStartedDto,
+} from '$lib/api/types';
+
+/**
+ * The four options the dialog offers (ADR §3.4.3).
+ *
+ * `[INFERENCE]` The union itself lives in `$lib/api/types`, because the
+ * bridge needs it too and the bridge cannot import from the store without
+ * a cycle. It is re-exported here so the store's callers keep one import
+ * for the arbitration's vocabulary.
+ */
+export type { ConflictChoice };
 
 /**
  * Hard cap on accumulated answer text, in characters.
@@ -77,9 +92,6 @@ export type ConflictStatus =
   | 'cancelled'
   | 'error'
   | 'unsupported';
-
-/** The four options the dialog offers (ADR §3.4.3). */
-export type ConflictChoice = 'ours' | 'theirs' | 'manual' | 'ai';
 
 /** Whether a key for the chosen provider could be resolved. */
 export type KeyStatus = 'unknown' | 'present' | 'absent';
@@ -137,8 +149,18 @@ export interface ConflictState {
    *
    * `[PROPOSAL]` ADR §3.4.4: no failure path writes a file, so the
    * resolution is what the dialog shows, not what it commits.
+   *
+   * `[FACT]` The resolution carries the **region it belongs to**. It has
+   * to: the state is one object, and `loadRegions` replaces the region
+   * list without clearing this field, so a resolution left over from one
+   * region can still be sitting here when the next region is arbitrated.
+   * Without the region id, "the same choice with the same text" would
+   * mean "the same decision" for two different regions — and the second
+   * region's audit record would be silently dropped (ADR §3.7.3: one
+   * decision, one record — and a decision in another region IS another
+   * decision).
    */
-  resolution: { choice: ConflictChoice; text: string } | null;
+  resolution: { choice: ConflictChoice; text: string; regionId: string } | null;
   /** The regions of the selected repository. */
   regions: ConflictRegion[];
   /**
@@ -633,9 +655,59 @@ export function markDiffSeen(): void {
  *
  * `[PROPOSAL]` ADR §3.4.4: nothing is written here. The resolution is
  * what the dialog shows; writing it back is the write path's job.
+ *
+ * `[PROPOSAL]` ADR §3.7.3: the same decision is what produces the
+ * **audit record**, and the record is written by the backend — the
+ * webview only says *which* choice was made. The write is kicked off here
+ * rather than from the dialog's four handlers so that no choice can be
+ * made without one: the two live in the same function.
+ *
+ * `[INFERENCE]` The write is **not** awaited and its failure is not
+ * allowed to reach the user: the decision has already been made and shown,
+ * and a trail that cannot be written must not undo the arbitration. A
+ * failed write is reported on the console, which is where the app's other
+ * non-fatal failures go (`App.svelte`).
+ *
+ * `[INFERENCE]` Re-choosing the *same* replacement **for the same region**
+ * is not a new decision, so it does not write a second record: one
+ * decision, one record.
+ *
+ * `[FACT]` The dedupe is keyed on the region as well as the choice and
+ * the text. The state is one object shared by every region, and
+ * `loadRegions` replaces the region list **without** clearing the
+ * resolution, so a resolution from one region can still be sitting here
+ * when the next region is arbitrated. Two regions whose "ours" side
+ * happens to be the same text would otherwise be mistaken for one
+ * decision, and the second region's audit record would be dropped
+ * without a word — a hole in a trail that exists to say what was
+ * decided.
  */
-export function setResolution(choice: ConflictChoice, text: string): void {
-  conflict.set({ ...get(conflict), resolution: { choice, text } });
+export function setResolution(choice: ConflictChoice, text: string, region: ConflictRegion): void {
+  const s = get(conflict);
+  const unchanged =
+    s.resolution !== null &&
+    s.resolution.regionId === region.id &&
+    s.resolution.choice === choice &&
+    s.resolution.text === text;
+  conflict.set({ ...s, resolution: { choice, text, regionId: region.id } });
+  if (unchanged) return;
+  void writeAuditRecord(region, choice);
+}
+
+/**
+ * Ask the backend to write the audit record for a decision.
+ *
+ * `[INFERENCE]` The record names the region it is about, so the region
+ * travels with it. The backend recomputes the region's id from that
+ * content, so a record cannot be written about a region the caller did
+ * not actually arbitrate.
+ */
+async function writeAuditRecord(region: ConflictRegion, choice: ConflictChoice): Promise<void> {
+  try {
+    await tauri.conflictAuditRecord(region, choice);
+  } catch (e) {
+    console.warn('could not write the conflict audit record', e);
+  }
 }
 
 /**
