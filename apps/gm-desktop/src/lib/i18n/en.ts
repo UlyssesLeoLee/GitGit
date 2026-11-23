@@ -275,6 +275,12 @@ const en: Readonly<Record<string, string>> = {
   'conflict.resolution.theirs': 'Kept theirs',
   'conflict.resolution.manual': 'Hand-written replacement',
   'conflict.resolution.ai': 'Accepted the AI suggestion',
+  'conflict.decided': 'decided',
+  'conflict.undecided': 'not decided',
+  'conflict.apply': 'Write back and stage',
+  'conflict.applyHint': 'Decide every region before writing back.',
+  'conflict.applyWritten': 'Written back and staged: {paths}',
+  'conflict.applySkipped': 'Not written: {paths}',
   'conflict.key.heading': 'AI provider key',
   'conflict.key.hint':
     'Stored in the credential vault under ai/<provider>. The key is never read back into this window.',

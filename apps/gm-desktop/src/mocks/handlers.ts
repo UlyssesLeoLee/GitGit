@@ -719,6 +719,22 @@ async function handle(cmd: string, args?: Record<string, unknown>): Promise<unkn
       });
       return null;
     }
+    /* --- The write-back (ADR-0024 §3.6) ---
+     *
+     * `[FACT]` The real command writes the resolved file into the work
+     * tree and runs `git add` on the path, so git stops reporting `UU`.
+     * A browser tab has no work tree to write into, so the mock answers
+     * the call and reports what it would have done — the same shape the
+     * other mocked commands answer with.
+     */
+    case 'conflict_resolve': {
+      const path = String(args?.path ?? '');
+      const choices = (args?.choices ?? []) as Array<{ index?: number }>;
+      return clone({
+        path,
+        regions: choices.length,
+      });
+    }
     /* --- The provider key (ADR-0024 §3.9) ---
      *
      * `[FACT]` The key is written under `ai/<provider>` and is never

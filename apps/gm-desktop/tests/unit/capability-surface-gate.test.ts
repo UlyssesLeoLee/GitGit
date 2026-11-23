@@ -882,6 +882,12 @@ const commandUsage = scanCommandCalls(
  * and calls it from `src/lib/api/conflict.ts`, so it is on both sides of the
  * surface.
  *
+ * `[FACT]` `conflict_resolve` is Lane I's command (ADR-0024 §3.6): it
+ * writes the resolved file back into the work tree and stages the path.
+ * Lane I implements it in `src-tauri/src/commands/conflict.rs`, registers it
+ * in `src-tauri/src/lib.rs` and calls it from `src/lib/api/conflict.ts`, so
+ * it is on both sides of the surface.
+ *
  * `[INFERENCE]` A command that a sibling lane has not landed yet is absent
  * from BOTH sides of the surface, and that is not a defect: the merge order
  * is not a property of the code. So the gate does not require every name
@@ -897,6 +903,7 @@ const CONFLICT_COMMANDS = [
   'ai_key_status',
   'conflict_regions',
   'conflict_audit_record',
+  'conflict_resolve',
 ];
 
 /**

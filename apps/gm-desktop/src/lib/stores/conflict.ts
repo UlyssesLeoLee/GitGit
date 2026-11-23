@@ -32,6 +32,7 @@ import type {
   ConflictChoice,
   ConflictEventDto,
   ConflictRegion,
+  ConflictResolveChoice,
   ConflictStartedDto,
 } from '$lib/api/types';
 
@@ -96,6 +97,38 @@ export type ConflictStatus =
 /** Whether a key for the chosen provider could be resolved. */
 export type KeyStatus = 'unknown' | 'present' | 'absent';
 
+/**
+ * The decision the user made about one region.
+ *
+ * `[FACT]` The replacement text travels with the choice: `ours` and
+ * `theirs` carry the region's own text, and `ai` and `manual` carry the
+ * text the user or the model produced. The core maps all four to
+ * `RegionChoice`, and `ai` / `manual` to `RegionChoice::Custom`.
+ */
+export interface ConflictDecision {
+  /** Which side won. */
+  choice: ConflictChoice;
+  /** The replacement text, verbatim. */
+  text: string;
+}
+
+/**
+ * What a write-back did, path by path.
+ *
+ * `[FACT]` The paths are separate because the write-back is per path
+ * (ADR §3.6): a failure on one path says nothing about the others, and a
+ * report that said "done" while half the paths were untouched would be
+ * a lie.
+ */
+export interface ConflictApplyOutcome {
+  /** The paths that were written back and staged. */
+  written: string[];
+  /** The path that failed, and what the backend said about it. */
+  failed: { path: string; message: string } | null;
+  /** The paths that were not attempted, because an earlier path failed. */
+  skipped: string[];
+}
+
 export interface ConflictState {
   status: ConflictStatus;
   /** The stream's session id. Null until the start command resolves. */
@@ -150,17 +183,42 @@ export interface ConflictState {
    * `[PROPOSAL]` ADR §3.4.4: no failure path writes a file, so the
    * resolution is what the dialog shows, not what it commits.
    *
+   * `[FACT]` The resolution is a **view**: it is derived from `decisions`
+   * and the open region, and it is never the truth. The truth is the
+   * map below — one decision per region, kept across region switches,
+   * because the write-back is per path and a path can carry several
+   * regions (ADR §3.6).
+   *
    * `[FACT]` The resolution carries the **region it belongs to**. It has
-   * to: the state is one object, and `loadRegions` replaces the region
-   * list without clearing this field, so a resolution left over from one
-   * region can still be sitting here when the next region is arbitrated.
-   * Without the region id, "the same choice with the same text" would
-   * mean "the same decision" for two different regions — and the second
-   * region's audit record would be silently dropped (ADR §3.7.3: one
-   * decision, one record — and a decision in another region IS another
-   * decision).
+   * to: "the same choice with the same text" would mean "the same
+   * decision" for two different regions — and the second region's audit
+   * record would be silently dropped (ADR §3.7.3: one decision, one
+   * record — and a decision in another region IS another decision).
    */
   resolution: { choice: ConflictChoice; text: string; regionId: string } | null;
+  /**
+   * The decision for each region, by the region's id.
+   *
+   * `[FACT]` Before this lane the state held ONE resolution and
+   * `selectRegion` reset the whole state, so a decision made in one
+   * region was gone the moment the user opened the next one — and there
+   * was nowhere to keep the decisions for a file that carries several
+   * regions. The map is what makes "decide every region, then write the
+   * path back" possible at all.
+   */
+  decisions: Record<string, ConflictDecision>;
+  /**
+   * True while a write-back is in flight.
+   */
+  applying: boolean;
+  /**
+   * The message from the last write-back, for the user to read.
+   */
+  applyError: string | null;
+  /**
+   * What the last write-back did, path by path.
+   */
+  applyOutcome: ConflictApplyOutcome | null;
   /** The regions of the selected repository. */
   regions: ConflictRegion[];
   /**
@@ -195,12 +253,46 @@ const INITIAL: ConflictState = {
   diffSeen: false,
   keyStatus: 'unknown',
   resolution: null,
+  decisions: {},
+  applying: false,
+  applyError: null,
+  applyOutcome: null,
   regions: [],
   needsGit: [],
   selectedRegionId: null,
 };
 
 export const conflict = writable<ConflictState>({ ...INITIAL });
+
+/**
+ * The resolution of the open region, derived from the decisions.
+ *
+ * `[FACT]` The resolution is a view of `decisions[selectedRegionId]`, so
+ * it cannot drift from the map: there is one function that writes the
+ * state and it derives the view on the way out. A region with no
+ * decision has no resolution.
+ */
+function deriveResolution(
+  decisions: Record<string, ConflictDecision>,
+  selectedRegionId: string | null
+): ConflictState['resolution'] {
+  if (selectedRegionId === null) return null;
+  const decision = decisions[selectedRegionId];
+  if (decision === undefined) return null;
+  return { choice: decision.choice, text: decision.text, regionId: selectedRegionId };
+}
+
+/**
+ * Write the state, with the resolution derived from the decisions.
+ *
+ * `[FACT]` Every write goes through here, so the resolution cannot be
+ * set independently of the map it is a view of.
+ */
+function commit(patch: Partial<ConflictState>): void {
+  const next = { ...get(conflict), ...patch };
+  next.resolution = deriveResolution(next.decisions, next.selectedRegionId);
+  conflict.set(next);
+}
 
 /** True while a start is in flight or a stream is open. */
 export function isBusy(s: ConflictState): boolean {
@@ -336,7 +428,7 @@ export function resetArbitration(): void {
   pendingModel = null;
   armed = false;
   cancelRequested = false;
-  conflict.set({ ...INITIAL });
+  commit({ ...INITIAL });
 }
 
 /**
@@ -363,7 +455,7 @@ function applyConflictEvent(e: ConflictEventDto): void {
       if (s.status !== 'streaming' && s.status !== 'starting') return;
       const room = Math.max(0, CONFLICT_MAX_TEXT_CHARS - s.text.length);
       const delta = e.delta.length > room ? e.delta.slice(0, room) : e.delta;
-      conflict.set({
+      commit({
         ...s,
         text: s.text + delta,
         tokenCount: s.tokenCount + 1,
@@ -380,14 +472,14 @@ function applyConflictEvent(e: ConflictEventDto): void {
         pendingModel = e.model;
         return;
       }
-      conflict.set({ ...s, model: e.model });
+      commit({ ...s, model: e.model });
       return;
     }
     case 'done': {
       terminalSeen = true;
       armed = false;
       const outcome = e.outcome;
-      conflict.set({
+      commit({
         ...s,
         status: 'done',
         tokenCount: e.tokens,
@@ -406,7 +498,7 @@ function applyConflictEvent(e: ConflictEventDto): void {
     case 'failed': {
       terminalSeen = true;
       armed = false;
-      conflict.set({
+      commit({
         ...s,
         status: 'error',
         errorKind: 'Gitgit',
@@ -418,7 +510,7 @@ function applyConflictEvent(e: ConflictEventDto): void {
     case 'cancelled': {
       terminalSeen = true;
       armed = false;
-      conflict.set({ ...s, status: 'cancelled' });
+      commit({ ...s, status: 'cancelled' });
       releaseSubscription();
       return;
     }
@@ -454,12 +546,12 @@ export async function loadKeyStatus(
   try {
     const present = await seam(provider);
     const status: KeyStatus = present ? 'present' : 'absent';
-    conflict.set({ ...get(conflict), keyStatus: status });
+    commit({ ...get(conflict), keyStatus: status });
     return status;
   } catch {
     // `[INFERENCE]` A backend that cannot answer is not a reason to offer
     // an option that may not work.
-    conflict.set({ ...get(conflict), keyStatus: 'absent' });
+    commit({ ...get(conflict), keyStatus: 'absent' });
     return 'absent';
   }
 }
@@ -479,7 +571,7 @@ export async function startArbitration(
   terminalSeen = false;
   cancelRequested = false;
   const before = get(conflict);
-  conflict.set({
+  commit({
     ...INITIAL,
     status: 'starting',
     provider: provider ?? '',
@@ -488,6 +580,10 @@ export async function startArbitration(
     regions: before.regions,
     selectedRegionId: before.selectedRegionId,
     keyStatus: before.keyStatus,
+    // `[FACT]` The user's decisions survive too: an arbitration is about
+    // one region, and it must not throw away what the user has decided
+    // for the others.
+    decisions: before.decisions,
   });
 
   const subscribe = opts.subscribe ?? tauri.listenConflictEvents;
@@ -500,7 +596,7 @@ export async function startArbitration(
     detach = await subscribe(applyConflictEvent);
   } catch (e) {
     armed = false;
-    conflict.set({ ...get(conflict), status: 'error', ...normalizeError(e) });
+    commit({ ...get(conflict), status: 'error', ...normalizeError(e) });
     return;
   }
 
@@ -520,7 +616,7 @@ export async function startArbitration(
     // model behind for the next arbitration to pick up.
     pendingModel = null;
     if (err.kind === 'AiReviewUnsupported') {
-      conflict.set({
+      commit({
         ...get(conflict),
         status: 'unsupported',
         unsupportedProvider: provider,
@@ -529,7 +625,7 @@ export async function startArbitration(
       });
       return;
     }
-    conflict.set({
+    commit({
       ...get(conflict),
       status: 'error',
       errorKind: err.kind,
@@ -538,7 +634,7 @@ export async function startArbitration(
     return;
   }
 
-  conflict.set({
+  commit({
     ...get(conflict),
     status: 'streaming',
     sessionId: started.sessionId,
@@ -565,7 +661,7 @@ export async function startArbitration(
       // `[INFERENCE]` A session that is already gone needs no complaint:
       // the user asked for it to stop, and it is not running.
     }
-    conflict.set({ ...get(conflict), status: 'cancelled' });
+    commit({ ...get(conflict), status: 'cancelled' });
     releaseSubscription();
   }
 }
@@ -598,7 +694,7 @@ export async function stopArbitration(): Promise<void> {
   } catch (e) {
     const err = normalizeError(e);
     if (err.kind !== 'AiReviewNotRunning') {
-      conflict.set({
+      commit({
         ...get(conflict),
         status: 'error',
         errorKind: err.kind,
@@ -611,7 +707,7 @@ export async function stopArbitration(): Promise<void> {
   }
   terminalSeen = true;
   armed = false;
-  conflict.set({ ...get(conflict), status: 'cancelled' });
+  commit({ ...get(conflict), status: 'cancelled' });
   releaseSubscription();
 }
 
@@ -628,7 +724,7 @@ export async function stopArbitration(): Promise<void> {
 export function abandonArbitration(): void {
   const s = get(conflict);
   if (isBusy(s) && !terminalSeen) {
-    conflict.set({
+    commit({
       ...s,
       status: 'error',
       errorKind: 'Gitgit',
@@ -647,14 +743,15 @@ export function abandonArbitration(): void {
 export function markDiffSeen(): void {
   const s = get(conflict);
   if (s.diffSeen) return;
-  conflict.set({ ...s, diffSeen: true });
+  commit({ ...s, diffSeen: true });
 }
 
 /**
  * Record the replacement the user chose.
  *
- * `[PROPOSAL]` ADR §3.4.4: nothing is written here. The resolution is
- * what the dialog shows; writing it back is the write path's job.
+ * `[PROPOSAL]` ADR §3.4.4: nothing is written here. The decision is
+ * recorded; writing it back is the write path's job
+ * (`applyDecisions`).
  *
  * `[PROPOSAL]` ADR §3.7.3: the same decision is what produces the
  * **audit record**, and the record is written by the backend — the
@@ -672,24 +769,21 @@ export function markDiffSeen(): void {
  * is not a new decision, so it does not write a second record: one
  * decision, one record.
  *
- * `[FACT]` The dedupe is keyed on the region as well as the choice and
- * the text. The state is one object shared by every region, and
- * `loadRegions` replaces the region list **without** clearing the
- * resolution, so a resolution from one region can still be sitting here
- * when the next region is arbitrated. Two regions whose "ours" side
- * happens to be the same text would otherwise be mistaken for one
- * decision, and the second region's audit record would be dropped
- * without a word — a hole in a trail that exists to say what was
- * decided.
+ * `[FACT]` The decision is stored **per region**, in the `decisions` map,
+ * keyed on the region's id. Two regions whose "ours" side happens to be
+ * the same text are two decisions, and the second one's audit record
+ * would be dropped without a word — a hole in a trail that exists to say
+ * what was decided. The map is also what makes the write-back possible:
+ * a path is written back only when every one of its regions has been
+ * decided (ADR §3.6).
  */
 export function setResolution(choice: ConflictChoice, text: string, region: ConflictRegion): void {
   const s = get(conflict);
-  const unchanged =
-    s.resolution !== null &&
-    s.resolution.regionId === region.id &&
-    s.resolution.choice === choice &&
-    s.resolution.text === text;
-  conflict.set({ ...s, resolution: { choice, text, regionId: region.id } });
+  const previous = s.decisions[region.id];
+  const unchanged = previous !== undefined && previous.choice === choice && previous.text === text;
+  commit({
+    decisions: { ...s.decisions, [region.id]: { choice, text } },
+  });
   if (unchanged) return;
   void writeAuditRecord(region, choice);
 }
@@ -728,7 +822,7 @@ export async function loadRegions(
     // a bare repository, where `git` answers `NotAWorkTree`.
     const payload = await seam(repo, root);
     const regions = payload.regions;
-    conflict.set({
+    commit({
       ...get(conflict),
       regions,
       needsGit: payload.needsGit,
@@ -737,7 +831,7 @@ export async function loadRegions(
     return regions;
   } catch (e) {
     const err = normalizeError(e);
-    conflict.set({
+    commit({
       ...get(conflict),
       regions: [],
       needsGit: [],
@@ -755,10 +849,16 @@ export async function loadRegions(
  *
  * `[FACT]` An arbitration result belongs to the region it was asked
  * about. Opening another region therefore clears it: the status, the
- * accumulated text, the suggestion, the diff-seen flag and the
- * resolution all describe the region that was just closed, and leaving
- * them in place would show one region's answer against another's text
- * — and would let the user accept it there.
+ * accumulated text, the suggestion and the diff-seen flag all describe
+ * the region that was just closed, and leaving them in place would show
+ * one region's answer against another's text — and would let the user
+ * accept it there.
+ *
+ * `[FACT]` The **decisions** are not cleared. They are the user's work,
+ * they belong to their own regions, and ADR §3.6 writes a path back only
+ * when every one of its regions has been decided — so a decision that
+ * disappeared when the user looked at the next region would make the
+ * write-back impossible to reach.
  *
  * `[FACT]` A stream that is still running belongs to the closed
  * region, so it is cancelled and its events are no longer accepted.
@@ -778,10 +878,153 @@ export function selectRegion(regionId: string): void {
   pendingModel = null;
   cancelRequested = false;
   const before = get(conflict);
-  conflict.set({
+  commit({
     ...INITIAL,
     regions: before.regions,
     selectedRegionId: regionId,
     keyStatus: before.keyStatus,
+    decisions: before.decisions,
   });
+}
+
+/**
+ * The message recorded when a write-back is asked for before every region
+ * has been decided.
+ *
+ * `[FACT]` The count is a placeholder, the way the rest of the catalogue
+ * spells its placeholders.
+ */
+export const CONFLICT_UNDECIDED_MESSAGE = '{n} conflict region(s) have no decision yet';
+
+/**
+ * The message recorded when a write-back is asked for with no region to
+ * write.
+ */
+export const CONFLICT_NO_REGIONS_MESSAGE = 'there is no conflict region to write back';
+
+/**
+ * Whether the "apply" action may be pressed.
+ *
+ * `[FACT]` ADR-0024 §3.6: a path is written back only when **every** one
+ * of its regions has been decided, so the gate is "every arbitrable
+ * region has a decision". A path git has to resolve itself is not
+ * arbitrable and does not count — it is not in `regions` at all.
+ */
+export function canApply(s: ConflictState): boolean {
+  if (s.regions.length === 0) return false;
+  return s.regions.every((region) => s.decisions[region.id] !== undefined);
+}
+
+/**
+ * The seams `applyDecisions` talks to.
+ *
+ * `[FACT]` The store's other seams work the same way (`loadRegions`,
+ * `loadKeyStatus`): the default is the Tauri command and a test passes
+ * its own, so the store can be driven without a Rust backend.
+ */
+export interface ApplyOptions {
+  /** The write-back seam. Defaults to the Tauri command. */
+  resolve?: typeof tauri.conflictResolve;
+  /** The region-list seam, used to refresh the list after a write-back. */
+  load?: typeof tauri.conflictRegions;
+}
+
+/**
+ * Write the decided regions back into the work tree and stage them
+ * (ADR-0024 §3.6).
+ *
+ * `[FACT]` The application does **not** drive the merge itself: it writes
+ * the resolved file back and `git add`s the path, and the user commits.
+ *
+ * `[FACT]` Two phases:
+ *
+ * 1. **Decide.** Every arbitrable region must have a decision. A region
+ *    without one stops the whole write-back, and not one byte is written
+ *    anywhere — the path could not be written back anyway, and a
+ *    half-arbitrated file in the work tree would be worse than none.
+ * 2. **Write.** The decisions are grouped by path and the command is
+ *    called **once per path**, because the command handles one path: a
+ *    merge spans several files and each file is written and staged on its
+ *    own.
+ *
+ * `[FACT]` A failure on one path stops the loop, and the outcome says
+ * which paths were written, which one failed and which were not
+ * attempted. A report that said "done" while some paths were untouched
+ * would be a lie, and the user would commit a half-resolved merge.
+ */
+export async function applyDecisions(
+  repo: string,
+  root: string | null = null,
+  opts: ApplyOptions = {}
+): Promise<ConflictApplyOutcome> {
+  const resolve = opts.resolve ?? tauri.conflictResolve;
+  const load = opts.load ?? tauri.conflictRegions;
+  const s = get(conflict);
+  commit({ applying: true, applyError: null, applyOutcome: null });
+
+  // --- phase 1: every arbitrable region has a decision. ---
+  if (s.regions.length === 0) {
+    const outcome: ConflictApplyOutcome = { written: [], failed: null, skipped: [] };
+    commit({ applying: false, applyError: CONFLICT_NO_REGIONS_MESSAGE, applyOutcome: outcome });
+    return outcome;
+  }
+  const undecided = s.regions.filter((region) => s.decisions[region.id] === undefined);
+  if (undecided.length > 0) {
+    const outcome: ConflictApplyOutcome = { written: [], failed: null, skipped: [] };
+    commit({
+      applying: false,
+      applyError: CONFLICT_UNDECIDED_MESSAGE.replace('{n}', String(undecided.length)),
+      applyOutcome: outcome,
+    });
+    return outcome;
+  }
+
+  // --- group the decisions by path. ---
+  const byPath = new Map<string, ConflictResolveChoice[]>();
+  for (const region of s.regions) {
+    const decision = s.decisions[region.id];
+    // `[INFERENCE]` Unreachable: phase 1 returned for an undecided region.
+    // The guard keeps the map's value type honest without a non-null
+    // assertion.
+    if (decision === undefined) continue;
+    const choices = byPath.get(region.path) ?? [];
+    choices.push({ index: region.index, choice: decision.choice, text: decision.text });
+    byPath.set(region.path, choices);
+  }
+
+  // --- phase 2: one command call per path. ---
+  const written: string[] = [];
+  const skipped: string[] = [];
+  let failed: { path: string; message: string } | null = null;
+  for (const path of byPath.keys()) {
+    if (failed !== null) {
+      // `[INFERENCE]` The write-back stops at the first failure: a locked
+      // index or a read-only work tree is not a fault of one path, and
+      // the paths after it would fail the same way.
+      skipped.push(path);
+      continue;
+    }
+    try {
+      await resolve({ repo, root, path, choices: byPath.get(path) ?? [] });
+      written.push(path);
+    } catch (e) {
+      const err = normalizeError(e);
+      failed = { path, message: err.message };
+    }
+  }
+
+  const outcome: ConflictApplyOutcome = { written, failed, skipped };
+  commit({
+    applying: false,
+    applyError: failed === null ? null : failed.message,
+    applyOutcome: outcome,
+  });
+
+  // `[FACT]` A path that was written back is no longer unmerged, so the
+  // region list has to be read again — otherwise the page would still
+  // show regions that git has already resolved.
+  if (written.length > 0) {
+    await loadRegions(repo, root, load);
+  }
+  return outcome;
 }
