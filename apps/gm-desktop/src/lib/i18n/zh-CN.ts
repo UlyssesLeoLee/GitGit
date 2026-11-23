@@ -259,11 +259,11 @@ const zh: Readonly<Record<string, string>> = {
   'conflict.modelPlaceholder': '使用 provider 默认值',
   'conflict.redacted': '发送前已过滤 {n} 处疑似密钥的片段',
   'conflict.modelServed': '模型：{model}',
-  // `[PROPOSAL]` ADR-0024 §3.7.1:该选项存在但不可用,并说明 key 填在哪里。
+  // `[FACT]` ADR-0024 §3.7.1:该选项存在但不可用,并说明 key 填在哪里。
   // 不需要凭据的三个选项照常可用。
   'conflict.noKey':
     '该 provider 没有配置 API key，因此「问 AI」不可用。保留 ours、保留 theirs、手工编辑照常可用。请在 Settings → AI provider key 中填写，或在启动应用的环境中设置 GITGIT_AI_API_KEY。',
-  // `[PROPOSAL]` ADR-0024 §3.4.1:不能流式的 provider 会被拒绝而非降级,
+  // `[FACT]` ADR-0024 §3.4.1:不能流式的 provider 会被拒绝而非降级,
   // 并把拒绝的理由说出来。
   'conflict.unsupported':
     '{provider} 不支持流式输出。其协议没有流式实现，因此不会发出请求（否则只会一次性返回，看起来像卡住）。保留 ours、保留 theirs、手工编辑仍然可用。',
