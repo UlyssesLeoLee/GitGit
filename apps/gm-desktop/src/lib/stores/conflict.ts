@@ -75,8 +75,8 @@ export const CONFLICT_NO_TERMINAL_MESSAGE =
  * `[FACT]` The same four families the Rust side refuses
  * (`src/ai/conflict.rs`: `<<<<<<<`, `|||||||`, `=======`, `>>>>>>>`).
  * The front-end applies them to a hand-written edit as a local
- * pre-flight only — the Rust side validates the same thing again when
- * the region is written back.
+ * pre-flight only — the write-back path does **not** check them again:
+ * a manual text goes straight into `RegionChoice::Custom`.
  */
 export const CONFLICT_MARKERS: readonly string[] = [
   '<<<<<<<',
@@ -170,7 +170,7 @@ export interface ConflictState {
   /**
    * True once the user has opened the diff of the suggestion.
    *
-   * `[PROPOSAL]` ADR §3.4.3: "the accept button is disabled until the
+   * `[FACT]` ADR §3.4.3: "the accept button is disabled until the
    * user has looked at the diff". That is a state-machine constraint,
    * not a style, so it lives in the state and not in a CSS class.
    */
@@ -180,7 +180,7 @@ export interface ConflictState {
   /**
    * The replacement the user chose, and the choice that produced it.
    *
-   * `[PROPOSAL]` ADR §3.4.4: no failure path writes a file, so the
+   * `[FACT]` ADR §3.4.4: no failure path writes a file, so the
    * resolution is what the dialog shows, not what it commits.
    *
    * `[FACT]` The resolution is a **view**: it is derived from `decisions`
@@ -224,7 +224,7 @@ export interface ConflictState {
   /**
    * The paths the core leaves to git.
    *
-   * `[PROPOSAL]` They are reported, not dropped: an add/delete or rename
+   * `[FACT]` They are reported, not dropped: an add/delete or rename
    * conflict has no base stage, and binary content is not text
    * (ADR §3.7.4). A page that said "no conflict regions" while git still
    * had work to do would be lying.
@@ -302,7 +302,7 @@ export function isBusy(s: ConflictState): boolean {
 /**
  * Whether the "accept" button may be pressed.
  *
- * `[PROPOSAL]` ADR §3.4.3: the suggestion is presented as a diff, and
+ * `[FACT]` ADR §3.4.3: the suggestion is presented as a diff, and
  * the accept button is disabled until the user has looked at it. Two
  * conditions have to hold: the `done` event must have carried the
  * **accepted** outcome (a refused answer has nothing to accept), and the
@@ -320,8 +320,8 @@ export function canAccept(s: ConflictState): boolean {
 /**
  * Whether the "ask AI" option may be pressed.
  *
- * `[PROPOSAL]` ADR §3.7.1: with no key the option is shown but disabled
- * and says why. `[PROPOSAL]` ADR §3.4.1: an option is only offered on a
+ * `[FACT]` ADR §3.7.1: with no key the option is shown but disabled
+ * and says why. `[FACT]` ADR §3.4.1: an option is only offered on a
  * provider that can stream.
  *
  * `[INFERENCE]` `keyStatus === 'unknown'` disables the option too. The
@@ -336,9 +336,10 @@ export function canAskAi(s: ConflictState, streaming: boolean): boolean {
 /**
  * The replacement text for a choice that needs no model.
  *
- * `[PROPOSAL]` ADR §3.7.4: "keep ours" and "keep theirs" are not put
- * through the suggestion checks — the user picked a side. A hand-written
- * edit *is*, because it replaces the region with text nobody checked.
+ * `[FACT]` ADR §3.7.4: "keep ours" and "keep theirs" skip the suggestion
+ * checks — the user picked a side. A hand-written edit goes through the
+ * marker check and a length check (`CONFLICT_MAX_TEXT_CHARS`), but **not**
+ * the base-section check; the write-back path re-checks none of them.
  */
 export function resolveChoice(
   region: ConflictRegion,
@@ -445,7 +446,7 @@ function applyConflictEvent(e: ConflictEventDto): void {
   // stream we already stopped. An unknown one means the start command has
   // not resolved yet, and this subscription can only carry the new stream.
   if (s.sessionId !== null && e.sessionId !== s.sessionId) return;
-  // `[PROPOSAL]` ADR §3.7.2: an answer must be bound to the region it
+  // `[FACT]` ADR §3.7.2: an answer must be bound to the region it
   // was asked about. A token that names another region cannot land on
   // this one.
   if ('regionId' in e && s.regionId !== null && e.regionId !== s.regionId) return;
@@ -737,7 +738,7 @@ export function abandonArbitration(): void {
 /**
  * Record that the user has opened the diff of the suggestion.
  *
- * `[PROPOSAL]` ADR §3.4.3: the accept button is disabled until the user
+ * `[FACT]` ADR §3.4.3: the accept button is disabled until the user
  * has looked at the diff.
  */
 export function markDiffSeen(): void {
@@ -749,11 +750,11 @@ export function markDiffSeen(): void {
 /**
  * Record the replacement the user chose.
  *
- * `[PROPOSAL]` ADR §3.4.4: nothing is written here. The decision is
+ * `[FACT]` ADR §3.4.4: nothing is written here. The decision is
  * recorded; writing it back is the write path's job
  * (`applyDecisions`).
  *
- * `[PROPOSAL]` ADR §3.7.3: the same decision is what produces the
+ * `[FACT]` ADR §3.7.3: the same decision is what produces the
  * **audit record**, and the record is written by the backend — the
  * webview only says *which* choice was made. The write is kicked off here
  * rather than from the dialog's four handlers so that no choice can be
@@ -807,7 +808,7 @@ async function writeAuditRecord(region: ConflictRegion, choice: ConflictChoice):
 /**
  * Load the conflict regions of a repository.
  *
- * `[PROPOSAL]` ADR §3.1: the regions come from the Rust core's parse of
+ * `[FACT]` ADR §3.1: the regions come from the Rust core's parse of
  * `git merge-file`'s output.
  */
 export async function loadRegions(
