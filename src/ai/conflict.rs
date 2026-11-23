@@ -168,11 +168,23 @@ impl ConflictRegion {
     ///
     /// `[PROPOSAL]` ADR §3.7.4: "the region's ours and theirs text are the
     /// same — the region exists but the two sides are equivalent; the default
-    /// suggestion is keep ours". The comparison ignores surrounding
+    /// suggestion is keep ours". The comparison ignores **trailing**
     /// whitespace: two sides that differ only in a trailing newline are the
     /// same text for a human reader.
+    ///
+    /// `[FACT]` The comparison does **not** ignore **leading** whitespace,
+    /// and that is the whole point of the trailing-only trim.
+    ///
+    /// `[INFERENCE]` Leading whitespace is language-significant: in Python
+    /// and YAML, `ours = "    value"` and `theirs = "value"` are different
+    /// programs, not the same text written with different indentation. A
+    /// comparison that trimmed both ends would call those two sides
+    /// equivalent, and the product would then refuse to ask the model
+    /// about exactly the region where the difference matters. Trimming the
+    /// trailing end only keeps the difference visible, and the cost of
+    /// asking is one question.
     pub fn sides_are_equivalent(&self) -> bool {
-        self.ours.trim() == self.theirs.trim()
+        self.ours.trim_end() == self.theirs.trim_end()
     }
 
     /// The default choice for this region (ADR §3.7.4).
@@ -659,6 +671,29 @@ mod tests {
         let r = region();
         assert!(!r.sides_are_equivalent());
         assert_eq!(r.default_choice(), DefaultChoice::AskModel);
+    }
+
+    #[test]
+    fn sides_that_differ_only_in_leading_whitespace_are_not_equivalent() {
+        // `[INFERENCE]` Leading whitespace is language-significant: in
+        // Python and YAML the two sides are different programs. A region
+        // like that is exactly the one the model should be asked about, so
+        // the comparison must not call the two sides equivalent.
+        let mut r = region();
+        r.ours = String::from("    value\n");
+        r.theirs = String::from("value\n");
+        assert!(!r.sides_are_equivalent());
+        assert_eq!(r.default_choice(), DefaultChoice::AskModel);
+    }
+
+    #[test]
+    fn sides_that_differ_only_in_a_trailing_newline_are_equivalent() {
+        // `[INFERENCE]` A trailing newline is not part of what the reader
+        // sees, so the two sides are the same text.
+        let mut r = region();
+        r.theirs = format!("{}\n", r.ours);
+        assert!(r.sides_are_equivalent());
+        assert_eq!(r.default_choice(), DefaultChoice::KeepOurs);
     }
 
     #[test]

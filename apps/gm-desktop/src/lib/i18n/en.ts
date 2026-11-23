@@ -266,6 +266,14 @@ const en: Readonly<Record<string, string>> = {
   // refused rather than degraded, and the refusal is stated.
   'conflict.unsupported':
     '{provider} cannot stream — its protocol has no streaming implementation, so the request is never sent rather than arriving in one lump behind a spinner. Keep ours, keep theirs and edit-by-hand are still available.',
+  // `[FACT]` ADR-0024 §3.7.4: the region's two sides carry the same text,
+  // so the model is not asked — the only answer it could give is the text
+  // the user already has. The option is present but disabled, and it says
+  // why.
+  'conflict.sidesEquivalent':
+    'Both sides carry the same text, so "ask the AI" is unavailable — the only answer it could give is the text you already have. Keeping ours is the default.',
+  // `[FACT]` The badge on the option the ADR names as the default.
+  'conflict.defaultChoice': 'default',
   'conflict.rejected': 'The suggestion was rejected: {reason}',
   'conflict.status.starting': 'Starting…',
   'conflict.status.streaming': 'Streaming…',

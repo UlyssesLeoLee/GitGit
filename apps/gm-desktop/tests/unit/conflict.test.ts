@@ -77,6 +77,10 @@ const REGION: ConflictRegion = {
   contextBefore: 'export function connect() {\n',
   contextAfter: '  return retry(timeout);\n}\n',
   scopeLabel: 'connect',
+  // `[FACT]` The backend's flag: the library's judgement that the region's
+  // two sides carry the same text (ADR-0024 §3.7.4). These two sides
+  // differ.
+  sidesEquivalent: false,
 };
 
 /**
@@ -553,6 +557,74 @@ describe('the conflict dialog — no API key', () => {
     });
     await waitFor(() => expect(screen.getByTestId('conflict-unsupported')).toBeTruthy());
     expect(screen.queryByTestId('conflict-ask-ai')).toBe(null);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The two sides are the same (ADR-0024 §3.7.4)
+// ---------------------------------------------------------------------------
+
+describe('the conflict dialog — the two sides are the same', () => {
+  /**
+   * A region whose two sides carry the same text.
+   *
+   * `[FACT]` The flag is the **backend's**: the library's own judgement
+   * (`ConflictRegion::sides_are_equivalent`, `src/ai/conflict.rs`). The
+   * webview does not compare the two sides itself — it reads the flag.
+   */
+  const EQUIVALENT_REGION: ConflictRegion = {
+    ...REGION,
+    id: 'b7c8d9e0f1a2b3c4d5e6f708192a3b4',
+    ours: 'const timeout = 30;\n',
+    theirs: 'const timeout = 30;\n',
+    sidesEquivalent: true,
+  };
+
+  it('does not offer "ask the AI", and says why', async () => {
+    // `[FACT]` ADR-0024 §3.7.4: "the region's ours and theirs text are the
+    // same — the region exists but the two sides are equivalent; the
+    // default suggestion is keep ours". Asking the model such a region is
+    // a question whose only possible answer is the text the user already
+    // has.
+    //
+    // A key IS configured here, so the equivalence is the only reason the
+    // option can be unavailable — and the option is present but disabled,
+    // the same shape as the "no key" case.
+    withInvoke({ ai_key_status: () => true });
+    render(ConflictDialog, { props: { region: EQUIVALENT_REGION } });
+
+    const ask = screen.getByTestId('conflict-ask-ai') as HTMLButtonElement;
+    await waitFor(() => expect(ask.disabled).toBe(true));
+    // And the reason is stated, so the user is not left guessing.
+    const note = await waitFor(() => screen.getByTestId('conflict-sides-equivalent'));
+    expect(note.textContent ?? '').not.toBe('');
+  });
+
+  it('names "keep ours" as the default', async () => {
+    // `[FACT]` The ADR's default for such a region is "keep ours", and the
+    // dialog says which option that is. The dialog does **not** make the
+    // decision: a decision the user did not make is not a decision, and the
+    // write-back needs one per region.
+    render(ConflictDialog, { props: { region: EQUIVALENT_REGION } });
+
+    const ours = screen.getByTestId('conflict-keep-ours');
+    expect(ours.getAttribute('data-default')).toBe('true');
+    expect(screen.getByTestId('conflict-keep-ours-default')).toBeTruthy();
+  });
+
+  it('offers "ask the AI" when the two sides differ', async () => {
+    // The mirror of the case above: the feature is not taken away. A region
+    // whose sides differ keeps the option, with a key configured.
+    withInvoke({ ai_key_status: () => true });
+    render(ConflictDialog, { props: { region: REGION } });
+
+    const ask = screen.getByTestId('conflict-ask-ai') as HTMLButtonElement;
+    await waitFor(() => expect(ask.disabled).toBe(false));
+    // And nothing says the sides are equivalent, because they are not.
+    expect(screen.queryByTestId('conflict-sides-equivalent')).toBe(null);
+    expect(
+      screen.getByTestId('conflict-keep-ours').getAttribute('data-default'),
+    ).toBe('false');
   });
 });
 

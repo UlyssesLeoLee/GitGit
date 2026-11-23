@@ -49,9 +49,11 @@ const CONFLICT_EVENTS = [
  * `[FACT]` `ConflictRegionDto` on the Rust side is deserialized with
  * `rename_all = "camelCase"` and carries exactly these eight fields.
  * The webview's own `ConflictRegion` adds an `id` and a `scopeLabel`
- * for display, so the two are mapped rather than passed through: serde
- * ignores unknown fields, but a payload that is exactly the contract is
- * a payload that cannot drift from it by accident.
+ * for display, and the backend's `sidesEquivalent` flag — the library's
+ * own judgement that the two sides carry the same text
+ * (ADR-0024 §3.7.4) — so the two are mapped rather than passed through:
+ * serde ignores unknown fields, but a payload that is exactly the contract
+ * is a payload that cannot drift from it by accident.
  */
 export interface ConflictRegionPayload {
   path: string;

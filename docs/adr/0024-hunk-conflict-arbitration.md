@@ -224,7 +224,7 @@
 
 **决策**：**一个区域一次请求**；system 段是本仓自己写的（trusted），user 段整块是**不可信**内容，走 `sanitize::sanitize_request`。
 
-**送什么（`[PROPOSAL]`，逐项）**：
+**送什么（逐项；标 `[FACT]` 的行已落地并有代码可指，其余为 `[PROPOSAL]`）**：
 
 | 送入项 | 内容 | 信任级别 |
 |---|---|---|
@@ -234,11 +234,15 @@
 | **ours 侧** | 冲突区域在 ours 版本里的原文 | 不可信 |
 | **base 侧** | 冲突区域在 base 版本里的原文 | 不可信 |
 | **theirs 侧** | 冲突区域在 theirs 版本里的原文 | 不可信 |
-| 上下文 | base 文件里冲突区域**前后各 ≤20 行**，**不含**其它区域 | 不可信 |
+| 上下文 `[FACT]` | base 文件里冲突区域**前后各 ≤20 行**，**不含**其它区域 ✓ | 不可信 |
+
+`[FACT]` 上下文的落地：`CONTEXT_LINES = 20`（`apps/gm-desktop/src-tauri/src/commands/conflict.rs`）✓ —— 与 AI 侧的夹紧是**同一个**上限（`MAX_CONTEXT_LINES = 20`，`src/ai/conflict.rs:50`）✓；窗口在**上下相邻区域的 base 区间边界**处截断 ✓（`context_before` / `context_after` ✓，相邻区域紧挨着时那一侧取到的是**空** ✓，不是相邻区域的行 ✓），所以「**不含**其它区域」这条成立 ✓。
 
 **为什么给 base**：`[INFERENCE]` 用户自己的判断依据就是 base；不给 base，AI 只能猜「这两个版本哪个更像对的」，而 base 才是「原来的样子」。不给 base 的 AI 建议，本质是让模型二选一 —— 而 §3.4 的方案里用户本来就能自己二选一，AI 就没有增量价值。
 
 **为什么给上下文（各 ≤20 行）**：`[INFERENCE]` 冲突区域常常是一行（实测 §2.3 的例子就是单行冲突），孤立地给一行，模型无法判断这行在函数签名里、在 import 列表里、还是在字符串字面量里。20 行是**保守**取值，够看出上下文又不至于把整个文件塞进 prompt。`[FACT]` 本仓已有的同类夹紧是 `MAX_DIFF_CHARS = 60_000`（`src/ai/prompt.rs:78`）—— 本请求沿用同一个上限与同一条「被夹紧必须可见告知」的规则（`src/ai/prompt.rs:86-96`）。
+
+`[FACT]` **这段论证落地后兑现了** ✓：桌面端现在给模型的就是这 20 行 ✓（`CONTEXT_LINES = 20` ✓），并且在相邻区域的 base 区间边界处截断 ✓。此前桌面端给的是 **3** 行 ✓ —— 那恰好是这段论证要避免的「几乎孤立」✓，等于产品自己推翻了 ADR 的理由 ✓。
 
 **为什么整块当不可信**：`[FACT]` 冲突区域在「对方分支是别人的」时候是攻击者可控文本。`[FACT]` 本仓已有纪律：`Trust::Untrusted`（`src/ai/provider.rs:28-35`）、`ChatMessage::untrusted`（`:99-105`）、`UNTRUSTED_SYSTEM_PROMPT`（`src/ai/sanitize.rs:36-42`）、`wrap_untrusted`（`:299-308`）、`sanitize_request`（`:321`）。`[FACT]` `ChatMessage` 的 `trust` 默认值是 `Untrusted`（`src/ai/provider.rs:81-84`）—— 忘记分类的调用方走的是**保护**路径。
 
@@ -404,18 +408,20 @@
 - `[FACT]` 记录里**没有** key 的字段 ✓；key 也从不进日志 ✓、从不进 flag ✓（§3.9 的既有纪律 ✓）。
 - `[FACT]` 新命令的错误路径同样过既有防线 ✓（`sanitize::scrub_secret`，`apps/gm-desktop/src-tauri/src/commands/ai.rs` ✓）：审计写失败时报的是「这条记录写不进去」✓，不是 key ✓。
 
-#### 3.7.4 边界清单（`[PROPOSAL]`）
+#### 3.7.4 边界清单（`[PROPOSAL]`；标 `[FACT]` 的行已落地）
 
 | 情形 | 行为 |
 |---|---|
 | 二进制文件 | 无区域。标「需 git 原生处理」，对话框不假装能仲裁 |
 | 一侧新增、一侧删除（add/delete 冲突） | 无三方 base。不进入区域仲裁 |
 | 两侧内容相同 | 无区域 |
-| 区域内 ours 与 theirs 文本相同 | 区域存在但两侧等价；默认建议「保留 ours」，AI 不必问 |
+| 区域内 ours 与 theirs 文本相同 `[FACT]` | 区域存在但两侧等价；默认建议「保留 ours」，AI 不必问 ✓ |
 | 区域数 > 1 | 逐区域仲裁；区域列表常驻可见 |
 | 用户手工编辑 | 编辑框预填 ours 侧文本，可编辑；保存前做与 AI 建议**同一套**校验（§3.4.2 的 2/3/4 条） |
 | scope 切分不确定 | 回退「整文件一个 scope」⇒ 报冲突（§3.8） |
 | 用户中途关页 | 流取消；已落地的区域保持已落地，未落地的保持未落地 |
+
+`[FACT]` 「两侧相同」这一行已经落地 ✓：**判断只做一次，在后端，由库做出** ✓ —— `ConflictRegion::sides_are_equivalent()`（`src/ai/conflict.rs:174-176` ✓，两侧相同 ⇒ `default_choice()` 给出 `KeepOurs` ✓，`:179-185` ✓）。桌面端把它作为 `sidesEquivalent` 标志交给 webview ✓（`ConflictRegionDto` ✓，`apps/gm-desktop/src-tauri/src/commands/conflict.rs` ✓），**前端不再自己判一遍** ✓（`ConflictRegion.sidesEquivalent` ✓，`apps/gm-desktop/src/lib/api/types.ts` ✓）。对话框据此把「问 AI」**禁用**并说明原因 ✓，并把「保留 ours」标为默认选项 ✓（`apps/gm-desktop/src/lib/components/ConflictDialog.svelte` ✓）。写回不受影响 ✓：选 ours 就是 `RegionChoice::Ours` ✓，照常落库 ✓。
 
 ### 3.8 Scope 层：规则、安全性质、以及**为什么第一交付只做定位不做抑制**
 
@@ -523,7 +529,7 @@ merge-file 产出冲突区域  →  scope 层给每个区域定位 scope  →  �
 
 ### 落库状态（2026-11-22 更新）
 
-`[FACT]` **六条** lane 全部落地 ✓：
+`[FACT]` **七条** lane 全部落地 ✓：
 
 | lane | PR | 落在库里的东西 | 该 lane 落地时的测试数 |
 |---|---|---|---|
@@ -532,9 +538,10 @@ merge-file 产出冲突区域  →  scope 层给每个区域定位 scope  →  �
 | C | #96 | `/conflicts` 路由 ✓、`ConflictDialog.svelte` ✓、`stores/conflict.ts` ✓、`api/conflict.ts` ✓、`utils/linediff.ts` ✓、i18n `conflict.*` ✓ | 前端 `conflict.test.ts` 36 个 ✓ |
 | D | #99 | ADR 状态收口 ✓ + capability surface 门禁管到**应用自己的命令面** ✓ + 桌面端 `conflict_regions` 命令 ✓ | 门禁 37 个 ✓；桌面端 crate 59 个 ✓（54 + 新命令的 3 个 ✓ + delta 上限的 2 个 ✓） |
 | E | #104 | 审计记录 ✓：`apps/gm-desktop/src-tauri/src/commands/audit.rs` ✓（§3.7.3 ✓）+ 前端按区域累积决定 ✓ + 去重键带 region id ✓ | 桌面端 crate 72 个 ✓；前端 `conflict.test.ts` 43 个 ✓ |
-| I | 本 PR | 写回路径 ✓：桌面端 `conflict_resolve` 命令 ✓（§3.6 ✓）+ 前端按路径分组的「应用」动作 ✓ | 桌面端 crate **82** 个 ✓（72 + 写回的 10 个 ✓）；前端 `conflict.test.ts` **56** 个 ✓（43 + 写回的 13 个 ✓） |
+| I | #108 | 写回路径 ✓：桌面端 `conflict_resolve` 命令 ✓（§3.6 ✓）+ 前端按路径分组的「应用」动作 ✓ | 桌面端 crate **82** 个 ✓（72 + 写回的 10 个 ✓）；前端 `conflict.test.ts` **56** 个 ✓（43 + 写回的 13 个 ✓） |
+| J | 本 PR | 上下文兑现 ✓：桌面端 `CONTEXT_LINES = 20` ✓ + 在相邻区域的 base 区间边界处截断 ✓（§3.3 ✓）；两侧相同 ⇒ 不问 AI ✓：后端用库的 `sides_are_equivalent()` 算出 `sidesEquivalent` 标志 ✓（§3.7.4 ✓）+ 对话框据此禁用「问 AI」并说明原因 ✓ | 桌面端 crate **87** 个 ✓（82 + 上下文的 5 个 ✓）；前端 `conflict.test.ts` **59** 个 ✓（56 + 两侧相同的 3 个 ✓） |
 
-`[FACT]` **当前实测**（2026-11-22）：前端 `conflict.test.ts` **56** 个 ✓；桌面端 crate **82** 个 ✓；capability surface 门禁 **37** 个 ✓（新命令只加了一个名字 ✓，门禁的用例数不变 ✓）。上表「该 lane 落地时的测试数」是**历史记录** ✓，不是当前值 ✓。
+`[FACT]` **当前实测**（2026-11-22）：前端 `conflict.test.ts` **59** 个 ✓；桌面端 crate **87** 个 ✓；capability surface 门禁 **37** 个 ✓（没有新命令 ✓，门禁的用例数不变 ✓）。上表「该 lane 落地时的测试数」是**历史记录** ✓，不是当前值 ✓。
 
 `[FACT]` Lane D 补上了 `conflict_regions` 这个命令 ✓ —— 门禁在 dev 上报出「前端调用了 Rust 侧没注册的命令」✓，而这正是 ADR §3.1 说的区域来源 ✓：命令读的是**进行中 merge 的 index stage** ✓，再交给 `src/repo/conflict.rs` 的核心解析 ✓。
 
@@ -677,6 +684,7 @@ merge-file 产出冲突区域  →  scope 层给每个区域定位 scope  →  �
 | D | 门禁 `vitest run tests/unit/capability-surface-gate.test.ts` | 37 个通过 ✓；**6 个变异全部变红** ✓（见下） |
 | E | 桌面端 crate `cargo test --locked` | 72 个通过 ✓；前端 `conflict.test.ts` 43 个通过 ✓ |
 | I | 桌面端 crate `cargo test --locked` + `cargo clippy --all-targets --locked -- -D warnings` + `cargo fmt --all -- --check` | **82 个通过 ✓、0 失败** ✓；clippy exit 0 ✓；fmt exit 0 ✓。前端 `conflict.test.ts` **56** 个通过 ✓；本地全量 **756 通过 / 17 失败** ✓ —— 失败仍**全在**那三个要 shell 出去找 bash 与 jq 的文件里 ✓（`corresponding-source-notice` ✓、`release-tag-resolution` ✓、`workflow-step-isolation` ✓），**没有第四个失败文件** ✓。 |
+| J | 桌面端 crate `cargo test --locked` + `cargo clippy --all-targets --locked -- -D warnings` + `cargo fmt --all -- --check` | **87 个通过 ✓、0 失败** ✓；clippy exit 0 ✓；fmt exit 0 ✓。前端 `conflict.test.ts` **59** 个通过 ✓；capability surface 门禁 **37** 个通过 ✓（没有新命令 ✓）；`pnpm lint` exit 0 ✓；`pnpm check` 0 error 0 warning ✓；本地全量 **760 通过 / 16 失败** ✓ —— 失败仍**全在**那三个要 shell 出去找 bash 与 jq 的文件里 ✓（`corresponding-source-notice` ✓、`release-tag-resolution` ✓、`workflow-step-isolation` ✓），**没有第四个失败文件** ✓。**变异证据** ✓：去掉上下文裁剪 ⇒「相邻区域不在上下文里」变红 ✓；把标志改成恒为 false ⇒「两侧相同时标志为 true」变红 ✓（见下）。 |
 
 `[FACT]` Lane D 的门禁**当场抓到一个真缺陷** ✓：前端调用的 `conflict_regions` 在 Rust 侧**没有注册** ✓ —— 那不是测试写错 ✓，而是「点了按钮才在运行时炸」的那种缺陷 ✓。本 PR 因此补上了那个命令 ✓（`apps/gm-desktop/src-tauri/src/commands/conflict.rs` ✓）：它读**进行中 merge 的 index stage** ✓，再交给 `src/repo/conflict.rs` 的核心解析 ✓。
 

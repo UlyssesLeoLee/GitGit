@@ -267,6 +267,13 @@ const zh: Readonly<Record<string, string>> = {
   // 并把拒绝的理由说出来。
   'conflict.unsupported':
     '{provider} 不支持流式输出。其协议没有流式实现，因此不会发出请求（否则只会一次性返回，看起来像卡住）。保留 ours、保留 theirs、手工编辑仍然可用。',
+  // `[FACT]` ADR-0024 §3.7.4:区域两侧文本相同,因此不问模型 ——
+  // 模型能给出的答案只能是用户手上已有的那段文本。该选项存在但不可用,
+  // 并说明原因。
+  'conflict.sidesEquivalent':
+    '两侧文本相同，因此「问 AI」不可用 —— 模型能给出的答案只能是您手上已有的那段文本。保留 ours 是默认选项。',
+  // `[FACT]` ADR 指名的默认选项上的标记。
+  'conflict.defaultChoice': '默认',
   'conflict.rejected': '建议已被拒绝：{reason}',
   'conflict.status.starting': '启动中…',
   'conflict.status.streaming': '流式接收中…',

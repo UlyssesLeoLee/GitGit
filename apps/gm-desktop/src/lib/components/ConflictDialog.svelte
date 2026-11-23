@@ -72,6 +72,23 @@
   const decision = $derived($conflict.decisions[region.id] ?? null);
 
   /**
+   * Whether the region's two sides carry the same text.
+   *
+   * `[FACT]` ADR-0024 §3.7.4: "the region's ours and theirs text are the
+   * same — the region exists but the two sides are equivalent; the default
+   * suggestion is keep ours". The judgement is the **library's**
+   * (`ConflictRegion::sides_are_equivalent`, `src/ai/conflict.rs`) and it
+   * was made once, in the backend; the webview reads the flag and does not
+   * compare the two sides again.
+   *
+   * `[INFERENCE]` Asking the model such a region is a question whose only
+   * possible answer is the text the user already has, so the option is
+   * shown but disabled — the same shape as "no key", and for the same
+   * reason: the dialog does not degrade, it says why.
+   */
+  const sidesEquivalent = $derived(region.sidesEquivalent);
+
+  /**
    * Ask the backend whether a key can be resolved for the provider.
    *
    * `[PROPOSAL]` ADR §3.7.1: the "ask AI" option is shown but disabled
@@ -195,10 +212,23 @@
         type="button"
         class="btn-secondary"
         data-testid="conflict-keep-ours"
+        data-default={sidesEquivalent}
         onclick={onKeepOurs}
         disabled={$conflict.status === 'starting' || $conflict.status === 'streaming'}
       >
         {$catalog['conflict.keepOurs']}
+        <!--
+          `[FACT]` ADR-0024 §3.7.4: when the two sides carry the same text
+          the default is "keep ours". The dialog **shows** that default — it
+          does not make the decision for the user: a decision the user did
+          not make is not a decision, and the write-back needs one per
+          region.
+        -->
+        {#if sidesEquivalent}
+          <span class="ml-1 text-xs" data-testid="conflict-keep-ours-default">
+            {$catalog['conflict.defaultChoice']}
+          </span>
+        {/if}
       </button>
       <button
         type="button"
@@ -230,7 +260,7 @@
           class="btn-primary"
           data-testid="conflict-ask-ai"
           onclick={onAskAi}
-          disabled={!canAskAi($conflict, streaming)}
+          disabled={!canAskAi($conflict, streaming) || sidesEquivalent}
         >
           {$catalog['conflict.askAi']}
         </button>
@@ -254,6 +284,21 @@
     {#if streaming && $conflict.keyStatus === 'absent'}
       <p class="text-sm text-amber-700" data-testid="conflict-no-key">
         {$catalog['conflict.noKey']}
+      </p>
+    {/if}
+
+    <!--
+      `[FACT]` ADR-0024 §3.7.4: "the region's ours and theirs text are the
+      same — the region exists but the two sides are equivalent; the default
+      suggestion is keep ours". The model is not asked: the only text it
+      could answer with is the text the user already has. The option is
+      present but disabled and says why — the same shape as the "no key"
+      case above, and for the same reason: the dialog does not degrade, it
+      explains.
+    -->
+    {#if sidesEquivalent}
+      <p class="text-sm text-amber-700" data-testid="conflict-sides-equivalent">
+        {$catalog['conflict.sidesEquivalent']}
       </p>
     {/if}
 
