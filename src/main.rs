@@ -550,9 +550,30 @@ async fn run_cloud(config: &Config, sub: CloudCommand) -> anyhow::Result<()> {
             let entry = pick_disk(&registry, disk.as_deref())?;
             let (access_key, secret_key) = registry.credentials_for(entry)?;
             let disk = cloud::S3CloudDisk::connect(entry, &access_key, &secret_key).await?;
-            let meta =
-                cloud::backup::restore(&disk, &key, repo.as_deref(), &config.repos_dir).await?;
-            println!("restored {} from {key}", meta.repo);
+            let outcome = cloud::backup::restore(
+                &disk,
+                &key,
+                repo.as_deref(),
+                &config.repos_dir,
+                &entry.name,
+            )
+            .await?;
+            println!("restored {} from {key}", outcome.meta.repo);
+            // The safety snapshot is the user's way back ✓ — so the key is
+            // printed ✓, and so is what it holds ✓.
+            match &outcome.safety_snapshot {
+                Some(safety) => {
+                    println!("  safety snapshot: {safety}");
+                    println!(
+                        "  the repository that was replaced is kept there — restore that key to undo this restore"
+                    );
+                }
+                None => {
+                    println!(
+                        "  there was no repository to replace, so no safety snapshot was taken"
+                    );
+                }
+            }
             Ok(())
         }
     }
