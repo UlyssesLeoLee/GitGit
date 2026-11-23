@@ -18,6 +18,8 @@
 use std::collections::BTreeMap;
 use std::path::Path;
 
+use gitgit::ai::conflict::ConflictRegion as AiRegion;
+use gitgit::repo::Region;
 use serde::{Deserialize, Serialize};
 use tauri::State;
 
@@ -26,7 +28,14 @@ use crate::error::{AppError, AppResult};
 use crate::state::DesktopState;
 
 /// How many lines of context the webview gets on each side of a region.
-const CONTEXT_LINES: usize = 3;
+///
+/// `[FACT]` ADR-0024 §3.3 promises the model "the base file's lines before
+/// and after the conflict region, at most 20 on each side, and **no other
+/// region**". Twenty is also the bound the AI side clamps to
+/// (`MAX_CONTEXT_LINES`, `src/ai/conflict.rs`), so the desktop hands over
+/// exactly what the prompt would have kept — and the window is cut at the
+/// neighbouring regions, so no other region's lines ride along.
+const CONTEXT_LINES: usize = 20;
 
 /// The conflict regions of `repo`, and the paths git has to handle itself.
 ///
@@ -74,6 +83,15 @@ pub struct ConflictRegionDto {
     pub context_after: String,
     /// The scope the region lives in, as a human label (ADR §3.8).
     pub scope_label: String,
+    /// Whether the region's two sides carry the same text.
+    ///
+    /// `[FACT]` ADR-0024 §3.7.4: "the region's ours and theirs text are the
+    /// same — the region exists but the two sides are equivalent; the
+    /// default suggestion is keep ours". The judgement is the **library's**
+    /// ([`AiRegion::sides_are_equivalent`], `src/ai/conflict.rs`) and it is
+    /// made **once**, here in the backend ✓ — the webview reads the flag and
+    /// does not compare the two sides again ✓.
+    pub sides_equivalent: bool,
 }
 
 /// The conflict regions of `repo`.
@@ -116,19 +134,19 @@ pub async fn conflict_regions(
             None => String::new(),
         };
         let base_lines: Vec<&str> = base_text.lines().collect();
-        for region in set.all_regions() {
-            regions.push(ConflictRegionDto {
-                id: region.id.clone(),
-                path: set.path.clone(),
-                base_oid: set.base_oid.clone().unwrap_or_default(),
-                index: region.index,
-                ours: region.ours.clone(),
-                base: region.base.clone(),
-                theirs: region.theirs.clone(),
-                context_before: context_before(&base_lines, region.base_range.start),
-                context_after: context_after(&base_lines, region.base_range.end),
-                scope_label: region.scope.label.clone(),
-            });
+        // `[FACT]` The regions of one path are in merged order ✓, and the
+        // merged output is in base order ✓, so the neighbour of a region is
+        // the one before it or the one after it in this list ✓ — which is
+        // what makes the context window's boundaries a linear walk ✓.
+        let path_regions = set.all_regions();
+        for (index, region) in path_regions.iter().enumerate() {
+            regions.push(region_dto(
+                &set.path,
+                set.base_oid.as_deref().unwrap_or_default(),
+                region,
+                neighbours_of(&path_regions, index),
+                &base_lines,
+            ));
         }
     }
     Ok(ConflictRegionsDto { regions, needs_git })
@@ -184,16 +202,117 @@ async fn blob_text(workdir: &Path, oid: &str) -> AppResult<String> {
     Ok(String::from_utf8_lossy(&out.stdout).into_owned())
 }
 
+/// Where a region's neighbours end and begin, in base-file line numbers.
+///
+/// `[FACT]` The boundaries are **base** ranges ✓: the context is cut out of
+/// the base file ✓, and ours' / theirs' line numbers are different lines of
+/// different files ✓ — mixing them would cut the wrong lines ✓.
+#[derive(Debug, Clone, Copy, Default)]
+struct Neighbours {
+    /// The line the previous region's base range ends at.
+    previous_end: Option<usize>,
+    /// The line the next region's base range starts at.
+    next_start: Option<usize>,
+}
+
+/// The neighbours of the region at `index` in `regions`.
+///
+/// `[FACT]` `regions` is in merged order ✓ and the merged output is in base
+/// order ✓, so the previous region is the one before it and the next region
+/// is the one after it ✓. A region at either end of the list has no
+/// neighbour on that side ✓ — and then the window is not clipped ✓, because
+/// there is no other region to exclude ✓.
+fn neighbours_of(regions: &[&Region], index: usize) -> Neighbours {
+    Neighbours {
+        previous_end: index
+            .checked_sub(1)
+            .and_then(|previous| regions.get(previous))
+            .map(|previous| previous.base_range.end),
+        next_start: regions.get(index + 1).map(|next| next.base_range.start),
+    }
+}
+
 /// The base file's lines before `start`, at most [`CONTEXT_LINES`] of them.
-fn context_before(lines: &[&str], start: usize) -> String {
-    let from = start.saturating_sub(CONTEXT_LINES);
-    lines[from.min(lines.len())..start.min(lines.len())].join("\n")
+///
+/// `[FACT]` The window stops at the previous region's base range ✓, so no
+/// line of another region rides along ✓ (ADR-0024 §3.3) ✓. A previous
+/// region that ends where this one starts leaves **nothing** on this side ✓
+/// — the context is empty ✓, and it is not the neighbour's lines ✓.
+fn context_before(lines: &[&str], start: usize, previous_end: Option<usize>) -> String {
+    let end = start.min(lines.len());
+    let from = match previous_end {
+        Some(previous_end) => start.saturating_sub(CONTEXT_LINES).max(previous_end),
+        None => start.saturating_sub(CONTEXT_LINES),
+    };
+    // `[FACT]` The window is clamped to the region itself ✓: a neighbour
+    // that overlaps this region cannot push the window past its own start ✓.
+    let from = from.min(end);
+    lines[from..end].join("\n")
 }
 
 /// The base file's lines after `end`, at most [`CONTEXT_LINES`] of them.
-fn context_after(lines: &[&str], end: usize) -> String {
-    let to = end.saturating_add(CONTEXT_LINES).min(lines.len());
-    lines[end.min(lines.len())..to].join("\n")
+///
+/// `[FACT]` The window stops at the next region's base range ✓, so no line
+/// of another region rides along ✓ (ADR-0024 §3.3) ✓. A next region that
+/// starts where this one ends leaves **nothing** on this side ✓ — the
+/// context is empty ✓, and it is not the neighbour's lines ✓.
+fn context_after(lines: &[&str], end: usize, next_start: Option<usize>) -> String {
+    let from = end.min(lines.len());
+    let to = match next_start {
+        Some(next_start) => end.saturating_add(CONTEXT_LINES).min(next_start),
+        None => end.saturating_add(CONTEXT_LINES),
+    };
+    // `[FACT]` The window is clamped to the region itself ✓ — see
+    // `context_before` ✓.
+    let to = to.max(from).min(lines.len());
+    lines[from..to].join("\n")
+}
+
+/// The DTO for one conflict region.
+///
+/// `[FACT]` The context is the base file's lines around the region ✓, cut at
+/// the neighbouring regions ✓, and the equivalence flag is the **library's**
+/// judgement ✓ (ADR-0024 §3.7.4) ✓.
+fn region_dto(
+    path: &str,
+    base_oid: &str,
+    region: &Region,
+    neighbours: Neighbours,
+    base_lines: &[&str],
+) -> ConflictRegionDto {
+    let context_before =
+        context_before(base_lines, region.base_range.start, neighbours.previous_end);
+    let context_after = context_after(base_lines, region.base_range.end, neighbours.next_start);
+
+    // `[FACT]` The region is built the way the AI request carries it ✓ — the
+    // same three sides and the same context ✓ — so the judgement is made on
+    // the text the model would have been asked about ✓, and the DTO and the
+    // request cannot drift apart ✓.
+    let ai_region = AiRegion {
+        path: path.to_string(),
+        base_oid: base_oid.to_string(),
+        index: region.index,
+        ours: region.ours.clone(),
+        base: region.base.clone(),
+        theirs: region.theirs.clone(),
+        context_before: context_before.clone(),
+        context_after: context_after.clone(),
+    };
+    let sides_equivalent = ai_region.sides_are_equivalent();
+
+    ConflictRegionDto {
+        id: region.id.clone(),
+        path: ai_region.path,
+        base_oid: ai_region.base_oid,
+        index: ai_region.index,
+        ours: ai_region.ours,
+        base: ai_region.base,
+        theirs: ai_region.theirs,
+        context_before: ai_region.context_before,
+        context_after: ai_region.context_after,
+        scope_label: region.scope.label.clone(),
+        sides_equivalent,
+    }
 }
 
 // --- the write-back (ADR-0024 §3.6) -------------------------------------
@@ -391,29 +510,190 @@ pub(crate) async fn resolve_path(
 mod tests {
     use super::*;
 
+    use gitgit::repo::{LineRange, RegionConfidence, ScopeKind, ScopeRef};
+
+    /// A base file of `count` lines, named `line000`, `line001`, ...
+    fn base_file(count: usize) -> Vec<String> {
+        (0..count).map(|i| format!("line{i:03}")).collect()
+    }
+
+    /// The base file's lines, borrowed.
+    fn base_lines(file: &[String]) -> Vec<&str> {
+        file.iter().map(|line| line.as_str()).collect()
+    }
+
+    /// A region with the given base range and the two sides.
+    fn region(index: usize, base_range: LineRange, ours: &str, theirs: &str) -> Region {
+        Region {
+            index,
+            id: format!("{index:032x}"),
+            ours: ours.to_string(),
+            base: "base\n".to_string(),
+            theirs: theirs.to_string(),
+            base_range,
+            merged_range: LineRange::new(0, 1),
+            scope: ScopeRef {
+                index: 0,
+                kind: ScopeKind::Item,
+                label: "fn main".to_string(),
+                spans_multiple: false,
+            },
+            confidence: RegionConfidence::SameScope,
+            both: None,
+        }
+    }
+
+    /// The DTO for the region at `index` of `regions`.
+    fn dto_for(regions: &[&Region], index: usize, base_lines: &[&str]) -> ConflictRegionDto {
+        region_dto(
+            "src/feature.rs",
+            "0123456789abcdef0123456789abcdef01234567",
+            regions[index],
+            neighbours_of(regions, index),
+            base_lines,
+        )
+    }
+
     #[test]
     fn the_context_is_the_lines_around_the_region() {
         let lines: Vec<&str> = vec!["one", "two", "three", "four", "five"];
         // The region covers lines 2..3 ("three"), so the context is the
         // line before and the lines after.
-        assert_eq!(context_before(&lines, 2), "one\ntwo");
-        assert_eq!(context_after(&lines, 3), "four\nfive");
+        assert_eq!(context_before(&lines, 2, None), "one\ntwo");
+        assert_eq!(context_after(&lines, 3, None), "four\nfive");
     }
 
     #[test]
     fn the_context_never_reaches_past_the_file() {
         let lines: Vec<&str> = vec!["only"];
-        assert_eq!(context_before(&lines, 0), "");
-        assert_eq!(context_after(&lines, 1), "");
-        assert_eq!(context_after(&lines, 0), "only");
+        assert_eq!(context_before(&lines, 0, None), "");
+        assert_eq!(context_after(&lines, 1, None), "");
+        assert_eq!(context_after(&lines, 0, None), "only");
     }
 
     #[test]
-    fn the_context_is_bounded() {
-        let lines: Vec<&str> = vec!["a", "b", "c", "d", "e", "f", "g", "h"];
-        // Three lines before index 8 are the lines 5, 6 and 7.
-        assert_eq!(context_before(&lines, 8), "f\ng\nh");
-        assert_eq!(context_after(&lines, 0), "a\nb\nc");
+    fn the_context_is_at_most_twenty_lines_on_each_side() {
+        // `[FACT]` ADR-0024 §3.3 promises the model "at most 20 lines on
+        // each side". The desktop used to hand over three — which is what
+        // defeated the ADR's own argument for the context at all.
+        let file = base_file(1000);
+        let lines = base_lines(&file);
+        let region = region(0, LineRange::new(500, 501), "ours\n", "theirs\n");
+        let regions = vec![&region];
+
+        let dto = dto_for(&regions, 0, &lines);
+
+        // Twenty on each side — and the file is a thousand lines long, so
+        // the bound is what stops the window, not the end of the file.
+        assert_eq!(dto.context_before.lines().count(), 20);
+        assert_eq!(dto.context_after.lines().count(), 20);
+        assert_eq!(dto.context_before.lines().next(), Some("line480"));
+        assert_eq!(dto.context_after.lines().next(), Some("line501"));
+    }
+
+    #[test]
+    fn a_lone_region_is_given_the_whole_window() {
+        // `[FACT]` A region with no neighbour is not clipped: the window is
+        // the twenty lines on each side, all of them.
+        let file = base_file(100);
+        let lines = base_lines(&file);
+        let region = region(0, LineRange::new(50, 51), "ours\n", "theirs\n");
+        let regions = vec![&region];
+
+        let dto = dto_for(&regions, 0, &lines);
+
+        let before: Vec<&str> = dto.context_before.lines().collect();
+        let after: Vec<&str> = dto.context_after.lines().collect();
+        assert_eq!(before.len(), 20);
+        assert_eq!(after.len(), 20);
+        assert_eq!(before[0], "line030");
+        assert_eq!(before[19], "line049");
+        assert_eq!(after[0], "line051");
+        assert_eq!(after[19], "line070");
+    }
+
+    #[test]
+    fn a_neighbouring_region_is_not_in_the_context() {
+        // `[FACT]` ADR-0024 §3.3: the context is the base file's lines
+        // around the region, "at most 20 on each side, and **no other
+        // region**". A neighbouring region's own lines must not ride along.
+        let file = base_file(100);
+        let lines = base_lines(&file);
+        // The previous region covers the base lines 40..45, this one the
+        // line 50, and the next one the line 55.
+        let previous = region(0, LineRange::new(40, 45), "p-ours\n", "p-theirs\n");
+        let current = region(1, LineRange::new(50, 51), "ours\n", "theirs\n");
+        let next = region(2, LineRange::new(55, 56), "n-ours\n", "n-theirs\n");
+        let regions = vec![&previous, &current, &next];
+
+        let dto = dto_for(&regions, 1, &lines);
+
+        // The window stops at the previous region's base range...
+        assert_eq!(
+            dto.context_before,
+            "line045\nline046\nline047\nline048\nline049"
+        );
+        // ...and at the next region's base range.
+        assert_eq!(dto.context_after, "line051\nline052\nline053\nline054");
+        // And not one line of either neighbour is in it.
+        assert!(
+            !dto.context_before.contains("line044"),
+            "the previous region's line must not be in the context: {}",
+            dto.context_before
+        );
+        assert!(
+            !dto.context_after.contains("line055"),
+            "the next region's line must not be in the context: {}",
+            dto.context_after
+        );
+    }
+
+    #[test]
+    fn a_region_that_touches_its_neighbour_gets_no_context_on_that_side() {
+        // `[FACT]` The previous region ends where this one starts, and the
+        // next one starts where this one ends: there is no line between
+        // them, so that side's context is **empty** — and it is not the
+        // neighbour's lines either.
+        let file = base_file(100);
+        let lines = base_lines(&file);
+        let previous = region(0, LineRange::new(49, 50), "p-ours\n", "p-theirs\n");
+        let current = region(1, LineRange::new(50, 51), "ours\n", "theirs\n");
+        let next = region(2, LineRange::new(51, 52), "n-ours\n", "n-theirs\n");
+        let regions = vec![&previous, &current, &next];
+
+        let dto = dto_for(&regions, 1, &lines);
+
+        assert_eq!(dto.context_before, "");
+        assert_eq!(dto.context_after, "");
+    }
+
+    #[test]
+    fn a_region_whose_two_sides_are_the_same_is_marked_equivalent() {
+        // `[FACT]` ADR-0024 §3.7.4: "the region's ours and theirs text are
+        // the same — the region exists but the two sides are equivalent;
+        // the default suggestion is keep ours". The judgement is the
+        // library's (`sides_are_equivalent`), and the DTO carries it so
+        // the webview does not make it again.
+        let file = base_file(10);
+        let lines = base_lines(&file);
+        let region = region(0, LineRange::new(5, 6), "same\n", "same\n");
+        let regions = vec![&region];
+
+        let dto = dto_for(&regions, 0, &lines);
+
+        assert!(dto.sides_equivalent);
+    }
+
+    #[test]
+    fn a_region_whose_two_sides_differ_is_not_marked_equivalent() {
+        let file = base_file(10);
+        let lines = base_lines(&file);
+        let region = region(0, LineRange::new(5, 6), "ours\n", "theirs\n");
+        let regions = vec![&region];
+
+        let dto = dto_for(&regions, 0, &lines);
+
+        assert!(!dto.sides_equivalent);
     }
 
     // --- the write-back (ADR-0024 §3.6) ---------------------------------

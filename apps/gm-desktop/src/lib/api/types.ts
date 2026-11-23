@@ -302,6 +302,19 @@ export interface ConflictRegion {
    * delivery, so this is a label for the user and not a decision.
    */
   scopeLabel: string | null;
+  /**
+   * Whether the region's two sides carry the same text.
+   *
+   * `[FACT]` ADR-0024 §3.7.4: "the region's ours and theirs text are the
+   * same — the region exists but the two sides are equivalent; the default
+   * suggestion is keep ours".
+   *
+   * `[FACT]` The judgement is the **library's**
+   * (`ConflictRegion::sides_are_equivalent`, `src/ai/conflict.rs`) and it is
+   * made **once**, in the backend (`commands/conflict.rs`). The webview
+   * reads this flag and does not compare the two sides again.
+   */
+  sidesEquivalent: boolean;
 }
 
 /**
