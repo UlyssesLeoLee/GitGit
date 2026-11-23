@@ -24,6 +24,8 @@ import type {
   ConflictEventDto,
   ConflictRegion,
   ConflictRegions,
+  ConflictResolvePayload,
+  ConflictResolveResult,
   ConflictStartedDto,
 } from './types';
 
@@ -181,6 +183,45 @@ export async function conflictRegions(
     regions: Array.isArray(payload.regions) ? payload.regions : [],
     needsGit: Array.isArray(payload.needsGit) ? payload.needsGit : [],
   };
+}
+
+/**
+ * Write the resolved file back into the work tree and stage it
+ * (ADR-0024 §3.6).
+ *
+ * `[FACT]` The decision ADR-0024 §3.6 made: the application writes the
+ * merged file back and `git add`s the path, so git stops reporting `UU`.
+ * The application does **not** drive the merge itself — the user commits.
+ *
+ * `[FACT]` One path per call: a merge spans several files, and the
+ * webview groups the decisions by path and calls this once per path.
+ *
+ * `[FACT]` The path is the repository-relative one the regions carry
+ * (`ConflictRegion.path`), and the choices are keyed by the region's
+ * ordinal in the merged output (`ConflictRegion.index`) — the key the
+ * core's `compose_resolved` looks the choice up by.
+ */
+export async function conflictResolve(
+  payload: ConflictResolvePayload
+): Promise<ConflictResolveResult> {
+  // `[FACT]` The arguments go over as an object literal, like every other
+  // call in this file. A typed `interface` has no implicit index
+  // signature, so handing `InvokeArgs` the payload itself does not
+  // type-check; the literal does.
+  const result = (await tauriInvoke('conflict_resolve', {
+    repo: payload.repo,
+    root: payload.root,
+    path: payload.path,
+    choices: payload.choices,
+  })) as Partial<ConflictResolveResult> | null;
+  // `[FACT]` A malformed answer is refused, not filled in. Inventing a
+  // plausible result would turn a broken backend into a write-back that
+  // looks like it worked — and this is the call that changes the work
+  // tree, so a wrong answer here is a wrong file.
+  if (typeof result?.path !== 'string' || typeof result?.regions !== 'number') {
+    throw new Error('the write-back command did not report what it wrote');
+  }
+  return { path: result.path, regions: result.regions };
 }
 
 /**

@@ -364,6 +364,66 @@ export type SuggestionOutcomeDto =
 export type ConflictChoice = 'ours' | 'theirs' | 'manual' | 'ai';
 
 /**
+ * The choices the write-back command accepts.
+ *
+ * `[FACT]` The core keeps six (`RegionChoice`: ours, theirs, base, both,
+ * ai, manual) and the command maps all six. The dialog offers four
+ * (ADR-0024 §3.4.3): `base` and `both` stay in the library.
+ */
+export type ConflictResolveChoiceKind =
+  | 'ours'
+  | 'theirs'
+  | 'base'
+  | 'both'
+  | 'ai'
+  | 'manual';
+
+/**
+ * One region's decision, as it goes over the wire.
+ *
+ * `[FACT]` `index` is the region's ordinal in the merged output
+ * (`Region::index`), which is the key the core's `compose_resolved` looks
+ * the choice up by. `text` is the replacement text: required for `ai` and
+ * `manual`, ignored by the other four.
+ */
+export interface ConflictResolveChoice {
+  /** The region's ordinal in the merged output. */
+  index: number;
+  /** Which side won. */
+  choice: ConflictResolveChoiceKind;
+  /** The replacement text, for `ai` and `manual`. */
+  text?: string;
+}
+
+/**
+ * What the write-back command is asked to do (ADR-0024 §3.6).
+ *
+ * `[FACT]` One path per call: a merge spans several files, and the
+ * webview groups the decisions by path and calls the command once per
+ * path.
+ */
+export interface ConflictResolvePayload {
+  /** The repository name, as the desktop keeps it. */
+  repo: string;
+  /** The working-tree root the repository name is resolved under. */
+  root: string | null;
+  /** The repository-relative path to write back. */
+  path: string;
+  /** One choice per region of that path. */
+  choices: ConflictResolveChoice[];
+}
+
+/**
+ * What the write-back command did.
+ */
+export interface ConflictResolveResult {
+  /** The repository-relative path that was written back and staged. */
+  path: string;
+  /** How many conflict regions the path carried. */
+  regions: number;
+}
+
+/**
  * One event on the conflict channel.
  *
  * `[FACT]` Mirrors `ConflictEvent`: a `type` tag for dispatch, camelCase
