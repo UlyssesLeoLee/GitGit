@@ -205,6 +205,10 @@ function conflictFixtureRegions(): ConflictRegion[] {
       contextBefore: 'export function connect() {\n',
       contextAfter: '  return retry(timeout);\n}\n',
       scopeLabel: 'connect',
+      // `[FACT]` The backend computes this flag with the library's
+      // `sides_are_equivalent` (`src/ai/conflict.rs`); the mock answers
+      // what the backend would answer for these two sides — they differ.
+      sidesEquivalent: false,
     },
     {
       path: 'src/feature.ts',
@@ -216,6 +220,7 @@ function conflictFixtureRegions(): ConflictRegion[] {
       contextBefore: 'export function connect() {\n',
       contextAfter: '}\n',
       scopeLabel: 'connect',
+      sidesEquivalent: false,
     },
   ];
   return payloads.map((p) => ({ ...p, id: mockRegionId(p) }));
