@@ -213,9 +213,9 @@ impl ScopeMap {
     /// True when the scopes tile every line of the file with no gap and no
     /// overlap.
     ///
-    /// `[PROPOSAL]` The ADR's rule (§3.8.1): "the cut must cover the whole
-    /// file; a cut that cannot is a whole-file scope". This is the check that
-    /// decides whether the scope layer may shrink anything at all.
+    /// `[FACT]` The ADR's rule (§3.8.1): "the cut must cover the whole
+    /// file; a cut that cannot is a whole-file scope". Implemented, and
+    /// enforced: [`decide`] refuses to shrink on a cut that does not tile the file.
     pub fn covers_every_line(&self) -> bool {
         let mut cursor = 0usize;
         for scope in &self.scopes {
@@ -279,8 +279,8 @@ pub struct Region {
     /// A stable identity for the region: the first 16 bytes of
     /// `sha256(path ‖ base_oid ‖ index ‖ ours ‖ base ‖ theirs)`, hex.
     ///
-    /// `[PROPOSAL]` ADR §3.7.2 defines this id so an AI answer can be bound
-    /// to the region it was shown for.
+    /// `[FACT]` ADR §3.7.2 defines this id so an AI answer can be bound
+    /// to the region it was shown for — and it is: it is a hash of the region's content.
     pub id: String,
     /// The ours side's text, verbatim.
     pub ours: String,
@@ -329,10 +329,10 @@ pub enum Disposition {
     /// The path needs git's own handling: a binary file, an add/delete
     /// conflict, or no base at all.
     ///
-    /// `[PROPOSAL]` ADR §3.2: "when the base is not available the path does
+    /// `[FACT]` ADR §3.2: "when the base is not available the path does
     /// not enter conflict arbitration and is marked as needing git's native
     /// handling; the dialog shows a note instead of pretending it can
-    /// arbitrate".
+    /// arbitrate" — implemented: the core returns this, the desktop lists it.
     NeedsGit,
 }
 
@@ -643,7 +643,7 @@ fn is_attached_line(line: &str) -> bool {
 
 /// Cut a file into scopes.
 ///
-/// `[PROPOSAL]` ADR §3.8.1's v1 rule: the file is cut into contiguous
+/// `[FACT]` ADR §3.8.1's v1 rule, implemented: the file is cut into contiguous
 /// scopes that cover every line; scope 0 is the preamble; an item is a
 /// column-0 top-level declaration; the comment and `#[` lines directly above
 /// an item belong to that item; a language the rule does not cover is one
@@ -1120,9 +1120,9 @@ async fn side_changes(base: &Path, side: &Path) -> Result<Vec<SideChange>> {
 
 /// The stable id of a region.
 ///
-/// `[PROPOSAL]` ADR §3.7.2: the first 16 bytes of
+/// `[FACT]` ADR §3.7.2: the first 16 bytes of
 /// `sha256(path ‖ base_oid ‖ index ‖ ours ‖ base ‖ theirs)`, hex — an id
-/// an AI answer can be bound to.
+/// an AI answer can be bound to; it is a function of the region's content.
 pub fn region_id(
     path: &str,
     base_oid: &str,
@@ -1209,7 +1209,7 @@ pub async fn conflict_set_from_blobs(
 /// The conflicts of one path, from three blobs, with the temporaries rooted
 /// in `root`.
 ///
-/// `[PROPOSAL]` The root is a parameter so the test can prove that a call
+/// `[FACT]` The root is a parameter so the test can prove that a call
 /// leaves nothing behind: it owns the directory and can look inside it
 /// after the call. The production path roots it in the system temp
 /// directory.
@@ -1500,7 +1500,7 @@ pub fn compose_resolved(
 
 /// Write the resolved file to the work tree and stage it.
 ///
-/// `[PROPOSAL]` ADR §3.6: the application writes the merged file back and
+/// `[FACT]` ADR §3.6: the application writes the merged file back and
 /// runs `git add <path>`, so git sees the conflict as resolved. git stays
 /// file-granular; what changed is the arbitration unit.
 ///
