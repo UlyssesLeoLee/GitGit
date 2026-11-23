@@ -257,12 +257,12 @@ const en: Readonly<Record<string, string>> = {
   'conflict.modelPlaceholder': 'Provider default',
   'conflict.redacted': '{n} secret-shaped span(s) were filtered before sending',
   'conflict.modelServed': 'Model: {model}',
-  // `[PROPOSAL]` ADR-0024 §3.7.1: the option is present but disabled,
+  // `[FACT]` ADR-0024 §3.7.1: the option is present but disabled,
   // and it says where the key goes. The three options that need no
   // credential stay available.
   'conflict.noKey':
     'No API key is configured for this provider, so "ask the AI" is unavailable. Keep ours, keep theirs and edit-by-hand still work. Set a key in Settings → AI provider key, or set GITGIT_AI_API_KEY in the environment that launched the app.',
-  // `[PROPOSAL]` ADR-0024 §3.4.1: a provider that cannot stream is
+  // `[FACT]` ADR-0024 §3.4.1: a provider that cannot stream is
   // refused rather than degraded, and the refusal is stated.
   'conflict.unsupported':
     '{provider} cannot stream — its protocol has no streaming implementation, so the request is never sent rather than arriving in one lump behind a spinner. Keep ours, keep theirs and edit-by-hand are still available.',
