@@ -561,11 +561,21 @@ try {
         -Expected 0 -Actual $snapshotsAfter.ExitCode -Detail $snapshotsAfter.StdErr.Trim()
     Assert-Literal -Name 'the snapshot is still on the remote after the disconnect' `
         -Expected $snapshotKey -Actual $snapshotsAfter.StdOut
-    $snapAfterMatch = [regex]::Match($snapshotsAfter.StdOut, '(?m)^\s*(?<size>\d+)\s+(?<key>\S+)\s*$')
-    if ($snapAfterMatch.Success) {
-        Assert-Equal -Run $run -Name 'the snapshot that survived the disconnect is the same object, byte for byte in size' `
-            -Expected $snapshotSize -Actual ([int]$snapAfterMatch.Groups['size'].Value)
-    }
+    # `[FACT]` The size is looked up **by the key**, not by the first line
+    # of the listing. A restore leaves a safety snapshot behind (ADR-0025
+    # §2.4: the state that was replaced is kept), so the listing holds
+    # more than one object by now - and "the first line" would then be
+    # whichever object the store happened to list first. Comparing that
+    # object's size with the backup's would be comparing two different
+    # things, and it would be a false green whenever they happened to be
+    # the same size.
+    $snapAfterMatch = [regex]::Match(
+        $snapshotsAfter.StdOut,
+        '(?m)^\s*(?<size>\d+)\s+' + [regex]::Escape($snapshotKey) + '\s*$')
+    Assert-Equal -Run $run -Name 'the snapshot that survived the disconnect is the same object, byte for byte in size' `
+        -Expected $snapshotSize `
+        -Actual $(if ($snapAfterMatch.Success) { [int]$snapAfterMatch.Groups['size'].Value } else { -1 }) `
+        -Detail "the listing after the disconnect: $($snapshotsAfter.StdOut.Trim())"
     # Leave the registry in the state the check is about: disconnected.
     $rmAgain = Invoke-GitGit @('cloud', 'rm', $diskName)
     Assert-Equal -Run $run -Name 'gitgit cloud rm exits 0 the second time' `

@@ -20,6 +20,19 @@
 //! rollback is ✓. It extracts into a sibling directory first ✓ and only
 //! then swaps it in ✓, so a failed restore cannot leave a half-written
 //! repository behind ✓.
+//!
+//! # The safety snapshot
+//!
+//! `[FACT]` Before the swap ✓, the repository that is about to be
+//! replaced is taken as a **safety snapshot** ✓ and uploaded to the same
+//! disk ✓. It is an **ordinary snapshot** ✓ — the same format ✓, the
+//! same reader ✓ — so `gitgit cloud restore <that key>` puts the
+//! repository back ✓: the rollback is itself reversible ✓.
+//!
+//! `[FACT]` If the safety snapshot cannot be taken, the restore is
+//! **refused** ✓ and the repository is left exactly as it was ✓ — a
+//! rollback that destroys what it could not preserve is not a rollback
+//! ✓, it is data loss ✓.
 
 use std::path::{Path, PathBuf};
 
@@ -31,6 +44,14 @@ use crate::error::{GitGitError, Result};
 
 /// The key prefix every snapshot of a disk lives under.
 pub const SNAPSHOT_PREFIX: &str = "snapshots/";
+
+/// The marker a safety snapshot's file name carries ✓.
+///
+/// `[FACT]` It is part of the **file name** ✓, not of the prefix ✓ — so
+/// a safety snapshot sits beside the ordinary snapshots of the same
+/// repository ✓, and `gitgit cloud snapshots` shows which one it is ✓
+/// without downloading anything ✓.
+pub const SAFETY_SNAPSHOT_MARKER: &str = "pre-restore-";
 
 /// The bare repository directory of `repo` under `repos_dir`.
 pub fn repo_dir(repos_dir: &Path, repo: &str) -> PathBuf {
@@ -56,7 +77,36 @@ pub async fn backup(
             repos_dir.display()
         )));
     }
-    let entries = collect(&dir)?;
+    let built = build_snapshot(&dir, repo, disk_name)?;
+    let key = format!(
+        "{SNAPSHOT_PREFIX}{repo}/{}-{}.tar",
+        built.meta.created_unix,
+        &built.digest[..8]
+    );
+    disk.put(&key, &built.file).await?;
+    Ok((built.meta, key))
+}
+
+/// The bytes of a snapshot, and the digest of its archive ✓.
+struct BuiltSnapshot {
+    /// The metadata the snapshot carries ✓.
+    meta: SnapshotMeta,
+    /// The whole snapshot file ✓ — the magic ✓, the metadata line ✓ and
+    /// the archive ✓.
+    file: Vec<u8>,
+    /// The archive's digest ✓ — its first eight characters go into the
+    /// key ✓.
+    digest: String,
+}
+
+/// Build the snapshot of the repository at `dir` ✓.
+///
+/// `[FACT]` A snapshot is **one file** ✓ — the magic ✓, one line of JSON
+/// metadata ✓, then the ustar archive ✓ — and the metadata carries the
+/// archive's SHA-256 ✓, so a restore can tell a damaged download from a
+/// good one ✓.
+fn build_snapshot(dir: &Path, repo: &str, disk_name: &str) -> Result<BuiltSnapshot> {
+    let entries = collect(dir)?;
     let archive = tar::write(&entries).map_err(|e| GitGitError::Cloud(e.to_string()))?;
     let digest = hex::encode(Sha256::digest(&archive));
 
@@ -81,9 +131,17 @@ pub async fn backup(
     file.push(b'\n');
     file.extend_from_slice(&archive);
 
-    let key = format!("{SNAPSHOT_PREFIX}{repo}/{created}-{}.tar", &digest[..8]);
-    disk.put(&key, &file).await?;
-    Ok((meta, key))
+    Ok(BuiltSnapshot { meta, file, digest })
+}
+
+/// What a restore did ✓.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RestoreOutcome {
+    /// The metadata of the snapshot that was restored ✓.
+    pub meta: SnapshotMeta,
+    /// The key of the safety snapshot taken before the swap ✓ — `None`
+    /// when there was no repository to replace ✓.
+    pub safety_snapshot: Option<String>,
 }
 
 /// Restore `repo` from the snapshot stored under `key`.
@@ -91,12 +149,19 @@ pub async fn backup(
 /// The archive's SHA-256 is checked against the metadata before anything
 /// is written ✓ — a truncated or tampered download must not become the
 /// repository ✓.
+///
+/// `[FACT]` Before the swap ✓, the repository that is about to be
+/// replaced is taken as a **safety snapshot** ✓ and uploaded to the same
+/// disk ✓, and its key comes back with the outcome ✓ — so the restore
+/// can be undone ✓. If that snapshot cannot be taken, the restore is
+/// **refused** ✓ and the repository is left exactly as it was ✓.
 pub async fn restore(
     disk: &dyn CloudDisk,
     key: &str,
     repo: Option<&str>,
     repos_dir: &Path,
-) -> Result<SnapshotMeta> {
+    disk_name: &str,
+) -> Result<RestoreOutcome> {
     let file = disk.get(key).await?;
     let (meta, archive) = split_snapshot(&file)?;
     let target_repo = match repo {
@@ -149,6 +214,21 @@ pub async fn restore(
         }
     }
 
+    // The safety snapshot ✓ — taken **after** the path pre-flight above
+    // ✓ and **before** anything is written locally ✓.
+    //
+    // `[FACT]` A snapshot that carries an unsafe path is refused without
+    // leaving a snapshot of the repository behind ✓, and a repository
+    // that cannot be preserved is never replaced ✓.
+    //
+    // `[FACT]` There is no repository ⇒ nothing to lose ⇒ no safety
+    // snapshot ✓, and the restore goes straight on ✓.
+    let safety_snapshot = if target.is_dir() {
+        Some(take_safety_snapshot(disk, &target_repo, repos_dir, disk_name).await?)
+    } else {
+        None
+    };
+
     // Extract beside the repository and swap it in, so a failure never
     // leaves a half-written repository.
     let staging = repos_dir.join(format!(".{target_repo}.restore-staging"));
@@ -172,7 +252,49 @@ pub async fn restore(
 
     // The swap ✓.
     swap_in(&staging, &target, &retired)?;
-    Ok(meta)
+    Ok(RestoreOutcome {
+        meta,
+        safety_snapshot,
+    })
+}
+
+/// Take the safety snapshot of the repository that is about to be replaced ✓.
+///
+/// `[FACT]` It goes to the **same disk** ✓, under the same prefix ✓,
+/// with the marker in its file name ✓ — so `gitgit cloud snapshots` shows
+/// it for what it is ✓, and `gitgit cloud restore <that key>` puts the
+/// repository back ✓.
+///
+/// `[FACT]` A failure here is **fatal** to the restore ✓: the caller
+/// must not replace a repository it could not preserve ✓, so the error
+/// names the step that failed ✓.
+async fn take_safety_snapshot(
+    disk: &dyn CloudDisk,
+    repo: &str,
+    repos_dir: &Path,
+    disk_name: &str,
+) -> Result<String> {
+    let dir = repo_dir(repos_dir, repo);
+    let built = build_snapshot(&dir, repo, disk_name).map_err(|e| {
+        GitGitError::Cloud(format!(
+            "the safety snapshot of {repo:?} could not be built: {e}; the repository was left untouched"
+        ))
+    })?;
+    let key = safety_snapshot_key(repo, built.meta.created_unix, &built.digest);
+    disk.put(&key, &built.file).await.map_err(|e| {
+        GitGitError::Cloud(format!(
+            "the safety snapshot of {repo:?} could not be uploaded: {e}; the repository was left untouched"
+        ))
+    })?;
+    Ok(key)
+}
+
+/// The key a safety snapshot of `repo` is stored under ✓.
+fn safety_snapshot_key(repo: &str, created: u64, digest: &str) -> String {
+    format!(
+        "{SNAPSHOT_PREFIX}{repo}/{SAFETY_SNAPSHOT_MARKER}{created}-{}.tar",
+        &digest[..8]
+    )
 }
 
 /// Put the restored repository in place of the one that is there.
@@ -339,11 +461,28 @@ mod tests {
     #[derive(Default)]
     struct MemoryDisk {
         objects: std::sync::Mutex<std::collections::BTreeMap<String, Vec<u8>>>,
+        /// When it is set ✓, every upload is refused ✓ — so the
+        /// fail-closed path can be **exercised** ✓ instead of being taken
+        /// on faith ✓.
+        refuse_writes: std::sync::atomic::AtomicBool,
+    }
+
+    impl MemoryDisk {
+        /// Refuse every upload from now on ✓.
+        fn refuse_writes(&self) {
+            self.refuse_writes
+                .store(true, std::sync::atomic::Ordering::SeqCst);
+        }
     }
 
     #[async_trait::async_trait]
     impl CloudDisk for MemoryDisk {
         async fn put(&self, key: &str, bytes: &[u8]) -> Result<Option<String>> {
+            if self.refuse_writes.load(std::sync::atomic::Ordering::SeqCst) {
+                return Err(GitGitError::Cloud(
+                    "the disk refused the upload".to_string(),
+                ));
+            }
             self.objects
                 .lock()
                 .unwrap()
@@ -405,6 +544,31 @@ mod tests {
         std::fs::write(dir.join("refs/heads/main"), "ref: refs/heads/main").unwrap();
     }
 
+    /// Every file under `dir`, with its bytes ✓ — so a test can say the
+    /// repository did not change **at all** ✓, not merely that it still
+    /// exists ✓.
+    fn contents_of(dir: &Path) -> std::collections::BTreeMap<String, Vec<u8>> {
+        let mut out = std::collections::BTreeMap::new();
+        let mut stack = vec![dir.to_path_buf()];
+        while let Some(current) = stack.pop() {
+            for item in std::fs::read_dir(&current).unwrap() {
+                let item = item.unwrap();
+                let path = item.path();
+                if item.metadata().unwrap().is_dir() {
+                    stack.push(path);
+                    continue;
+                }
+                let relative = path
+                    .strip_prefix(dir)
+                    .unwrap()
+                    .to_string_lossy()
+                    .replace('\\', "/");
+                out.insert(relative, std::fs::read(&path).unwrap());
+            }
+        }
+        out
+    }
+
     #[tokio::test]
     async fn a_snapshot_round_trips_and_replaces_the_repository() {
         let disk = MemoryDisk::default();
@@ -423,8 +587,10 @@ mod tests {
             "ref: refs/heads/other\n",
         )
         .unwrap();
-        let restored = restore(&disk, &key, Some("demo"), &repos).await.unwrap();
-        assert_eq!(restored.repo, "demo");
+        let restored = restore(&disk, &key, Some("demo"), &repos, "oss")
+            .await
+            .unwrap();
+        assert_eq!(restored.meta.repo, "demo");
         let head = std::fs::read_to_string(repo_dir(&repos, "demo").join("HEAD")).unwrap();
         assert_eq!(head, "ref: refs/heads/main\n");
         assert!(repo_dir(&repos, "demo")
@@ -455,7 +621,7 @@ mod tests {
         bytes[len - 1] ^= 0xff;
         disk.put(&key, &bytes).await.unwrap();
 
-        let err = restore(&disk, &key, Some("demo"), &repos)
+        let err = restore(&disk, &key, Some("demo"), &repos, "oss")
             .await
             .unwrap_err();
         assert!(format!("{err}").contains("damaged"), "got: {err}");
@@ -468,7 +634,7 @@ mod tests {
         disk.put("snapshots/demo/x.tar", b"just some bytes")
             .await
             .unwrap();
-        let err = restore(&disk, "snapshots/demo/x.tar", Some("demo"), &repos)
+        let err = restore(&disk, "snapshots/demo/x.tar", Some("demo"), &repos, "oss")
             .await
             .unwrap_err();
         assert!(
@@ -483,7 +649,7 @@ mod tests {
         let repos = temp_dir("wrong-repo");
         make_repo(&repos, "demo", "ref: refs/heads/main\n");
         let (_, key) = backup(&disk, "demo", &repos, "oss").await.unwrap();
-        let err = restore(&disk, &key, Some("other"), &repos)
+        let err = restore(&disk, &key, Some("other"), &repos, "oss")
             .await
             .unwrap_err();
         assert!(format!("{err}").contains("other"), "got: {err}");
@@ -518,7 +684,7 @@ mod tests {
         file.extend_from_slice(&archive);
         disk.put("snapshots/demo/x.tar", &file).await.unwrap();
 
-        let err = restore(&disk, "snapshots/demo/x.tar", Some("demo"), &repos)
+        let err = restore(&disk, "snapshots/demo/x.tar", Some("demo"), &repos, "oss")
             .await
             .unwrap_err();
         assert!(format!("{err}").contains("unsafe path"), "got: {err}");
@@ -610,7 +776,7 @@ mod tests {
             .await
             .unwrap();
 
-        let err = restore(&disk, "snapshots/demo/x.tar", None, &repos)
+        let err = restore(&disk, "snapshots/demo/x.tar", None, &repos, "oss")
             .await
             .unwrap_err();
         assert!(format!("{err}").contains("invalid repo name"), "got: {err}");
@@ -648,7 +814,7 @@ mod tests {
             .await
             .unwrap();
 
-        let err = restore(&disk, "snapshots/demo/x.tar", Some("demo"), &repos)
+        let err = restore(&disk, "snapshots/demo/x.tar", Some("demo"), &repos, "oss")
             .await
             .unwrap_err();
         assert!(format!("{err}").contains("unsafe path"), "got: {err}");
@@ -708,9 +874,11 @@ mod tests {
             "ref: refs/heads/other\n",
         )
         .unwrap();
-        let restored = restore(&disk, &key, Some("demo"), &repos).await.unwrap();
-        assert_eq!(restored.repo, "demo");
-        assert_eq!(restored.sha256, meta.sha256);
+        let restored = restore(&disk, &key, Some("demo"), &repos, "oss")
+            .await
+            .unwrap();
+        assert_eq!(restored.meta.repo, "demo");
+        assert_eq!(restored.meta.sha256, meta.sha256);
         let head = std::fs::read_to_string(repo_dir(&repos, "demo").join("HEAD")).unwrap();
         assert_eq!(head, "ref: refs/heads/main\n");
         // The swap leaves nothing behind ✓.
@@ -737,5 +905,166 @@ mod tests {
         let (parsed, archive) = split_snapshot(&file).unwrap();
         assert_eq!(parsed, meta);
         assert_eq!(archive, b"archive");
+    }
+
+    // ---- The safety snapshot ✓ ----
+
+    #[tokio::test]
+    async fn a_restore_leaves_a_safety_snapshot_of_the_repository_it_replaced() {
+        let disk = MemoryDisk::default();
+        let repos = temp_dir("safety-snapshot");
+        make_repo(&repos, "demo", "ref: refs/heads/main\n");
+
+        let (_, key) = backup(&disk, "demo", &repos, "oss").await.unwrap();
+        let before = disk.list(SNAPSHOT_PREFIX).await.unwrap();
+        assert_eq!(
+            before.len(),
+            1,
+            "only the backup is on the disk: {before:?}"
+        );
+
+        let outcome = restore(&disk, &key, Some("demo"), &repos, "oss")
+            .await
+            .unwrap();
+
+        // The disk holds **one more** snapshot ✓ — the safety snapshot ✓.
+        let after = disk.list(SNAPSHOT_PREFIX).await.unwrap();
+        assert_eq!(
+            after.len(),
+            2,
+            "the restore must leave a safety snapshot behind: {after:?}"
+        );
+
+        // Its key has the safety-snapshot shape ✓ — so a reader of the
+        // listing can tell it apart ✓.
+        let safety = outcome
+            .safety_snapshot
+            .clone()
+            .expect("a restore must report the safety snapshot's key");
+        assert!(
+            safety.starts_with("snapshots/demo/pre-restore-"),
+            "the safety snapshot must be recognisable: {safety}"
+        );
+        assert!(safety.ends_with(".tar"), "got: {safety}");
+        assert!(
+            after.iter().any(|object| object.key == safety),
+            "the safety snapshot must be on the disk: {after:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn the_safety_snapshot_holds_the_state_from_before_the_restore() {
+        let disk = MemoryDisk::default();
+        let repos = temp_dir("safety-snapshot-content");
+        make_repo(&repos, "demo", "ref: refs/heads/main\n");
+        let (_, key) = backup(&disk, "demo", &repos, "oss").await.unwrap();
+
+        // Change the repository, then roll it back.
+        std::fs::write(
+            repo_dir(&repos, "demo").join("HEAD"),
+            "ref: refs/heads/other\n",
+        )
+        .unwrap();
+        std::fs::write(
+            repo_dir(&repos, "demo").join("MARKER"),
+            "only the newer state has this\n",
+        )
+        .unwrap();
+
+        // The rollback replaces the repository.
+        let outcome = restore(&disk, &key, Some("demo"), &repos, "oss")
+            .await
+            .unwrap();
+        let head = std::fs::read_to_string(repo_dir(&repos, "demo").join("HEAD")).unwrap();
+        assert_eq!(
+            head, "ref: refs/heads/main\n",
+            "the rollback must have happened"
+        );
+
+        // Restoring the safety snapshot undoes the rollback ✓ — that is
+        // what "the rollback is reversible" means ✓.
+        let safety = outcome
+            .safety_snapshot
+            .clone()
+            .expect("a restore must report the safety snapshot's key");
+        restore(&disk, &safety, Some("demo"), &repos, "oss")
+            .await
+            .unwrap();
+        let head = std::fs::read_to_string(repo_dir(&repos, "demo").join("HEAD")).unwrap();
+        assert_eq!(
+            head, "ref: refs/heads/other\n",
+            "the safety snapshot must hold the state from before the restore"
+        );
+        assert!(
+            repo_dir(&repos, "demo").join("MARKER").is_file(),
+            "the file that only the newer state had must be back"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_restore_that_cannot_take_the_safety_snapshot_is_refused() {
+        let disk = MemoryDisk::default();
+        let repos = temp_dir("safety-snapshot-refused");
+        make_repo(&repos, "demo", "ref: refs/heads/main\n");
+        let (_, key) = backup(&disk, "demo", &repos, "oss").await.unwrap();
+
+        // Change the repository, so a restore would really replace it.
+        std::fs::write(
+            repo_dir(&repos, "demo").join("HEAD"),
+            "ref: refs/heads/other\n",
+        )
+        .unwrap();
+        let before = contents_of(&repo_dir(&repos, "demo"));
+
+        // The disk refuses every upload ⇒ the safety snapshot cannot be
+        // taken ⇒ the restore must refuse too.
+        disk.refuse_writes();
+
+        let err = restore(&disk, &key, Some("demo"), &repos, "oss")
+            .await
+            .unwrap_err();
+        assert!(
+            format!("{err}").contains("safety snapshot"),
+            "the error must name the step that failed: {err}"
+        );
+
+        // The local repository did not change — not one byte ✓.
+        let after = contents_of(&repo_dir(&repos, "demo"));
+        assert_eq!(before, after, "the repository must not have been touched");
+        assert!(
+            !repos.join(".demo.restore-staging").exists(),
+            "nothing may be staged when the restore is refused"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_restore_of_a_missing_repository_takes_no_safety_snapshot() {
+        let disk = MemoryDisk::default();
+        // The snapshot is taken from one repositories directory ...
+        let source = temp_dir("no-safety-source");
+        make_repo(&source, "demo", "ref: refs/heads/main\n");
+        let (_, key) = backup(&disk, "demo", &source, "oss").await.unwrap();
+
+        // ... and restored into another one that has no repository in it.
+        let repos = temp_dir("no-safety-target");
+        let outcome = restore(&disk, &key, Some("demo"), &repos, "oss")
+            .await
+            .unwrap();
+
+        // The restore happened ✓.
+        let head = std::fs::read_to_string(repo_dir(&repos, "demo").join("HEAD")).unwrap();
+        assert_eq!(head, "ref: refs/heads/main\n");
+
+        // There was nothing to lose ⇒ no safety snapshot ✓.
+        assert!(
+            outcome.safety_snapshot.is_none(),
+            "a restore with no repository to replace must take no safety snapshot"
+        );
+        let objects = disk.list(SNAPSHOT_PREFIX).await.unwrap();
+        assert_eq!(
+            objects.len(),
+            1,
+            "the disk must hold only the backup: {objects:?}"
+        );
     }
 }

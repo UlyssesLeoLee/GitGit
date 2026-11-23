@@ -129,6 +129,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
             commands::ai::ai_key_status,
             commands::audit::conflict_audit_record,
             commands::conflict::conflict_regions,
+            commands::conflict::conflict_resolve,
         ])
         .on_window_event(handle_window_event)
         .build(tauri::generate_context!())?;

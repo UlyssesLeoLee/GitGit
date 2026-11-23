@@ -30,12 +30,16 @@ import { fileURLToPath } from 'node:url';
 
 import {
   abandonArbitration,
+  applyDecisions,
   canAccept,
+  canApply,
   canAskAi,
   conflict,
   CONFLICT_MAX_TEXT_CHARS,
   CONFLICT_NO_TERMINAL_MESSAGE,
+  CONFLICT_NO_REGIONS_MESSAGE,
   loadKeyStatus,
+  loadRegions,
   markDiffSeen,
   resetArbitration,
   resolveChoice,
@@ -44,7 +48,13 @@ import {
   startArbitration,
   stopArbitration,
 } from '../../src/lib/stores/conflict';
-import type { ConflictEventDto, ConflictRegion } from '../../src/lib/api/types';
+import type {
+  ConflictEventDto,
+  ConflictRegion,
+  ConflictRegions,
+  ConflictResolvePayload,
+  ConflictResolveResult,
+} from '../../src/lib/api/types';
 import { supportsStreaming } from '../../src/lib/api/types';
 import ConflictDialog from '../../src/lib/components/ConflictDialog.svelte';
 import Conflicts from '../../src/routes/Conflicts.svelte';
@@ -900,5 +910,313 @@ describe('the conflict audit trail', () => {
     } finally {
       warn.mockRestore();
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The write-back (ADR-0024 §3.6)
+// ---------------------------------------------------------------------------
+
+/**
+ * A second region, in a second path.
+ *
+ * `[FACT]` The regions of a merge span several files: the write-back is
+ * per path, so the store has to group the decisions by `region.path`
+ * before it calls the command.
+ */
+const OTHER_REGION: ConflictRegion = {
+  ...REGION,
+  id: 'f0e1d2c3b4a5968778695a4b3c2d1e0',
+  path: 'src/other.ts',
+  index: 0,
+};
+
+/** The two regions, in two paths, as the backend would answer. */
+function twoPathRegions(): ConflictRegions {
+  return { regions: [REGION, OTHER_REGION], needsGit: [] };
+}
+
+describe('the conflict decisions — one per region', () => {
+  it('keeps a decision when the user opens another region', () => {
+    // `[FACT]` The decision is stored per region. Before this lane the
+    // state held ONE resolution and `selectRegion` reset the whole state,
+    // so a decision made in one region was gone the moment the user
+    // opened the next one — and the write-back is per path, so every
+    // region of the path has to be decided before it can be written.
+    selectRegion(REGION.id);
+    setResolution('ours', REGION.ours, REGION);
+    expect(get(conflict).resolution).toEqual({
+      choice: 'ours',
+      text: REGION.ours,
+      regionId: REGION.id,
+    });
+
+    selectRegion(OTHER_REGION.id);
+    const s = get(conflict);
+    // The region that was just opened has no decision of its own...
+    expect(s.decisions[OTHER_REGION.id]).toBeUndefined();
+    // ...and the first region's decision is still there.
+    expect(s.decisions[REGION.id]).toEqual({ choice: 'ours', text: REGION.ours });
+    // The resolution is a view of the OPEN region's decision, so it is
+    // empty here — not the other region's answer.
+    expect(s.resolution).toBe(null);
+
+    // And switching back shows the decision again.
+    selectRegion(REGION.id);
+    expect(get(conflict).resolution).toEqual({
+      choice: 'ours',
+      text: REGION.ours,
+      regionId: REGION.id,
+    });
+  });
+
+  it('holds one decision per region, not one decision overall', () => {
+    // `[FACT]` Two regions whose "ours" side is the same text are two
+    // decisions, and the map has to keep both.
+    setResolution('ours', REGION.ours, REGION);
+    setResolution('theirs', REGION.theirs, OTHER_REGION);
+    const decisions = get(conflict).decisions;
+    expect(Object.keys(decisions).sort()).toEqual([REGION.id, OTHER_REGION.id].sort());
+    expect(decisions[REGION.id]).toEqual({ choice: 'ours', text: REGION.ours });
+    expect(decisions[OTHER_REGION.id]).toEqual({ choice: 'theirs', text: REGION.theirs });
+  });
+});
+
+describe('the apply action', () => {
+  it('is disabled until every arbitrable region has a decision', async () => {
+    // `[FACT]` ADR-0024 §3.6: a path is written back only when EVERY one
+    // of its regions has been decided, so the gate is "every arbitrable
+    // region has a decision".
+    await loadRegions('demo', null);
+    const regions = get(conflict).regions;
+    expect(regions.length).toBe(2);
+    expect(canApply(get(conflict))).toBe(false);
+
+    setResolution('ours', regions[0].ours, regions[0]);
+    expect(canApply(get(conflict))).toBe(false);
+
+    setResolution('theirs', regions[1].theirs, regions[1]);
+    expect(canApply(get(conflict))).toBe(true);
+  });
+
+  it('writes nothing while a region is undecided', async () => {
+    // `[FACT]` Not one byte may be written when a region has no decision:
+    // the path could not be written back anyway, and a half-arbitrated
+    // file in the work tree is worse than none.
+    let calls = 0;
+    const resolve = async (): Promise<ConflictResolveResult> => {
+      calls += 1;
+      return { path: 'src/feature.ts', regions: 0 };
+    };
+
+    await loadRegions('demo', null);
+    const regions = get(conflict).regions;
+    setResolution('ours', regions[0].ours, regions[0]);
+
+    const outcome = await applyDecisions('demo', null, { resolve });
+    expect(calls).toBe(0);
+    expect(outcome.written).toEqual([]);
+    expect(outcome.failed).toBe(null);
+    expect(get(conflict).applyError).toContain('no decision yet');
+  });
+
+  it('writes nothing when there is no region to write', async () => {
+    let calls = 0;
+    const resolve = async (): Promise<ConflictResolveResult> => {
+      calls += 1;
+      return { path: '', regions: 0 };
+    };
+    const outcome = await applyDecisions('demo', null, { resolve });
+    expect(calls).toBe(0);
+    expect(outcome.written).toEqual([]);
+    expect(get(conflict).applyError).toBe(CONFLICT_NO_REGIONS_MESSAGE);
+  });
+
+  it('groups the decisions by path and calls the command once per path', async () => {
+    // `[FACT]` The command handles ONE path: a merge spans several
+    // files, and each file is written and staged on its own.
+    const calls: ConflictResolvePayload[] = [];
+    const resolve = async (payload: ConflictResolvePayload): Promise<ConflictResolveResult> => {
+      calls.push(payload);
+      return { path: payload.path, regions: payload.choices.length };
+    };
+
+    withInvoke({ conflict_regions: () => twoPathRegions() });
+    await loadRegions('demo', null);
+    const regions = get(conflict).regions;
+    setResolution('ours', regions[0].ours, regions[0]);
+    setResolution('theirs', regions[1].theirs, regions[1]);
+
+    const outcome = await applyDecisions('demo', null, { resolve });
+
+    // One call per path — not one call with both paths' regions in it.
+    expect(calls.length).toBe(2);
+    expect(calls.map((c) => c.path)).toEqual([REGION.path, OTHER_REGION.path]);
+    // And each call carries only its own path's regions.
+    expect(calls[0].choices).toEqual([
+      { index: REGION.index, choice: 'ours', text: REGION.ours },
+    ]);
+    expect(calls[1].choices).toEqual([
+      { index: OTHER_REGION.index, choice: 'theirs', text: OTHER_REGION.theirs },
+    ]);
+    // The repository and the root travel with every call.
+    expect(calls[0].repo).toBe('demo');
+    expect(calls[0].root).toBe(null);
+    expect(outcome.written).toEqual([REGION.path, OTHER_REGION.path]);
+    expect(outcome.failed).toBe(null);
+    expect(outcome.skipped).toEqual([]);
+  });
+
+  it('sends every region of a path in one call', async () => {
+    // `[FACT]` A file can carry several regions, and the backend refuses
+    // a path with an undecided region — so the regions of one path have
+    // to travel together.
+    const calls: ConflictResolvePayload[] = [];
+    const resolve = async (payload: ConflictResolvePayload): Promise<ConflictResolveResult> => {
+      calls.push(payload);
+      return { path: payload.path, regions: payload.choices.length };
+    };
+    const second: ConflictRegion = { ...REGION, id: 'ffffffffffffffffffffffffffffffff', index: 1 };
+    withInvoke({
+      conflict_regions: () => ({ regions: [REGION, second], needsGit: [] }),
+    });
+
+    await loadRegions('demo', null);
+    const regions = get(conflict).regions;
+    setResolution('ours', regions[0].ours, regions[0]);
+    setResolution('manual', 'hand written\n', regions[1]);
+
+    await applyDecisions('demo', null, { resolve });
+    expect(calls.length).toBe(1);
+    expect(calls[0].path).toBe(REGION.path);
+    expect(calls[0].choices).toEqual([
+      { index: 0, choice: 'ours', text: REGION.ours },
+      { index: 1, choice: 'manual', text: 'hand written\n' },
+    ]);
+  });
+
+  it('reports which paths were written and which were not', async () => {
+    // `[FACT]` A report that said "done" while some paths were untouched
+    // would be a lie, and the user would commit a half-resolved merge.
+    const resolve = async (payload: ConflictResolvePayload): Promise<ConflictResolveResult> => {
+      if (payload.path === REGION.path) {
+        throw { kind: 'Gitgit', message: 'git add failed: the index is locked' };
+      }
+      return { path: payload.path, regions: payload.choices.length };
+    };
+
+    withInvoke({ conflict_regions: () => twoPathRegions() });
+    await loadRegions('demo', null);
+    const regions = get(conflict).regions;
+    setResolution('ours', regions[0].ours, regions[0]);
+    setResolution('theirs', regions[1].theirs, regions[1]);
+
+    const outcome = await applyDecisions('demo', null, { resolve });
+    expect(outcome.written).toEqual([]);
+    expect(outcome.failed?.path).toBe(REGION.path);
+    expect(outcome.failed?.message).toContain('the index is locked');
+    // The path after the failure was not attempted.
+    expect(outcome.skipped).toEqual([OTHER_REGION.path]);
+    // And the failure is in the state, for the page to show.
+    expect(get(conflict).applyError).toContain('the index is locked');
+  });
+
+  it('refreshes the region list after the write-back', async () => {
+    // `[FACT]` A path that was written back is no longer unmerged, so the
+    // region list has to be read again — otherwise the page would still
+    // show regions that git has already resolved.
+    let loads = 0;
+    const load = async (): Promise<ConflictRegions> => {
+      loads += 1;
+      return twoPathRegions();
+    };
+    const resolve = async (payload: ConflictResolvePayload): Promise<ConflictResolveResult> => ({
+      path: payload.path,
+      regions: payload.choices.length,
+    });
+
+    withInvoke({ conflict_regions: () => twoPathRegions() });
+    await loadRegions('demo', null);
+    const regions = get(conflict).regions;
+    setResolution('ours', regions[0].ours, regions[0]);
+    setResolution('theirs', regions[1].theirs, regions[1]);
+
+    await applyDecisions('demo', null, { resolve, load });
+    expect(loads).toBe(1);
+  });
+});
+
+describe('the /conflicts page — the write-back', () => {
+  it('shows on each region whether it has been decided', async () => {
+    render(Conflicts);
+    await waitFor(() => expect(screen.getByTestId('conflict-regions')).toBeTruthy());
+    const regions = get(conflict).regions;
+    expect(regions.length).toBe(2);
+    for (const region of regions) {
+      expect(screen.getByTestId(`conflict-region-${region.index}`).getAttribute('data-decided')).toBe(
+        'false',
+      );
+    }
+    setResolution('ours', regions[0].ours, regions[0]);
+    await waitFor(() =>
+      expect(
+        screen.getByTestId(`conflict-region-${regions[0].index}`).getAttribute('data-decided'),
+      ).toBe('true'),
+    );
+  });
+
+  it('disables the apply button until every region is decided', async () => {
+    render(Conflicts);
+    await waitFor(() => expect(screen.getByTestId('conflict-apply')).toBeTruthy());
+    const apply = screen.getByTestId('conflict-apply') as HTMLButtonElement;
+    expect(apply.disabled).toBe(true);
+
+    const regions = get(conflict).regions;
+    setResolution('ours', regions[0].ours, regions[0]);
+    await waitFor(() => expect((screen.getByTestId('conflict-apply') as HTMLButtonElement).disabled).toBe(
+      true,
+    ));
+    setResolution('theirs', regions[1].theirs, regions[1]);
+    await waitFor(() =>
+      expect((screen.getByTestId('conflict-apply') as HTMLButtonElement).disabled).toBe(false),
+    );
+  });
+
+  it('shows a failed write-back to the user, not only to the console', async () => {
+    // `[FACT]` The write-back is the step that changes the work tree, so
+    // its failure has to reach the user.
+    withInvoke({
+      conflict_resolve: () => {
+        throw { kind: 'Gitgit', message: 'git add failed: the index is locked' };
+      },
+    });
+    render(Conflicts);
+    await waitFor(() => expect(screen.getByTestId('conflict-apply')).toBeTruthy());
+
+    const regions = get(conflict).regions;
+    setResolution('ours', regions[0].ours, regions[0]);
+    setResolution('theirs', regions[1].theirs, regions[1]);
+    await waitFor(() =>
+      expect((screen.getByTestId('conflict-apply') as HTMLButtonElement).disabled).toBe(false),
+    );
+
+    await fireEvent.click(screen.getByTestId('conflict-apply'));
+    await waitFor(() => expect(screen.getByTestId('conflicts-apply-error')).toBeTruthy());
+    expect(screen.getByTestId('conflicts-apply-error').textContent).toContain('the index is locked');
+  });
+
+  it('shows which paths were written back', async () => {
+    render(Conflicts);
+    await waitFor(() => expect(screen.getByTestId('conflict-apply')).toBeTruthy());
+    const regions = get(conflict).regions;
+    setResolution('ours', regions[0].ours, regions[0]);
+    setResolution('theirs', regions[1].theirs, regions[1]);
+    await waitFor(() =>
+      expect((screen.getByTestId('conflict-apply') as HTMLButtonElement).disabled).toBe(false),
+    );
+
+    await fireEvent.click(screen.getByTestId('conflict-apply'));
+    await waitFor(() => expect(screen.getByTestId('conflicts-apply-written')).toBeTruthy());
+    expect(screen.getByTestId('conflicts-apply-written').textContent).toContain(REGION.path);
   });
 });
