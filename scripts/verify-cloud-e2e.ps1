@@ -28,9 +28,18 @@
                              branch ref is deleted, and a marker file is
                              left behind.
       5. `cloud snapshots` - the snapshot the backup just took is listed.
-      6. `cloud restore`   - the repository comes back exactly as it was.
-      7. `cloud rm`        - the disk is disconnected, the registry no
-                             longer knows it, and the snapshot is still on
+      6. `cloud restore`   - the repository comes back exactly as it was, AND
+                             the state it replaced is kept as a **safety
+                             snapshot** whose key the CLI prints.
+      7. (undo)           - restoring that safety snapshot puts the DAMAGED
+                             state back: the rollback is itself reversible,
+                             and that undo leaves a safety snapshot of its
+                             own.
+      8. (nothing to keep) - restoring a snapshot of a repository that is
+                             not there takes no safety snapshot, because
+                             there was nothing to replace.
+      9. `cloud rm`        - the disk is disconnected, the registry no
+                             longer knows it, and the snapshots are still on
                              the remote.
 
     What this script deliberately does not claim:
@@ -43,8 +52,8 @@
 
     Fail-closed note: every step asserts the exit code AND the output, an
     empty output is a failure (`Assert-Match` refuses an empty `Actual`),
-    and the run asserts at the end that all ten steps ran and that the run
-    made the number of assertions it expected. A step that quietly did
+    and the run asserts at the end that all twelve steps ran and that the
+    run made the number of assertions it expected. A step that quietly did
     nothing therefore cannot turn this into a green no-op.
 
 .PARAMETER TargetDir
@@ -117,7 +126,7 @@ $script:stepCount = 0
 function Step {
     param([string]$Message)
     $script:stepCount++
-    Write-Step ("({0}/10) {1}" -f $script:stepCount, $Message)
+    Write-Step ("({0}/12) {1}" -f $script:stepCount, $Message)
 }
 
 function Assert-Literal {
@@ -523,7 +532,146 @@ try {
         -Condition (-not (Test-Path -LiteralPath (Join-Path $reposDir ".$repoName.restore-retired"))) `
         -Detail 'the retired directory the restore swaps out is still there'
 
-    # ══ step 10 — disconnect ═══════════════════════════════════════════════
+    # The safety snapshot (ADR-0025 §2.4): a restore keeps the state it
+    # replaced, so the rollback can be undone.
+    #
+    # [FACT] The CLI prints the key, and that key is the user's way back:
+    # restoring it puts the repository back the way it was BEFORE this
+    # restore. The key carries the marker `pre-restore-` (src/cloud/
+    # backup.rs, `SAFETY_SNAPSHOT_MARKER`), so it is recognisable in the
+    # listing without downloading anything.
+    Assert-Literal -Name 'the restore reports the safety snapshot it left behind' `
+        -Expected 'safety snapshot: ' -Actual $restore.StdOut
+    Assert-Literal -Name 'the restore says the replaced repository is kept there' `
+        -Expected 'the repository that was replaced is kept there' -Actual $restore.StdOut
+    $safetyMatch = [regex]::Match($restore.StdOut, '(?m)^\s*safety snapshot: (?<key>\S+)\s*$')
+    Assert-True -Run $run -Name 'the restore prints the key of the safety snapshot' `
+        -Condition $safetyMatch.Success `
+        -Detail "the restore printed: $($restore.StdOut.Trim())"
+    $safetyKey = if ($safetyMatch.Success) { $safetyMatch.Groups['key'].Value } else { '' }
+    # An empty key cannot satisfy the next assertion: `Assert-Literal`
+    # refuses an empty expectation, so a restore that printed no key is
+    # red, not green.
+    Assert-Literal -Name 'the safety snapshot key names the repository and carries the pre-restore marker' `
+        -Expected "snapshots/$repoName/pre-restore-" -Actual $safetyKey
+    # The two keys must be DIFFERENT objects. This is an inequality, not a
+    # containment test: `Assert-Literal` asks "does the actual text contain
+    # the expected text", and using it here would assert that the safety
+    # key CONTAINS the restored key - which is false for two different
+    # keys and true for none, i.e. an assertion that could only ever fail.
+    Assert-True -Run $run -Name 'the safety snapshot is not the snapshot that was restored' `
+        -Condition ($safetyKey -ne $restoreKey) `
+        -Detail "the restored key was '$restoreKey', the safety key is '$safetyKey'"
+
+    # The disk holds one more object now: the safety snapshot.
+    $afterRestore = Invoke-GitGit @('cloud', 'snapshots', '--disk', $diskName, '--repo', $repoName)
+    Assert-Equal -Run $run -Name 'gitgit cloud snapshots exits 0 after the restore' `
+        -Expected 0 -Actual $afterRestore.ExitCode -Detail $afterRestore.StdErr.Trim()
+    Assert-Literal -Name 'the safety snapshot is listed beside the backup it came from' `
+        -Expected $safetyKey -Actual $afterRestore.StdOut
+
+    # ══ step 10 — undo the restore ═══════════════════════════════════════════
+    Step 'undoing the restore (cloud restore of the safety snapshot)'
+    # [FACT] This is the point of the safety snapshot: restoring it puts
+    # the DAMAGED state back, so the rollback is itself reversible. The
+    # state the undo replaced - the good one - is kept as a safety
+    # snapshot of its own.
+    $undo = Invoke-GitGit @('cloud', 'restore', $safetyKey, '--disk', $diskName, '--repo', $repoName)
+    Assert-Equal -Run $run -Name 'the restore of the safety snapshot exits 0' `
+        -Expected 0 -Actual $undo.ExitCode -Detail $undo.StdErr.Trim()
+    Assert-Literal -Name 'the undo reports the repository and the key it restored' `
+        -Expected "restored $repoName from $safetyKey" -Actual $undo.StdOut
+
+    # The repository is back in the state it was in BEFORE the first
+    # restore: the damage is back.
+    $headUndone = (Get-Content -Raw -LiteralPath (Join-Path $bareDir 'HEAD')).Trim()
+    Assert-Equal -Run $run -Name 'the undo put the damaged HEAD back' `
+        -Expected 'ref: refs/heads/damaged' -Actual $headUndone
+    $refUndone = Try-Git $bareDir @('rev-parse', '--verify', "refs/heads/$branch")
+    Assert-True -Run $run -Name 'the undo left the branch ref deleted, as the damage had it' `
+        -Condition ([string]::IsNullOrEmpty($refUndone)) `
+        -Detail "refs/heads/$branch resolves to '$refUndone'"
+    Assert-True -Run $run -Name 'the undo put the marker file back' `
+        -Condition (Test-Path -LiteralPath $markerPath) `
+        -Detail "expected $markerPath to be back"
+    $blobUndone = Try-Git $bareDir @('cat-file', '-p', $blobSha)
+    Assert-True -Run $run -Name 'the undo really restored the damaged content, not the good one' `
+        -Condition ($null -eq $blobUndone -or $blobUndone -ne $blobBody) `
+        -Detail 'the undo left the good blob behind, so it did not undo anything'
+
+    # And the undo was itself safe.
+    $undoSafetyMatch = [regex]::Match($undo.StdOut, '(?m)^\s*safety snapshot: (?<key>\S+)\s*$')
+    Assert-True -Run $run -Name 'the undo left a safety snapshot of its own' `
+        -Condition $undoSafetyMatch.Success `
+        -Detail "the undo printed: $($undo.StdOut.Trim())"
+    $undoSafetyKey = if ($undoSafetyMatch.Success) { $undoSafetyMatch.Groups['key'].Value } else { '' }
+    Assert-Literal -Name 'the undo''s safety snapshot carries the pre-restore marker' `
+        -Expected "snapshots/$repoName/pre-restore-" -Actual $undoSafetyKey
+    # Same shape as the assertion above: an inequality between two keys,
+    # not a containment test.
+    Assert-True -Run $run -Name 'the undo''s safety snapshot is not the one it just restored' `
+        -Condition ($undoSafetyKey -ne $safetyKey) `
+        -Detail "the key the undo restored was '$safetyKey', the undo's safety key is '$undoSafetyKey'"
+
+    # ══ step 11 — a restore with nothing to keep ════════════════════════════
+    Step 'restoring into a repository that is not there (nothing to keep)'
+    # [FACT] A restore keeps the state it replaces, so it can be undone
+    # (src/cloud/backup.rs, `restore`: `if target.is_dir()`). When there is
+    # no repository at the target, there is nothing to replace, so there is
+    # nothing to keep - and the CLI says so in as many words
+    # (src/main.rs: "there was no repository to replace, so no safety
+    # snapshot was taken"). The library pins the same rule in
+    # `a_restore_of_a_missing_repository_takes_no_safety_snapshot`; this
+    # step is that rule seen through the binary.
+    #
+    # The repository is moved aside rather than deleted, so a red run can
+    # still be inspected.
+    $asideDir = Join-Path $reposDir "$repoName.aside"
+    Move-Item -LiteralPath $bareDir -Destination $asideDir
+    Assert-True -Run $run -Name 'the repository really is not there before the restore' `
+        -Condition (-not (Test-Path -LiteralPath $bareDir)) `
+        -Detail "expected $bareDir to be gone"
+    $objectsBeforeRaw = Invoke-GitGit @('cloud', 'snapshots', '--disk', $diskName, '--repo', $repoName)
+    $objectsBefore = @($objectsBeforeRaw.StdOut -split "`r?`n" |
+        Where-Object { $_ -match '\S' -and $_ -notmatch '^\(no snapshots\)' })
+    $intoNothing = Invoke-GitGit @('cloud', 'restore', $snapshotKey, '--disk', $diskName, '--repo', $repoName)
+    Assert-Equal -Run $run -Name 'the restore into a missing repository exits 0' `
+        -Expected 0 -Actual $intoNothing.ExitCode -Detail $intoNothing.StdErr.Trim()
+    Assert-Literal -Name 'the restore into a missing repository reports what it restored' `
+        -Expected "restored $repoName from $snapshotKey" -Actual $intoNothing.StdOut
+    Assert-Literal -Name 'the restore into a missing repository says there was nothing to replace' `
+        -Expected 'there was no repository to replace, so no safety snapshot was taken' `
+        -Actual $intoNothing.StdOut
+    # The stronger form of the same claim: the restore printed NO safety
+    # snapshot key at all. The message above says so in words; this says
+    # it in the shape of the output - a key line would be the one way a
+    # safety snapshot could hide.
+    $intoNothingSafety = [regex]::Match($intoNothing.StdOut, '(?m)^\s*safety snapshot: (?<key>\S+)\s*$')
+    Assert-True -Run $run -Name 'the restore into a missing repository printed no safety snapshot key' `
+        -Condition (-not $intoNothingSafety.Success) `
+        -Detail "the restore printed: $($intoNothing.StdOut.Trim())"
+
+    # The repository is back, and it is the good one - the backup was taken
+    # before the damage.
+    $headBack = (Get-Content -Raw -LiteralPath (Join-Path $bareDir 'HEAD')).Trim()
+    Assert-Equal -Run $run -Name 'the repository that was missing is back with the HEAD it was backed up with' `
+        -Expected $headBefore -Actual $headBack
+    $commitBack = Try-Git $bareDir @('rev-parse', '--verify', "refs/heads/$branch")
+    Assert-Equal -Run $run -Name 'the repository that was missing is back with its branch ref' `
+        -Expected $commitSha -Actual $commitBack
+    Assert-True -Run $run -Name 'the marker file the damage left behind is gone again' `
+        -Condition (-not (Test-Path -LiteralPath $markerPath)) -Detail "expected $markerPath to be gone"
+
+    # And the disk did not grow: a restore with nothing to replace has
+    # nothing to keep, so it must not leave an object behind.
+    $objectsAfterRaw = Invoke-GitGit @('cloud', 'snapshots', '--disk', $diskName, '--repo', $repoName)
+    $objectsAfter = @($objectsAfterRaw.StdOut -split "`r?`n" |
+        Where-Object { $_ -match '\S' -and $_ -notmatch '^\(no snapshots\)' })
+    Assert-Equal -Run $run -Name 'the restore with nothing to replace left no new object on the disk' `
+        -Expected $objectsBefore.Count -Actual $objectsAfter.Count `
+        -Detail "before: $($objectsBefore.Count) objects, after: $($objectsAfter.Count) objects"
+
+    # ══ step 12 — disconnect ═══════════════════════════════════════════════
     Step 'disconnecting the disk (cloud rm)'
     $rm = Invoke-GitGit @('cloud', 'rm', $diskName)
     Assert-Equal -Run $run -Name 'gitgit cloud rm exits 0' -Expected 0 -Actual $rm.ExitCode `
@@ -587,23 +735,35 @@ try {
         -Detail "the registry still lists: $($registeredNames2 -join ', ')"
 
     # ══ the run itself ═════════════════════════════════════════════════════
-    Assert-Equal -Run $run -Name 'every step of the check ran' -Expected 10 -Actual $script:stepCount
-    # [FACT] This script makes 57 assertions when every conditional branch is
-    # taken, and 53 when none of the four is. The floor below is the lower
-    # of the two: a run that quietly stopped making assertions - a step that
-    # was skipped, an assertion that was deleted - cannot pass it. (This is
-    # the same count-based fail-closed rule scripts/verify-s3-vault.ps1
-    # applies to its `cargo test` count: a filter that matches nothing exits
-    # 0 and would look green.)
+    Assert-Equal -Run $run -Name 'every step of the check ran' -Expected 12 -Actual $script:stepCount
+    # [FACT] This script makes **82** assertions when every conditional
+    # branch is taken, and the run asserts that it made exactly that many.
+    # The number is measured, not derived: it is the `total` of the report
+    # this script writes (`cloud-e2e.json`).
     #
-    # [FACT] The four conditional assertions are the ones guarded by
-    # `$backupMetaMatch.Success`, `$snapMatch.Success`, `$null -ne
-    # $registryDoc` and `$snapAfterMatch.Success`. In a green run all four
-    # fire - each is guarded by an assertion that fails when its own parse
-    # fails - so a green run makes exactly 57.
-    Assert-True -Run $run -Name 'the run made the number of assertions it is expected to make' `
-        -Condition (($run.Pass + $run.Fail) -ge 53) `
-        -Detail "the run made $($run.Pass + $run.Fail) assertions"
+    # [FACT] The count is compared against **81**, not 82, and the reason is
+    # the order of operations: this assertion is one of the 82, and
+    # `-Actual` is evaluated BEFORE `Add-RegressionCase` records it - so
+    # the count at this moment is the count of the other 81.
+    #
+    # [FACT] Exactly, and not a floor, because a floor would leave a hole
+    # open. The registry is read into `$registryDoc` inside a `try`, and the
+    # failure path calls `Write-Fail`, which PRINTS but does not record a
+    # case (`scripts/lib/regression-common.ps1`: `Write-Fail` is a
+    # `Write-Host`; `Add-RegressionCase` is what counts). So an unreadable
+    # registry used to skip the "the registry no longer lists the
+    # disconnected disk" assertion and still leave the run green - the
+    # report would have said 81 of 81 passed. Comparing the count exactly
+    # closes it: the count would be 80, and this assertion fails.
+    #
+    # [FACT] The three conditional assertions are the ones inside
+    # `if ($backupMetaMatch.Success)`, `if ($snapMatch.Success)` and
+    # `if ($null -ne $registryDoc)`. Each is preceded by an assertion that
+    # fails when its own parse fails, so a green run takes all three
+    # branches and makes all 82 assertions.
+    Assert-Equal -Run $run -Name 'the run made exactly the number of assertions it is expected to make' `
+        -Expected 81 -Actual ($run.Pass + $run.Fail) `
+        -Detail "the run made $($run.Pass + $run.Fail) assertions before this one; a green run makes 81 before it and 82 with it"
 }
 catch {
     Write-Fail "the cloud e2e check could not finish :: $($_.Exception.Message)"
@@ -650,5 +810,5 @@ if ($exitCode -ne 0) {
 }
 
 Write-Host ''
-Write-Host ("  PASS: {0} assertions passed - the cloud binary connected a disk, backed up a real bare repository, rolled it back after real damage, and disconnected with the snapshot left on the remote" -f $run.Pass) -ForegroundColor Green
+Write-Host ("  PASS: {0} assertions passed - the cloud binary connected a disk, backed up a real bare repository, rolled it back after real damage, kept the state it replaced as a safety snapshot, undid the rollback with that snapshot, left no safety snapshot when there was nothing to replace, and disconnected with the snapshots left on the remote" -f $run.Pass) -ForegroundColor Green
 exit 0

@@ -502,6 +502,71 @@ Tauri 的 `app_log_dir()` 是 `~/Library/Logs/<identifier>`。
 应用在无 dbus、无 seat、无硬件加速的容器里启动失败的原因与打包无关，而这类会误红
 的门禁最终只会被关掉。
 
+## 云盘端到端门禁：`cloud-e2e`（2026-11-24）
+
+`.github/workflows/rust-backend.yml` 的 `cloud end-to-end against this repository's own object store`
+这一个 step 跑 `scripts/verify-cloud-e2e.ps1`：它启动本仓自己的 `gitgit-objectstore` 二进制
+（随机端口、每次现铸的一次性 secret、只走环境变量），用真 git 建一个真的裸仓库（真提交、
+真 blob、真 ref），然后把 `gitgit cloud` 这个**二进制**从头到尾走一遍。
+
+> `[FACT]` 库层本来就有端到端测试（`src/cloud/backup.rs` 直连真的 S3 兼容端点），但
+> `gitgit cloud` **二进制**从未被端到端跑过 —— 每个 `gitgit key *` 子命令里的
+> `Handle::current().block_on` panic 就是这么躲过去的。
+
+### 这道门禁证明了什么
+
+`[FACT]` 2026-11-24 实测，**82 条断言全绿**（`exit 0`）。覆盖的是：连接磁盘（凭据只走
+环境变量）、列出磁盘、用真仓库备份、**真损坏**（HEAD 指向不存在的分支、分支 ref 被删、
+留下标记文件）、列出快照、还原、断开并重连后快照仍在远端。
+
+`[FACT]` 2026-11-24 补上了**安全快照**这一段（ADR-0025 §2.4）：
+
+- 还原把仓库换回去时，**它替换掉的那份状态被留成一张安全快照**，并且 CLI 把它的 key 打
+  出来 —— 那是用户的退路；
+- 把那张安全快照再还原一次，**损坏态回来了** ⇒ 回滚本身是可逆的，而这次撤销**又**留下
+  了一张自己的安全快照；
+- **没有东西可留的时候就不留**：仓库不在那里时还原照样成功，但**不产生**安全快照，磁盘上
+  的对象数**一个都不多**。
+
+### 断言数契约：为什么是精确值而不是下限
+
+`[FACT]` 脚本在最后断言「这次运行做的断言数正好是多少」。比较的是 **81** 而不是 82，原因
+是求值顺序：这条断言本身也是 82 条里的一条，而 `-Actual` 在 `Add-RegressionCase` 记录它
+**之前**求值 ⇒ 这一刻的计数是另外 81 条。
+
+`[FACT]` 用**精确值**而不是下限，是因为下限留着一个真实的洞：registry 是读进 `$registryDoc`
+再用的，失败路径调的是 `Write-Fail` —— 它**只打印，不记一条 case**
+（`scripts/lib/regression-common.ps1`：`Write-Fail` 是 `Write-Host`，`Add-RegressionCase`
+才是计数的那个）。所以 registry 读不出来时，那条「registry 不再知道这个磁盘」的断言会被
+**跳过**，而整个运行仍然是绿的 —— 报告会说 81 条全过。精确计数把这个洞堵上：那时计数是
+80，这条断言就红了。
+
+> `[FACT]` 改这条之前，原脚本写的是「57 条 / 下限 53」——两个数**都不对**：静态站点是 58
+> 条，条件断言是 **3** 处（每处 1 条），所以绿跑是 58、下限是 55。
+
+### 变异证明
+
+| 变异 | 期望 | 实测 |
+| --- | --- | --- |
+| 把安全快照挪到**交换之后**取（于是它抓到的是还原**带进来的**状态，而不是被替换掉的状态） | 失败并点名 | `exit 1`，**7 / 82 条红**：`the undo put the damaged HEAD back`（实际 `ref: refs/heads/main`）、`the undo left the branch ref deleted, as the damage had it`、`the undo put the marker file back`、`the undo really restored the damaged content, not the good one`、`the restore into a missing repository says there was nothing to replace`、`the restore into a missing repository printed no safety snapshot key`、`the restore with nothing to replace left no new object on the disk`（3 → 4 个对象） |
+| 还原 | 绿 | `exit 0`，82 条全过 |
+
+> `[FACT]` 还原后 `src/cloud/backup.rs` 与变异前**字节完全一致**（SHA-256 前后都是
+> `EEB4B70C4DB698F00085D6E14BFCF7A10491512643E3CA2DD0D9A1D5BE813FFE`），仓内没有留下任何
+> 变异痕迹。
+
+`[FACT]` 这个变异专门挑的是**语义**而不是**存在性**：安全快照照样被写了、key 照样被打印
+了、断言照样过了大半 —— 只有「它抓的是**替换前**的状态」这件事变了，而那正是 §2.4 要保证
+的。
+
+### 刻意不验证的部分
+
+- `[FACT]` 不测库层：`src/cloud/backup.rs` 测了，脚本不重复。
+- `[FACT]` 不证明对**托管** S3 服务的回滚：端点是本仓自己的 object store，与
+  `scripts/verify-s3-vault.ps1` 用的是同一个。
+- `[FACT]` 不覆盖**真实**的云盘凭据：`GITGIT_CLOUD_*_ACCESS_KEY` /
+  `GITGIT_CLOUD_*_SECRET_KEY` 走环境变量，脚本每次现铸一个一次性 secret。
+
 ## 触发器定义
 
 > `[FACT]` 2026-10-24 核验：下表逐字段核对自**六个** workflow 的 `on:` 块，不是凭印象写的。

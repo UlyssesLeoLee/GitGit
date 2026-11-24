@@ -422,6 +422,14 @@ jobs:
         #     HEAD, the branch ref, the commit it pointed at, the blob's
         #     content and the absence of the marker file. This is the core
         #     assertion: the exit code alone would not prove a rollback;
+        #   * the restore also keeps the state it REPLACED as a safety
+        #     snapshot and prints its key, so the rollback has a way back;
+        #   * that safety snapshot is then restored: the DAMAGED state comes
+        #     back, so the rollback is itself reversible - and the undo
+        #     leaves a safety snapshot of its own;
+        #   * a restore with NOTHING to replace takes no safety snapshot:
+        #     the repository is moved out of the way, the restore still
+        #     works, and the disk does not grow by one object;
         #   * the disk is disconnected, the registry no longer knows it,
         #     and the snapshot is still on the remote.
         #
