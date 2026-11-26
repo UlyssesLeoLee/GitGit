@@ -681,7 +681,7 @@ async fn run_gitremote(config: &Config, sub: GitremoteCommand) -> anyhow::Result
             );
             let outcome =
                 remote::sync::sync_ref(&repo_path, &remote_entry.url, &name, &branch).await?;
-            println!("  {}", outcome.as_str());
+            println!("  {}", outcome.summary());
             Ok(())
         }
     }
