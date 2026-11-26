@@ -34,12 +34,15 @@
 //! rollback that destroys what it could not preserve is not a rollback
 //! ✓, it is data loss ✓.
 
+use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
 use sha2::{Digest, Sha256};
 
 use crate::cloud::tar::{self, Entry};
-use crate::cloud::{CloudDisk, SnapshotMeta, SNAPSHOT_MAGIC, SNAPSHOT_VERSION};
+use crate::cloud::{
+    CloudDisk, SnapshotMeta, LEGACY_SNAPSHOT_VERSION, SNAPSHOT_MAGIC, SNAPSHOT_VERSION,
+};
 use crate::error::{GitGitError, Result};
 
 /// The key prefix every snapshot of a disk lives under.
@@ -106,8 +109,8 @@ struct BuiltSnapshot {
 /// archive's SHA-256 ✓, so a restore can tell a damaged download from a
 /// good one ✓.
 fn build_snapshot(dir: &Path, repo: &str, disk_name: &str) -> Result<BuiltSnapshot> {
-    let entries = collect(dir)?;
-    let archive = tar::write(&entries).map_err(|e| GitGitError::Cloud(e.to_string()))?;
+    let collected = collect(dir)?;
+    let archive = tar::write(&collected.entries).map_err(|e| GitGitError::Cloud(e.to_string()))?;
     let digest = hex::encode(Sha256::digest(&archive));
 
     let created = std::time::SystemTime::now()
@@ -119,8 +122,11 @@ fn build_snapshot(dir: &Path, repo: &str, disk_name: &str) -> Result<BuiltSnapsh
         disk: disk_name.to_string(),
         repo: repo.to_string(),
         created_unix: created,
-        entries: entries.len() as u64,
+        entries: collected.entries.len() as u64,
         sha256: digest.clone(),
+        // The directories that hold no file ✓ — the archive cannot carry
+        // them ✓, so the metadata has to ✓.
+        directories: collected.empty_dirs,
     };
 
     let mut file = Vec::new();
@@ -213,6 +219,15 @@ pub async fn restore(
             )));
         }
     }
+    // The directories that hold no file ✓ are written to the same place
+    // as the files ✓, so they are checked with the same rule ✓.
+    for dir in &meta.directories {
+        if dir.is_empty() || crate::repo::status::validate_rel_path(dir).is_err() {
+            return Err(GitGitError::Cloud(format!(
+                "the snapshot contains an unsafe directory: {dir:?}"
+            )));
+        }
+    }
 
     // The safety snapshot ✓ — taken **after** the path pre-flight above
     // ✓ and **before** anything is written locally ✓.
@@ -237,6 +252,11 @@ pub async fn restore(
         remove_path(scratch)?;
     }
     std::fs::create_dir_all(&staging)?;
+    // The directories that hold no file ✓ — the archive cannot carry them
+    // ✓, so they are created here ✓, before the files ✓.
+    for dir in &meta.directories {
+        std::fs::create_dir_all(staging.join(dir))?;
+    }
     for entry in &entries {
         let path = staging.join(&entry.path);
         if let Some(parent) = path.parent() {
@@ -384,16 +404,43 @@ fn split_snapshot(file: &[u8]) -> Result<(SnapshotMeta, Vec<u8>)> {
         .ok_or_else(|| GitGitError::Cloud("the snapshot has no metadata line".to_string()))?;
     let meta: SnapshotMeta = serde_json::from_slice(&rest[..newline])
         .map_err(|e| GitGitError::Cloud(format!("the snapshot metadata is unreadable: {e}")))?;
+    // The version is checked ✓ — a snapshot this build does not know how
+    // to read is **refused** ✓, not read hopefully ✓.
+    if meta.version != SNAPSHOT_VERSION && meta.version != LEGACY_SNAPSHOT_VERSION {
+        return Err(GitGitError::Cloud(format!(
+            "the snapshot's format version is {}, and this build reads version {LEGACY_SNAPSHOT_VERSION} and {SNAPSHOT_VERSION}",
+            meta.version
+        )));
+    }
     Ok((meta, rest[newline + 1..].to_vec()))
 }
 
-/// Collect every regular file under `dir` as a tar entry.
+/// What a repository directory holds: its files ✓, and the directories that
+/// hold none ✓.
+struct Collected {
+    /// Every regular file, as a tar entry ✓.
+    entries: Vec<Entry>,
+    /// The directories that hold **no file at all** ✓ — relative to the
+    /// root ✓, with `/` separators ✓.
+    ///
+    /// `[FACT]` A file inside a directory recreates that directory when the
+    /// snapshot is restored ✓ — so only a directory with **nothing** in it
+    /// would be lost ✓, and losing one is not cosmetic ✓: a bare
+    /// repository without `refs/` is not a repository git will touch ✓.
+    empty_dirs: Vec<String>,
+}
+
+/// Collect every regular file under `dir` as a tar entry, and every
+/// directory that holds none.
 ///
 /// `[FACT]` The paths are relative to `dir` ✓ and use `/` separators ✓.
 /// Symlinks are **skipped** ✓: a snapshot that followed one could read
 /// outside the repository ✓, and a bare repository has none ✓.
-fn collect(dir: &Path) -> Result<Vec<Entry>> {
+fn collect(dir: &Path) -> Result<Collected> {
     let mut entries = Vec::new();
+    let mut dirs: BTreeSet<String> = BTreeSet::new();
+    // Every directory that has a file somewhere below it ✓.
+    let mut holds_a_file: BTreeSet<String> = BTreeSet::new();
     let mut stack = vec![dir.to_path_buf()];
     while let Some(current) = stack.pop() {
         let read = std::fs::read_dir(&current)?;
@@ -412,8 +459,15 @@ fn collect(dir: &Path) -> Result<Vec<Entry>> {
                 .to_string_lossy()
                 .replace('\\', "/");
             if meta.is_dir() {
+                dirs.insert(relative);
                 stack.push(path);
                 continue;
+            }
+            // Every directory above this file holds a file ✓.
+            let mut parent = relative.clone();
+            while let Some(index) = parent.rfind('/') {
+                parent.truncate(index);
+                holds_a_file.insert(parent.clone());
             }
             let data = std::fs::read(&path)?;
             let mtime = meta
@@ -431,7 +485,14 @@ fn collect(dir: &Path) -> Result<Vec<Entry>> {
         }
     }
     entries.sort_by(|a, b| a.path.cmp(&b.path));
-    Ok(entries)
+    let empty_dirs = dirs
+        .into_iter()
+        .filter(|d| !holds_a_file.contains(d))
+        .collect();
+    Ok(Collected {
+        entries,
+        empty_dirs,
+    })
 }
 
 /// The permission bits of a file.
@@ -676,6 +737,7 @@ mod tests {
             created_unix: 0,
             entries: 1,
             sha256: hex::encode(Sha256::digest(&archive)),
+            directories: Vec::new(),
         };
         let mut file = Vec::new();
         file.extend_from_slice(SNAPSHOT_MAGIC);
@@ -771,6 +833,7 @@ mod tests {
             created_unix: 0,
             entries: 1,
             sha256: hex::encode(Sha256::digest(&archive)),
+            directories: Vec::new(),
         };
         disk.put("snapshots/demo/x.tar", &snapshot_bytes(&meta, &archive))
             .await
@@ -809,6 +872,7 @@ mod tests {
             created_unix: 0,
             entries: 1,
             sha256: hex::encode(Sha256::digest(&archive)),
+            directories: Vec::new(),
         };
         disk.put("snapshots/demo/x.tar", &snapshot_bytes(&meta, &archive))
             .await
@@ -895,6 +959,7 @@ mod tests {
             created_unix: 1_700_000_000,
             entries: 1,
             sha256: "00".repeat(32),
+            directories: Vec::new(),
         };
         let json = serde_json::to_vec(&meta).unwrap();
         let mut file = Vec::new();
@@ -1065,6 +1130,93 @@ mod tests {
             objects.len(),
             1,
             "the disk must hold only the backup: {objects:?}"
+        );
+    }
+
+    // ---- The directories that hold no file ✓ ----
+
+    #[tokio::test]
+    async fn a_snapshot_records_the_directories_that_hold_no_file() {
+        let disk = MemoryDisk::default();
+        let repos = temp_dir("empty-directory-recorded");
+        let dir = repo_dir(&repos, "demo");
+        make_repo(&repos, "demo", "ref: refs/heads/main\n");
+        // `refs/tags` is the shape a bare repository really has ✓: a
+        // directory with nothing in it ✓.
+        std::fs::create_dir_all(dir.join("refs/tags")).unwrap();
+
+        let (meta, _) = backup(&disk, "demo", &repos, "oss").await.unwrap();
+
+        assert_eq!(
+            meta.directories,
+            vec!["refs/tags".to_string()],
+            "the directory that holds no file must be recorded: {meta:?}"
+        );
+        // The directories that DO hold a file are not recorded ✓ — the
+        // files bring them back ✓.
+        assert!(
+            !meta.directories.iter().any(|d| d == "refs" || d == "refs/heads"),
+            "only the empty directories are recorded: {meta:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_restore_brings_back_a_directory_that_holds_no_file() {
+        let disk = MemoryDisk::default();
+        let repos = temp_dir("empty-directory-restored");
+        let dir = repo_dir(&repos, "demo");
+        make_repo(&repos, "demo", "ref: refs/heads/main\n");
+        std::fs::create_dir_all(dir.join("refs/tags")).unwrap();
+
+        let (_, key) = backup(&disk, "demo", &repos, "oss").await.unwrap();
+        // Take it away ✓ — so a restore that brings it back has to have
+        // carried it ✓.
+        std::fs::remove_dir_all(dir.join("refs/tags")).unwrap();
+        assert!(!dir.join("refs/tags").exists());
+
+        restore(&disk, &key, Some("demo"), &repos, "oss")
+            .await
+            .unwrap();
+
+        assert!(
+            dir.join("refs/tags").is_dir(),
+            "a restore must bring back a directory that holds no file: {}",
+            dir.join("refs/tags").display()
+        );
+    }
+
+    #[tokio::test]
+    async fn a_snapshot_of_a_version_this_build_does_not_know_is_refused() {
+        let disk = MemoryDisk::default();
+        let repos = temp_dir("unknown-version");
+        make_repo(&repos, "demo", "ref: refs/heads/main\n");
+        let archive = tar::write(&[Entry {
+            path: "HEAD".to_string(),
+            data: b"ref: refs/heads/main\n".to_vec(),
+            mode: 0o644,
+            mtime: 0,
+        }])
+        .unwrap();
+        let meta = SnapshotMeta {
+            version: 99,
+            disk: "oss".to_string(),
+            repo: "demo".to_string(),
+            created_unix: 0,
+            entries: 1,
+            sha256: hex::encode(Sha256::digest(&archive)),
+            directories: Vec::new(),
+        };
+        disk.put("snapshots/demo/x.tar", &snapshot_bytes(&meta, &archive))
+            .await
+            .unwrap();
+
+        let error = restore(&disk, "snapshots/demo/x.tar", Some("demo"), &repos, "oss")
+            .await
+            .expect_err("a snapshot of an unknown version must be refused");
+        let message = error.to_string();
+        assert!(
+            message.contains("99") && message.contains("version"),
+            "the refusal must name the version it cannot read: {message}"
         );
     }
 }

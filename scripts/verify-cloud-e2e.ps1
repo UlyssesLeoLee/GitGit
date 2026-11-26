@@ -25,8 +25,8 @@
                              snapshot key is parsed out of the output.
       4. (damage)         - the repository is genuinely broken: its HEAD is
                              pointed at a branch that does not exist, its
-                             branch ref is deleted, and a marker file is
-                             left behind.
+                             branch ref is deleted, a marker file is left
+                             behind, and a plain file's content is changed.
       5. `cloud snapshots` - the snapshot the backup just took is listed.
       6. `cloud restore`   - the repository comes back exactly as it was, AND
                              the state it replaced is kept as a **safety
@@ -400,6 +400,15 @@ try {
     Invoke-Git $workTree @('branch', '-M', $branch) | Out-Null
     Invoke-Git $workTree @('push', '-q', $bareDir, "$($branch):$($branch)") | Out-Null
 
+    # A plain file that is **not** a git object ✓ — so the damage can change
+    # it ✓, and the undo can be checked by its **content** ✓ (the HEAD and
+    # the ref say the damage is back, but they cannot tell the damaged
+    # state from the good one on their own).
+    $statePath     = Join-Path $bareDir 'STATE'
+    $stateBefore   = 'the state the backup took'
+    $stateDamaged  = 'the state the damage left behind'
+    Set-Content -LiteralPath $statePath -Value $stateBefore -NoNewline
+
     $commitSha = Invoke-Git $bareDir @('rev-parse', '--verify', "refs/heads/$branch")
     $blobSha   = Invoke-Git $bareDir @('rev-parse', '--verify', ('refs/heads/{0}:hello.txt' -f $branch))
     $blobBody  = Invoke-Git $bareDir @('cat-file', '-p', $blobSha)
@@ -459,6 +468,8 @@ try {
     Invoke-Git $bareDir @('update-ref', '-d', "refs/heads/$branch") | Out-Null
     # (c) leave a marker file behind
     Set-Content -LiteralPath $markerPath -Value 'damaged by verify-cloud-e2e' -NoNewline
+    # (d) change the plain file's content ✓
+    Set-Content -LiteralPath $statePath -Value $stateDamaged -NoNewline
 
     $headDamaged = (Get-Content -Raw -LiteralPath (Join-Path $bareDir 'HEAD')).Trim()
     $refDamaged  = Try-Git $bareDir @('rev-parse', '--verify', "refs/heads/$branch")
@@ -523,6 +534,17 @@ try {
     $blobRestored = Try-Git $bareDir @('cat-file', '-p', $blobSha)
     Assert-Equal -Run $run -Name 'the restored repository really holds the original blob content' `
         -Expected $blobBody -Actual $blobRestored
+    # The plain file's content is back ✓ — the damage to it is undone ✓.
+    $stateRestored = (Get-Content -Raw -LiteralPath $statePath).Trim()
+    Assert-Equal -Run $run -Name 'the restore brought the plain file back the way it was' `
+        -Expected $stateBefore -Actual $stateRestored
+    # The restored directory must still be a **repository** ✓ — a restore
+    # that brings the files back but loses a directory git needs (`refs/`)
+    # leaves something git refuses to operate on ✓.
+    $gitDirRestored = Try-Git $bareDir @('rev-parse', '--git-dir')
+    Assert-True -Run $run -Name 'the restored repository is still a repository git operates on' `
+        -Condition (-not [string]::IsNullOrEmpty($gitDirRestored)) `
+        -Detail 'git does not recognise the restored repository as a repository'
     Assert-True -Run $run -Name 'the marker file the damage left behind is gone after the restore' `
         -Condition (-not (Test-Path -LiteralPath $markerPath)) -Detail "expected $markerPath to be gone"
     Assert-True -Run $run -Name 'the restore left no staging directory behind' `
@@ -594,10 +616,24 @@ try {
     Assert-True -Run $run -Name 'the undo put the marker file back' `
         -Condition (Test-Path -LiteralPath $markerPath) `
         -Detail "expected $markerPath to be back"
+    # The plain file holds the **damaged** content again ✓ — that is what
+    # tells the damaged state apart from the good one ✓ (the HEAD and the
+    # ref say the damage is back, but on their own they cannot).
+    $stateUndone = (Get-Content -Raw -LiteralPath $statePath).Trim()
+    Assert-Equal -Run $run -Name 'the undo brought the damaged content back' `
+        -Expected $stateDamaged -Actual $stateUndone
+    # The undone directory must still be a **repository** ✓.
+    $gitDirUndone = Try-Git $bareDir @('rev-parse', '--git-dir')
+    Assert-True -Run $run -Name 'the undo left a repository git operates on' `
+        -Condition (-not [string]::IsNullOrEmpty($gitDirUndone)) `
+        -Detail 'git does not recognise the undone repository as a repository'
+    # The blob is **not** part of the damage ✓, so the undo must leave it
+    # readable ✓ and unchanged ✓. This is the assertion that catches a
+    # restore that produced a directory git does not recognise: `cat-file`
+    # fails in such a directory ✓.
     $blobUndone = Try-Git $bareDir @('cat-file', '-p', $blobSha)
-    Assert-True -Run $run -Name 'the undo really restored the damaged content, not the good one' `
-        -Condition ($null -eq $blobUndone -or $blobUndone -ne $blobBody) `
-        -Detail 'the undo left the good blob behind, so it did not undo anything'
+    Assert-Equal -Run $run -Name 'the undo left the blob readable and unchanged' `
+        -Expected $blobBody -Actual $blobUndone
 
     # And the undo was itself safe.
     $undoSafetyMatch = [regex]::Match($undo.StdOut, '(?m)^\s*safety snapshot: (?<key>\S+)\s*$')
@@ -736,15 +772,15 @@ try {
 
     # ══ the run itself ═════════════════════════════════════════════════════
     Assert-Equal -Run $run -Name 'every step of the check ran' -Expected 12 -Actual $script:stepCount
-    # [FACT] This script makes **82** assertions when every conditional
+    # [FACT] This script makes **86** assertions when every conditional
     # branch is taken, and the run asserts that it made exactly that many.
     # The number is measured, not derived: it is the `total` of the report
     # this script writes (`cloud-e2e.json`).
     #
-    # [FACT] The count is compared against **81**, not 82, and the reason is
-    # the order of operations: this assertion is one of the 82, and
+    # [FACT] The count is compared against **85**, not 86, and the reason is
+    # the order of operations: this assertion is one of the 86, and
     # `-Actual` is evaluated BEFORE `Add-RegressionCase` records it - so
-    # the count at this moment is the count of the other 81.
+    # the count at this moment is the count of the other 85.
     #
     # [FACT] Exactly, and not a floor, because a floor would leave a hole
     # open. The registry is read into `$registryDoc` inside a `try`, and the
@@ -760,10 +796,10 @@ try {
     # `if ($backupMetaMatch.Success)`, `if ($snapMatch.Success)` and
     # `if ($null -ne $registryDoc)`. Each is preceded by an assertion that
     # fails when its own parse fails, so a green run takes all three
-    # branches and makes all 82 assertions.
+    # branches and makes all 86 assertions.
     Assert-Equal -Run $run -Name 'the run made exactly the number of assertions it is expected to make' `
-        -Expected 81 -Actual ($run.Pass + $run.Fail) `
-        -Detail "the run made $($run.Pass + $run.Fail) assertions before this one; a green run makes 81 before it and 82 with it"
+        -Expected 85 -Actual ($run.Pass + $run.Fail) `
+        -Detail "the run made $($run.Pass + $run.Fail) assertions before this one; a green run makes 85 before it and 86 with it"
 }
 catch {
     Write-Fail "the cloud e2e check could not finish :: $($_.Exception.Message)"
