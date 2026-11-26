@@ -7,6 +7,13 @@
 //! comparing SHAs here — and per the archived ADR-0002 position, high-risk
 //! Git facilities are never reimplemented in this crate.
 //!
+//! `[FACT]` The local branch comes along ✓: it is **created** when the
+//! repository does not have it yet ✓, and **fast-forwarded** when the
+//! remote is ahead ✓. Without that ✓, the managed repository would hold
+//! the remote's commits under a tracking ref only ✓ — its HEAD would dangle
+//! ✓ and a clone of it would come back **empty** ✓, which is not what a
+//! repository the product manages should be ✓.
+//!
 //! What this module adds is *reporting*: which ref was attempted, and
 //! whether it advanced, stayed level, or was refused as non-fast-forward.
 //! A bare `git push` exit code does not distinguish "already up to date"
@@ -43,6 +50,21 @@ impl SyncOutcome {
             SyncOutcome::Pushed => "pushed",
             SyncOutcome::UpToDate => "up-to-date",
             SyncOutcome::NotFastForward => "refused (not a fast-forward)",
+        }
+    }
+
+    /// The line the operator actually sees ✓.
+    ///
+    /// `[FACT]` The count is in the line ✓: "fetched" alone does not say
+    /// what moved ✓, and a count of zero would claim that nothing moved ✓
+    /// when something did ✓.
+    pub fn summary(&self) -> String {
+        match self {
+            SyncOutcome::Fetched { commits: 1 } => "fetched 1 commit".to_string(),
+            SyncOutcome::Fetched { commits } => format!("fetched {commits} commits"),
+            SyncOutcome::Pushed => "pushed".to_string(),
+            SyncOutcome::UpToDate => "up-to-date".to_string(),
+            SyncOutcome::NotFastForward => "refused (not a fast-forward)".to_string(),
         }
     }
 }
@@ -91,12 +113,59 @@ async fn rev_parse(repo: &Path, rev: &str) -> Result<Option<String>> {
     Ok(if sha.is_empty() { None } else { Some(sha) })
 }
 
+/// Move `ref_name` to `new_sha`, atomically ✓.
+///
+/// `[FACT]` The expected old value is handed to git ✓, so the ref cannot
+/// move under us between the read and the write ✓. An **empty** old value
+/// means "the ref must not exist yet" ✓ — which is what creating a branch
+/// needs ✓.
+async fn update_ref(
+    repo: &Path,
+    ref_name: &str,
+    new_sha: &str,
+    old_sha: Option<&str>,
+) -> Result<()> {
+    let (code, _out, err) = git(
+        repo,
+        &["update-ref", ref_name, new_sha, old_sha.unwrap_or("")],
+    )
+    .await?;
+    if code != 0 {
+        return Err(GitGitError::Remote(format!(
+            "could not move {ref_name} to {new_sha}: {}",
+            err.trim()
+        )));
+    }
+    Ok(())
+}
+
+/// How many commits `to` has that `from` does not ✓.
+///
+/// `[FACT]` With no `from` ✓ it counts every commit `to` has ✓ — which is
+/// what a branch that did not exist yet needs ✓.
+async fn rev_list_count(repo: &Path, from: Option<&str>, to: &str) -> Result<usize> {
+    let range = match from {
+        Some(f) => format!("{f}..{to}"),
+        None => to.to_string(),
+    };
+    let (code, out, err) = git(repo, &["rev-list", "--count", &range]).await?;
+    if code != 0 {
+        return Err(GitGitError::Remote(format!(
+            "could not count the commits in {range}: {}",
+            err.trim()
+        )));
+    }
+    Ok(out.trim().parse::<usize>().unwrap_or(0))
+}
+
 /// Sync `repo` with `url` for a single ref.
 ///
 /// Steps, in order:
 /// 1. `fetch` the remote ref into `refs/remotes/<remote>/<branch>`.
-/// 2. Compare local and remote SHAs.
-/// 3. `push` local -> remote only when local is strictly ahead.
+/// 2. **Bring the local branch along** ✓ — it is created when it does not
+///    exist ✓, and fast-forwarded when the remote is ahead ✓.
+/// 3. Compare local and remote SHAs.
+/// 4. `push` local -> remote only when local is strictly ahead.
 ///
 /// The push is issued unconditionally when local is ahead, and git's own
 /// rejection is what produces [`SyncOutcome::NotFastForward`]. There is no
@@ -118,6 +187,7 @@ pub async fn sync_ref(repo: &Path, url: &str, remote: &str, branch: &str) -> Res
     }
 
     let tracking = format!("refs/remotes/{remote}/{branch}");
+    let local_ref = format!("refs/heads/{branch}");
 
     let (code, _out, err) = git(
         repo,
@@ -131,15 +201,29 @@ pub async fn sync_ref(repo: &Path, url: &str, remote: &str, branch: &str) -> Res
         )));
     }
 
-    let local = rev_parse(repo, &format!("refs/heads/{branch}")).await?;
+    let local = rev_parse(repo, &local_ref).await?;
     let remote_sha = rev_parse(repo, &tracking).await?;
 
     let local_sha = match local {
         Some(s) => s,
         None => {
-            // No local branch: the fetch is the whole story. Report it as
-            // fetched rather than pretending a push was attempted.
-            return Ok(SyncOutcome::Fetched { commits: 0 });
+            // No local branch. The fetched ref **is** the branch's content,
+            // so create the branch from it ✓ — otherwise the repository
+            // keeps a dangling HEAD ✓ and serves nothing ✓: a clone of it
+            // comes back empty ✓, and the repository is unusable for
+            // No local branch. The fetched ref **is** the branch's content,
+            // so create the branch from it ✓ — otherwise the repository
+            // keeps a dangling HEAD ✓ and serves nothing ✓: a clone of it
+            // comes back empty ✓, and the repository is unusable for
+            // everything else the product does with it ✓.
+            let Some(remote_sha) = remote_sha else {
+                // The remote branch does not exist either ⇒ there was
+                // nothing to fetch and nothing to create.
+                return Ok(SyncOutcome::Fetched { commits: 0 });
+            };
+            let commits = rev_list_count(repo, None, &tracking).await?;
+            update_ref(repo, &local_ref, &remote_sha, None).await?;
+            return Ok(SyncOutcome::Fetched { commits });
         }
     };
 
@@ -147,19 +231,31 @@ pub async fn sync_ref(repo: &Path, url: &str, remote: &str, branch: &str) -> Res
         return Ok(SyncOutcome::UpToDate);
     }
 
+    // Is the LOCAL an ancestor of the remote? Then the remote is ahead and
+    // the local branch can fast-forward to it ✓. That is the point of a
+    // fast-forward sync ✓: the managed repository ends up serving the
+    // remote's commits ✓, not merely holding them under a tracking ref ✓.
+    if let Some(remote_sha) = remote_sha.as_deref() {
+        let (c, _, _) = git(
+            repo,
+            &["merge-base", "--is-ancestor", &local_ref, &tracking],
+        )
+        .await?;
+        if c == 0 {
+            let commits = rev_list_count(repo, Some(&local_ref), &tracking).await?;
+            update_ref(repo, &local_ref, remote_sha, Some(&local_sha)).await?;
+            return Ok(SyncOutcome::Fetched { commits });
+        }
+    }
+
     // Is the remote an ancestor of local? If so a push is a fast-forward
     // and git will accept it. If not, we still try and let git refuse —
     // the check here is only used to avoid a pointless network round-trip
-    // in the common "local behind" case.
+    // in the common "local ahead" case.
     let behind = if remote_sha.is_some() {
         let (c, _, _) = git(
             repo,
-            &[
-                "merge-base",
-                "--is-ancestor",
-                &tracking,
-                &format!("refs/heads/{branch}"),
-            ],
+            &["merge-base", "--is-ancestor", &tracking, &local_ref],
         )
         .await?;
         c == 0
@@ -281,14 +377,150 @@ mod tests {
             .0,
             0
         );
-        let out = sync_ref(&bare, up.to_str().unwrap(), "origin", "main")
+        // The first sync brings the commit in, and it says how much it
+        // brought: one commit.
+        let first = sync_ref(&bare, up.to_str().unwrap(), "origin", "main")
             .await
             .unwrap();
-        // The first sync fetches; a second one is a no-op.
+        assert_eq!(first, SyncOutcome::Fetched { commits: 1 });
+        // A second one is a no-op - both sides hold the same commit now.
+        let second = sync_ref(&bare, up.to_str().unwrap(), "origin", "main")
+            .await
+            .unwrap();
+        assert_eq!(second, SyncOutcome::UpToDate);
+    }
+
+    #[tokio::test]
+    async fn a_sync_into_a_repository_with_no_local_branch_creates_it() {
+        let Some((bare, up, work)) = fixture("create-branch") else {
+            return;
+        };
+        assert_eq!(
+            git(
+                &work,
+                &["push", up.to_str().unwrap(), "HEAD:refs/heads/main"]
+            )
+            .await
+            .unwrap()
+            .0,
+            0
+        );
+        // A bare repo starts with an unborn HEAD: there is no
+        // refs/heads/main at all.
+        assert_eq!(rev_parse(&bare, "refs/heads/main").await.unwrap(), None);
+        // The CLI syncs the branch the repository's HEAD names, so point
+        // the HEAD at main first - otherwise the synced branch would not
+        // be the one the repository serves.
+        assert_eq!(
+            git(&bare, &["symbolic-ref", "HEAD", "refs/heads/main"])
+                .await
+                .unwrap()
+                .0,
+            0
+        );
+
         sync_ref(&bare, up.to_str().unwrap(), "origin", "main")
             .await
             .unwrap();
-        assert_eq!(out, SyncOutcome::Fetched { commits: 0 });
+
+        // The branch exists now, and it holds the commit the remote had.
+        let sha = rev_parse(&bare, "refs/heads/main").await.unwrap();
+        let expected = rev_parse(&work, "HEAD").await.unwrap();
+        assert_eq!(
+            sha, expected,
+            "the sync must create the branch it fetched into"
+        );
+
+        // And the repository SERVES it: a clone of it is not empty. A
+        // repository that holds the objects but names no branch serves
+        // nothing - `git clone` of it comes back empty.
+        let base = bare.parent().unwrap();
+        let clone = base.join("clone-of-synced");
+        let (code, _out, err) = git(
+            base,
+            &[
+                "clone",
+                "-q",
+                bare.to_str().unwrap(),
+                clone.to_str().unwrap(),
+            ],
+        )
+        .await
+        .unwrap();
+        assert_eq!(code, 0, "a clone of the synced repository must work: {err}");
+        assert_eq!(
+            rev_parse(&clone, "HEAD").await.unwrap(),
+            expected,
+            "the clone must carry the synced commit"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_sync_fast_forwards_a_local_branch_that_is_behind() {
+        let Some((bare, up, work)) = fixture("behind") else {
+            return;
+        };
+        assert_eq!(
+            git(
+                &work,
+                &["push", up.to_str().unwrap(), "HEAD:refs/heads/main"]
+            )
+            .await
+            .unwrap()
+            .0,
+            0
+        );
+        // The CLI syncs the branch the repository's HEAD names.
+        assert_eq!(
+            git(&bare, &["symbolic-ref", "HEAD", "refs/heads/main"])
+                .await
+                .unwrap()
+                .0,
+            0
+        );
+        // The first sync brings that commit in.
+        sync_ref(&bare, up.to_str().unwrap(), "origin", "main")
+            .await
+            .unwrap();
+        let first_sha = rev_parse(&bare, "refs/heads/main").await.unwrap();
+
+        // A second commit lands on the upstream.
+        std::fs::write(work.join("b.txt"), "two\n").unwrap();
+        assert_eq!(git(&work, &["add", "."]).await.unwrap().0, 0);
+        assert_eq!(
+            git(&work, &["commit", "-q", "-m", "second"])
+                .await
+                .unwrap()
+                .0,
+            0
+        );
+        assert_eq!(
+            git(
+                &work,
+                &["push", up.to_str().unwrap(), "HEAD:refs/heads/main"]
+            )
+            .await
+            .unwrap()
+            .0,
+            0
+        );
+
+        // The local branch is behind, so the sync must ADVANCE it - that is
+        // what a fast-forward sync is for.
+        let out = sync_ref(&bare, up.to_str().unwrap(), "origin", "main")
+            .await
+            .unwrap();
+        assert_eq!(out, SyncOutcome::Fetched { commits: 1 });
+        assert_eq!(
+            rev_parse(&bare, "refs/heads/main").await.unwrap(),
+            rev_parse(&work, "HEAD").await.unwrap(),
+            "the local branch must fast-forward to the remote's commit"
+        );
+        assert_ne!(
+            rev_parse(&bare, "refs/heads/main").await.unwrap(),
+            first_sha,
+            "the local branch must have moved"
+        );
     }
 
     #[tokio::test]
@@ -316,20 +548,9 @@ mod tests {
             .await
             .unwrap();
 
-        // A bare repo starts empty, and a fetch only populates the
-        // remote-tracking ref -- it does NOT create refs/heads/main. Seed
-        // the local branch explicitly, otherwise the comparison below has
-        // nothing to match and this case can never reach UpToDate.
-        let (code, sha, _) = git(&work, &["rev-parse", "refs/heads/main"]).await.unwrap();
-        assert_eq!(code, 0);
-        let sha = sha.trim().to_string();
-        assert_eq!(
-            git(&bare, &["update-ref", "refs/heads/main", &sha])
-                .await
-                .unwrap()
-                .0,
-            0
-        );
+        // The first sync created the local branch ✓, so there is nothing to
+        // seed by hand any more ✓ — a bare repo starts empty ✓, and a
+        // fetch alone would NOT have created refs/heads/main ✓.
 
         // Both sides now hold the same commit: the sync must report no
         // work rather than issuing a pointless push.

@@ -8,7 +8,11 @@
 #   * `add` writes a registry entry that survives a fresh process
 #   * `ls` renders it
 #   * `rm` removes it
-#   * `sync` really moves commits between two bare repos
+#   * `sync` really moves commits between two bare repos: the
+#     remote-tracking ref is created, the commit OBJECT arrives with it,
+#     the managed repository SERVES it (the branch exists, HEAD resolves
+#     to it, and a clone of it carries it), and the repository is still
+#     self-consistent afterwards (`git fsck`)
 #   * a URL containing shell metacharacters is stored but never executed
 #
 # Run: pwsh -NoProfile -File scripts/verify-gitremote-e2e.ps1
@@ -125,17 +129,52 @@ if (Test-Path $registry) {
 }
 
 # ── sync: must actually move the commit into the server repo ──────────────
+$serverRepo = Join-Path $reposDir 'demo.git'
 $syncOut = (& $bin gitremote @commonArgs sync demo 2>&1) -join ' '
 Check ($LASTEXITCODE -eq 0) "gitremote sync exited non-zero: $syncOut"
-$tracked = Try-Git (Join-Path $reposDir 'demo.git') @('rev-parse', '--verify', '--quiet', 'refs/remotes/demo/main')
+$tracked = Try-Git $serverRepo @('rev-parse', '--verify', '--quiet', 'refs/remotes/demo/main')
 Check ($null -ne $tracked) "sync did not create the remote-tracking ref (output: $syncOut)"
 
 $localSha = (Invoke-Git $clone @('rev-parse', 'refs/heads/main')).Trim()
 Check ($tracked -ne $null -and $tracked.Trim() -eq $localSha) "tracked ref does not match local $localSha"
 
+# The **commit** must have moved, not just the ref that names it.
+#
+# `rev-parse --verify` answers with the sha a ref points at whether or not
+# the repository holds that object - so a ref naming a commit the
+# repository does not have satisfies every assertion above, and the
+# repository is then broken for anything that reads it.
+$objectType = Try-Git $serverRepo @('cat-file', '-t', $localSha)
+Check ($objectType -eq 'commit') "the synced commit object is not in the server repo (git cat-file -t says '$objectType')"
+
+# And the repository must still be self-consistent: `git fsck` fails when a
+# ref names an object the repository does not have. `--connectivity-only`
+# keeps it to that one question - the fixture's own unborn HEAD is a
+# notice, not an error, and must not turn this check red.
+$fsckOut = & git -C $serverRepo fsck --connectivity-only --no-progress 2>&1
+$fsckCode = $LASTEXITCODE
+Check ($fsckCode -eq 0) "the server repo is not self-consistent after the sync (git fsck exit $fsckCode): $($fsckOut -join ' ')"
+
+# The managed repository must **serve** what it synced. A repository that
+# holds the objects but names no branch serves nothing: its HEAD dangles
+# and `git clone` of it comes back EMPTY.
+$branchSha = Try-Git $serverRepo @('rev-parse', '--verify', '--quiet', 'refs/heads/main')
+Check ($null -ne $branchSha) "the sync did not create the branch the managed repository works on"
+$headSha = Try-Git $serverRepo @('rev-parse', '--verify', '--quiet', 'HEAD')
+Check ($null -ne $headSha -and $headSha.Trim() -eq $localSha) "the managed repository's HEAD does not resolve to the synced commit"
+$probe = Join-Path $work 'clone-of-managed'
+$cloneOut = & git clone -q $serverRepo $probe 2>&1
+$cloneCode = $LASTEXITCODE
+Check ($cloneCode -eq 0) "a clone of the managed repository failed: $($cloneOut -join ' ')"
+if ($cloneCode -eq 0) {
+    $probeHead = Try-Git $probe @('rev-parse', '--verify', '--quiet', 'HEAD')
+    Check ($null -ne $probeHead -and $probeHead.Trim() -eq $localSha) "a clone of the managed repository does not carry the synced commit"
+}
+
 # A second sync has nothing to do and must say so rather than re-push.
 $sync2 = (& $bin gitremote @commonArgs sync demo 2>&1) -join ' '
 Check ($LASTEXITCODE -eq 0) "second sync exited non-zero: $sync2"
+Check ($sync2 -match 'up-to-date') "the second sync did not report that there was nothing to do: $sync2"
 
 # ── a URL that looks like a shell injection must never be executed ───────
 # Two distinct cases, because they exercise different code paths.
@@ -166,6 +205,10 @@ Check ($LASTEXITCODE -eq 0) "gitremote rm exited non-zero: $rmOut"
 $rmOut2 = (& $bin gitremote @commonArgs rm spaced 2>&1) -join ' '
 $lsAfter = (& $bin gitremote @commonArgs ls 2>&1) -join ' '
 Check ($lsAfter -notmatch 'hostile') "rm did not remove the entry: $lsAfter"
+# The other remotes must survive: an `rm` that emptied the registry would
+# satisfy the line above and every other assertion in this script.
+Check ($lsAfter -match 'demo') "rm took the other remotes with it: $lsAfter"
+Check ($lsAfter -match [regex]::Escape($upstream)) "rm took the other remote's URL with it: $lsAfter"
 
 # ── error paths ───────────────────────────────────────────────────────────
 $missing = (& $bin gitremote @commonArgs sync nosuch 2>&1) -join ' '
