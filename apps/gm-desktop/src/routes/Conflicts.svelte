@@ -11,7 +11,7 @@
   is the local hash router in `$lib/router`, so reaching this page is a
   single entry in that table.
 
-  `[PROPOSAL]` ADR §3.7.4: a file can carry several independent
+  `[FACT]` ADR §3.7.4: a file can carry several independent
   regions, so the region list stays visible while the dialog shows one
   of them.
 -->
@@ -121,7 +121,7 @@
       {$catalog['conflict.noRegions']}
     </div>
   {:else}
-    <!-- `[PROPOSAL]` ADR §3.7.4: the region list stays visible — a file
+    <!-- `[FACT]` ADR §3.7.4: the region list stays visible — a file
          can carry several independent regions, and the user has to know
          which one the dialog is about. `[FACT]` Each button says whether
          its region has been decided: a path is only written back when
@@ -188,7 +188,7 @@
     {/if}
   {/if}
 
-  <!-- `[PROPOSAL]` ADR §3.7.4: a path the core refused to read is
+  <!-- `[FACT]` ADR §3.7.4: a path the core refused to read is
        reported, not dropped. An add/delete or rename conflict has no base
        stage, and binary content is not text — git has to handle those, and
        the user has to be told. It is shown next to the regions, not only

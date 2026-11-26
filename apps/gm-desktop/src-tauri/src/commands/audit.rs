@@ -39,7 +39,7 @@
 //!
 //! # The file
 //!
-//! `[PROPOSAL]` The trail is one **append-only JSON Lines** file under the
+//! `[FACT]` The trail is one **append-only JSON Lines** file under the
 //! desktop app's app-data directory: `<app-data>/conflict-audit.jsonl`. One
 //! JSON object per line, appended, never rewritten. It is deliberately not in
 //! the repository (it is not the project's history) and not in the vault (it
