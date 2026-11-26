@@ -1155,7 +1155,10 @@ mod tests {
         // The directories that DO hold a file are not recorded ✓ — the
         // files bring them back ✓.
         assert!(
-            !meta.directories.iter().any(|d| d == "refs" || d == "refs/heads"),
+            !meta
+                .directories
+                .iter()
+                .any(|d| d == "refs" || d == "refs/heads"),
             "only the empty directories are recorded: {meta:?}"
         );
     }
