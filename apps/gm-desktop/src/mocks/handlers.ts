@@ -185,12 +185,12 @@ function graphFixtureDocs(): MockDoc[] {
 
 /* ---------- Conflict-region fixtures (ADR-0024) ----------
  *
- * `[PROPOSAL]` The regions come from the Rust core's parse of
- * `git merge-file`'s output (`src/repo/conflict.rs`). The desktop
- * crate does not expose that core yet, so the dev mock answers
- * `conflict_regions` with a fixture: one file carrying two independent
- * regions, which is the shape the ADR's own measurement found most
- * often (36% of conflicted files carry two or more).
+ * `[FACT]` The regions come from the Rust core's parse of
+ * `git merge-file`'s output (`src/repo/conflict.rs`) ✓ — the desktop
+ * crate calls that core itself (`gitgit::repo::conflict_set`) ✓. The dev
+ * mock answers `conflict_regions` with a fixture: one file carrying two
+ * independent regions, which is the shape the ADR's own measurement found
+ * most often (36% of conflicted files carry two or more).
  */
 
 function conflictFixtureRegions(): ConflictRegion[] {

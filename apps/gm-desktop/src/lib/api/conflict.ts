@@ -126,7 +126,7 @@ export async function aiKeySet(provider: string, key: string): Promise<void> {
  * resolves the key (vault first, `GITGIT_AI_API_KEY` second) and reports
  * only whether one was found.
  *
- * `[PROPOSAL]` ADR-0024 §3.7.1: the "ask AI" option is shown but
+ * `[FACT]` ADR-0024 §3.7.1: the "ask AI" option is shown but
  * disabled when there is no key. That needs the app to *know* there is
  * no key before the request, and the webview cannot see the process
  * environment — so the backend has to answer.
@@ -161,7 +161,7 @@ export async function conflictAuditRecord(
 /**
  * The conflict regions of one repository.
  *
- * `[PROPOSAL]` ADR-0024 §3.1: the regions come from `git merge-file`'s
+ * `[FACT]` ADR-0024 §3.1: the regions come from `git merge-file`'s
  * output, parsed by the Rust core in `src/repo/conflict.rs`.
  *
  * `[FACT]` `root` is the working-tree root the repository name is

@@ -175,8 +175,8 @@ pub const EVENT_CONFLICT_CANCELLED: &str = "ai-conflict://cancelled";
 
 /// What became of the model's answer.
 ///
-/// `[PROPOSAL]` ADR-0024 §3.4.4: "the suggestion is marked **rejected**,
-/// with the reason attached; the user can still edit by hand". The two
+/// `[FACT]` ADR-0024 §3.4.4: "the suggestion is marked **rejected**,
+/// with the reason attached; the user can still edit by hand" ✓. The two
 /// states are one enum rather than two optional fields so that a consumer
 /// cannot read "no suggestion and no reason" as a third, undefined state.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
@@ -201,8 +201,8 @@ pub enum SuggestionOutcome {
 /// every event so a late event from a cancelled session can be discarded
 /// instead of appended to the next region's text.
 ///
-/// `[PROPOSAL]` ADR-0024 §3.7.2 adds one field the review channel does
-/// not have: `region_id`. Two arbitrations can be in flight over the life
+/// `[FACT]` ADR-0024 §3.7.2 adds one field the review channel does
+/// not have: `region_id` ✓. Two arbitrations can be in flight over the life
 /// of the app, and the region id is what says *which* region a token
 /// belongs to — the property that stops a late token from one region
 /// landing on another.
@@ -593,8 +593,8 @@ pub struct ConflictStarted {
     pub session_id: String,
     /// The region this arbitration is about.
     ///
-    /// `[PROPOSAL]` ADR-0024 §3.7.2: the answer has to come back bound to
-    /// this id, and the UI needs it to match a token event to a region.
+    /// `[FACT]` ADR-0024 §3.7.2: the answer has to come back bound to
+    /// this id, and the UI needs it to match a token event to a region ✓.
     pub region_id: String,
     /// The registry key that was used.
     pub provider: String,
@@ -613,10 +613,10 @@ pub struct ConflictStarted {
 
 /// The most characters the answer may accumulate.
 ///
-/// `[PROPOSAL]` The frontend caps the text it buffers at
-/// `REVIEW_MAX_TEXT_CHARS = 200_000`; this is the same number on the Rust
-/// side, so a runaway stream cannot grow the backend's memory without
-/// bound. An answer this long is refused by the length check anyway.
+/// `[FACT]` The frontend caps the text it buffers at
+/// `CONFLICT_MAX_TEXT_CHARS = 200_000` — the same number as `/review`'s, and
+/// the same number on the Rust side, so a runaway stream cannot grow the
+/// backend's memory without bound. The length check refuses it anyway ✓.
 pub const CONFLICT_MAX_ANSWER_CHARS: usize = 200_000;
 
 /// Cut `delta` to what is left of the answer's budget.
@@ -657,8 +657,8 @@ fn validate_region(region: &ConflictRegion) -> AppResult<()> {
 
 /// Resolve the credential for `provider` (ADR-0024 §3.9).
 ///
-/// `[PROPOSAL]` The vault wins, the environment is the fallback, and
-/// neither is `None` — which the caller turns into `AiReviewNoKey`.
+/// `[FACT]` The vault wins, the environment is the fallback, and
+/// neither is `None` — which the caller turns into `AiReviewNoKey` ✓.
 pub async fn resolve_ai_key<V: Vault + ?Sized>(vault: &V, provider: &str) -> Option<String> {
     resolve_ai_key_with(vault, provider, read_api_key_env()).await
 }
@@ -840,10 +840,10 @@ pub async fn cancel_conflict(
 /// that ends without a terminal event is reported as a failure rather
 /// than left to look like a finished answer.
 ///
-/// `[PROPOSAL]` The one addition is the validation: ADR-0024 §3.4.2's five
+/// `[FACT]` The one addition is the validation: ADR-0024 §3.4.2's five
 /// checks run on the accumulated answer *before* it is offered as a
 /// suggestion, and a refused answer is reported as a refusal with its
-/// reason. Nothing is written either way.
+/// reason. Nothing is written either way ✓.
 ///
 /// `[INFERENCE]` The second addition is the audit trail (ADR-0024 §3.7.3):
 /// the facts of the arbitration are updated as they arrive — the model the
@@ -1001,11 +1001,11 @@ pub async fn ai_key_set(
 
 /// Whether a key can be resolved for `provider`.
 ///
-/// `[PROPOSAL]` ADR-0024 §3.7.1: the conflict dialog shows the "ask AI"
+/// `[FACT]` ADR-0024 §3.7.1: the conflict dialog shows the "ask AI"
 /// option but disables it when there is no key, and it says where the
-/// key goes. That needs the app to *know* there is no key **before** the
+/// key goes ✓. That needs the app to *know* there is no key **before** the
 /// request — and the webview cannot know, because the key may come from
-/// the process environment, which the webview cannot read.
+/// the process environment, which the webview cannot read ✓.
 ///
 /// `[FACT]` The answer is a presence, never a value: the key is resolved
 /// in the backend and used in the backend. This is the same rule as

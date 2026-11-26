@@ -272,7 +272,7 @@ export type AiProviderKey = (typeof AI_PROVIDERS)[number];
 /**
  * One conflict region, as the webview holds it.
  *
- * `[PROPOSAL]` ADR-0024 §3.7.2: every region carries an id that is a
+ * `[FACT]` ADR-0024 §3.7.2: every region carries an id that is a
  * function of its own content, so a suggestion cannot be bound to a
  * region it was not asked about.
  */
@@ -298,7 +298,7 @@ export interface ConflictRegion {
   /**
    * The scope the region lives in, as a human label (ADR §3.8).
    *
-   * `[PROPOSAL]` The scope layer only *locates* a region in the first
+   * `[FACT]` The scope layer only *locates* a region in the first
    * delivery, so this is a label for the user and not a decision.
    */
   scopeLabel: string | null;
@@ -325,7 +325,7 @@ export interface ConflictRegion {
  * read — an add/delete or rename conflict has no base stage, and binary
  * content is not text (ADR §3.7.4).
  *
- * `[PROPOSAL]` The needs-git paths are **reported**, not dropped: a page
+ * `[FACT]` The needs-git paths are **reported**, not dropped: a page
  * that said "no conflict regions" while git still had work to do would be
  * lying.
  */

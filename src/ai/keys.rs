@@ -36,23 +36,23 @@
 
 /// The vault namespace that holds provider keys.
 ///
-/// `[PROPOSAL]` ADR-0024 §3.9 item 1: "key namespace: `ai/<provider>`
-/// (e.g. `ai/openai`)".
+/// `[FACT]` ADR-0024 §3.9 item 1: "key namespace: `ai/<provider>`
+/// (e.g. `ai/openai`)" ✓ — the generic vault read path refuses it ✓.
 pub const AI_KEY_PREFIX: &str = "ai/";
 
 /// The vault key that holds `provider`'s API key.
 ///
-/// `[PROPOSAL]` ADR-0024 §3.9 item 1: the key is stored under
-/// `ai/<provider>`.
+/// `[FACT]` ADR-0024 §3.9 item 1: the key is stored under
+/// `ai/<provider>` ✓ — the desktop's vault set and get both use it ✓.
 pub fn ai_key_name(provider: &str) -> String {
     format!("{AI_KEY_PREFIX}{provider}")
 }
 
 /// True when `key` belongs to the AI namespace.
 ///
-/// `[PROPOSAL]` ADR-0024 §3.9 item 3 requires the `ai/` namespace to be
+/// `[FACT]` ADR-0024 §3.9 item 3 requires the `ai/` namespace to be
 /// kept out of the generic vault read path, so that a provider key can
-/// never be handed to the webview.
+/// never be handed to the webview ✓ — the desktop's vault read refuses it ✓.
 pub fn is_ai_key(key: &str) -> bool {
     key.starts_with(AI_KEY_PREFIX)
 }
@@ -81,7 +81,7 @@ pub fn is_valid_provider_name(name: &str) -> bool {
 /// The precedence rule: the vault value wins, the environment is the
 /// fallback.
 ///
-/// `[PROPOSAL]` ADR-0024 §3.9 item 2. A blank value counts as absent in
+/// `[FACT]` ADR-0024 §3.9 item 2 ✓. A blank value counts as absent in
 /// both sources: a stray `GITGIT_AI_API_KEY=` must not become a bearer
 /// token of `""` that produces a confusing 401 from the provider, and an
 /// empty vault entry is not a key either.
