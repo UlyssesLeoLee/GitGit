@@ -220,6 +220,18 @@ pub struct SnapshotMeta {
     pub entries: u64,
     /// The SHA-256 of the archive, hex.
     pub sha256: String,
+    /// The directories the snapshot holds that hold **no file** ✓.
+    ///
+    /// `[FACT]` A file inside a directory recreates that directory on the
+    /// way back ✓ — so the only directory a restore can lose is one with
+    /// **nothing** in it ✓. That is not a cosmetic loss: a bare repository
+    /// without `refs/` is not a repository git will touch ✓.
+    ///
+    /// `[FACT]` The list is empty for a version-1 snapshot ✓ — those never
+    /// carried it ✓ — so restoring one leaves the directories it could not
+    /// know about missing ✓.
+    #[serde(default)]
+    pub directories: Vec<String>,
 }
 
 /// The magic that starts every snapshot file.
@@ -229,7 +241,18 @@ pub struct SnapshotMeta {
 pub const SNAPSHOT_MAGIC: &[u8] = b"GITGIT-SNAPSHOT\n";
 
 /// The version of the snapshot format this build writes.
-pub const SNAPSHOT_VERSION: u32 = 1;
+///
+/// `[FACT]` Version 2 adds the list of **empty** directories to the
+/// metadata ✓ — version 1 wrote only the files ✓, so a restore of a
+/// version-1 snapshot cannot bring back a directory that held no file ✓.
+pub const SNAPSHOT_VERSION: u32 = 2;
+
+/// The version before the empty-directory list existed.
+///
+/// `[FACT]` A snapshot of that version is still readable ✓ — the field it
+/// lacks has a default ✓ — but it cannot restore an empty directory ✓,
+/// because it never recorded one ✓.
+pub const LEGACY_SNAPSHOT_VERSION: u32 = 1;
 
 /// The registry of connected cloud disks.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
