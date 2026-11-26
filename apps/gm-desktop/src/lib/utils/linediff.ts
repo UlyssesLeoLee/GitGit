@@ -1,7 +1,7 @@
 /**
  * A line-by-line diff, for the conflict dialog's two-column view.
  *
- * `[PROPOSAL]` ADR-0024 §3.4.3: a suggestion is *always* presented as a
+ * `[FACT]` ADR-0024 §3.4.3: a suggestion is *always* presented as a
  * diff — the ours side on the left, the suggestion on the right — and
  * not as a side-by-side pair of texts and not as a silent replacement.
  *
@@ -29,10 +29,12 @@ export interface DiffRow {
 /**
  * The largest table the LCS walk may build.
  *
- * `[PROPOSAL]` 2000 by 2000 lines is four million cells, which is a few
- * tens of megabytes — too much for a webview to hold on top of the
- * application. Beyond it the diff degrades to "the whole block changed",
- * which is still an honest reading of a conflict region.
+ * `[FACT]` Beyond this limit the diff degrades to "the whole block
+ * changed": `diffLines` compares the product of the two line counts with
+ * it before building the table, and emits every line as removed-then-added.
+ * `[INFERENCE]` 2000 by 2000 lines is four million cells — too much for a
+ * webview to hold on top of the application. The limit itself is a local
+ * judgment call, not a rule the ADR states.
  */
 const MAX_TABLE_CELLS = 1_000_000;
 

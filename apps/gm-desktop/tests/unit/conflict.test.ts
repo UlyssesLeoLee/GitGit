@@ -234,7 +234,7 @@ describe('the conflict store — the /review discipline', () => {
   });
 
   it('ignores an event that names another region', async () => {
-    // `[PROPOSAL]` ADR-0024 §3.7.2: an answer must be bound to the region
+    // `[FACT]` ADR-0024 §3.7.2: an answer must be bound to the region
     // it was asked about. A token that names a different region cannot
     // land on this one.
     const bridge = fakeSubscribe();
@@ -249,7 +249,7 @@ describe('the conflict store — the /review discipline', () => {
   });
 
   it('records a failure when a busy session is closed without a terminal event', async () => {
-    // `[PROPOSAL]` ADR-0024 §3.4.1: "a stream without a terminal event is
+    // `[FACT]` ADR-0024 §3.4.1: "a stream without a terminal event is
     // a failure, not a completion". The UI must not render a truncated
     // answer as a finished one.
     const bridge = fakeSubscribe();
@@ -456,8 +456,9 @@ describe('the conflict store — the /review discipline', () => {
   });
 
   it('refuses a hand-written replacement that carries a conflict marker', () => {
-    // `[PROPOSAL]` ADR-0024 §3.7.4: the hand-edit goes through the same
-    // checks as an AI suggestion.
+    // `[FACT]` ADR-0024 §3.7.4: the hand-edit gets the frontend's marker
+    // check. It does **not** get the library's full validation — that half
+    // of the rule is still a proposal (ADR §3.7.4's own row).
     const outcome = resolveChoice(REGION, 'manual', '<<<<<<< OURS\nconst timeout = 30;\n');
     expect(outcome.ok).toBe(false);
     if (!outcome.ok) expect(outcome.reason).toContain('conflict marker');
@@ -476,7 +477,7 @@ describe('the conflict store — the /review discipline', () => {
 
 describe('the conflict dialog — no API key', () => {
   it('offers keep ours, keep theirs and hand-edit, and disables "ask the AI"', async () => {
-    // `[PROPOSAL]` ADR-0024 §3.7.1: the dialog does not degrade because
+    // `[FACT]` ADR-0024 §3.7.1: the dialog does not degrade because
     // there is no AI. The three options that need no credential stay
     // available, and the fourth is shown but disabled with the reason.
     render(ConflictDialog, { props: { region: REGION } });
@@ -524,7 +525,7 @@ describe('the conflict dialog — no API key', () => {
 
     const editor = screen.getByTestId('conflict-manual-text') as HTMLTextAreaElement;
     await waitFor(() => expect(editor).toBeTruthy());
-    // `[PROPOSAL]` ADR-0024 §3.7.4: the editor is prefilled with the
+    // `[FACT]` ADR-0024 §3.7.4: the editor is prefilled with the
     // ours side.
     expect(editor.value).toBe(REGION.ours);
 
@@ -546,7 +547,7 @@ describe('the conflict dialog — no API key', () => {
   });
 
   it('does not offer "ask the AI" on a provider that cannot stream', async () => {
-    // `[PROPOSAL]` ADR-0024 §3.4.1: the option is only offered on a
+    // `[FACT]` ADR-0024 §3.4.1: the option is only offered on a
     // provider that can stream, and the refusal is stated.
     expect(supportsStreaming('anthropic')).toBe(false);
     expect(supportsStreaming('openai')).toBe(true);
@@ -688,7 +689,7 @@ describe('the conflict dialog — the suggestion', () => {
   });
 
   it('puts model output into the DOM as text, not as markup', async () => {
-    // `[PROPOSAL]` ADR-0024 §3.4.3: model output is untrusted text and
+    // `[FACT]` ADR-0024 §3.4.3: model output is untrusted text and
     // goes into the DOM through a normal text node.
     render(ConflictDialog, { props: { region: REGION } });
     await streamAccepted('<script>globalThis.__pwned = 1;</script>\n');
@@ -723,7 +724,7 @@ describe('the /conflicts route', () => {
   });
 
   it('shows the paths git has to resolve itself', async () => {
-    // `[PROPOSAL]` ADR §3.7.4: a path the core refused to read is
+    // `[FACT]` ADR §3.7.4: a path the core refused to read is
     // reported, not dropped. A page that said "no conflict regions" while
     // git still had work to do would be lying — and the paths can sit
     // beside the regions, not only replace them.
@@ -741,7 +742,7 @@ describe('the conflict sources', () => {
   /**
    * The files that make up the conflict feature's front end.
    *
-   * `[PROPOSAL]` ADR-0024 §3.4.3: model output must reach the DOM
+   * `[FACT]` ADR-0024 §3.4.3: model output must reach the DOM
    * through a normal text node, so none of these may contain a raw-HTML
    * block.
    */
@@ -868,7 +869,7 @@ describe('the conflict audit trail', () => {
   }
 
   it('asks the backend for exactly one record when the user keeps ours', async () => {
-    // `[PROPOSAL]` ADR §3.7.3: one arbitration, one record. The record is
+    // `[FACT]` ADR §3.7.3: one arbitration, one record. The record is
     // written by the backend — the webview only says which choice was made.
     const calls = captureAudit();
     render(ConflictDialog, { props: { region: REGION } });

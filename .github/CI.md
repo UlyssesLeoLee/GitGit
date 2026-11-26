@@ -502,6 +502,99 @@ Tauri 的 `app_log_dir()` 是 `~/Library/Logs/<identifier>`。
 应用在无 dbus、无 seat、无硬件加速的容器里启动失败的原因与打包无关，而这类会误红
 的门禁最终只会被关掉。
 
+## 云盘端到端门禁：`cloud-e2e`（2026-11-24）
+
+`.github/workflows/rust-backend.yml` 的 `cloud end-to-end against this repository's own object store`
+这一个 step 跑 `scripts/verify-cloud-e2e.ps1`：它启动本仓自己的 `gitgit-objectstore` 二进制
+（随机端口、每次现铸的一次性 secret、只走环境变量），用真 git 建一个真的裸仓库（真提交、
+真 blob、真 ref），然后把 `gitgit cloud` 这个**二进制**从头到尾走一遍。
+
+> `[FACT]` 库层本来就有端到端测试（`src/cloud/backup.rs` 直连真的 S3 兼容端点），但
+> `gitgit cloud` **二进制**从未被端到端跑过 —— 每个 `gitgit key *` 子命令里的
+> `Handle::current().block_on` panic 就是这么躲过去的。
+
+### 这道门禁证明了什么
+
+`[FACT]` 2026-11-25 实测，**86 条断言全绿**（`exit 0`）。覆盖的是：连接磁盘（凭据只走
+环境变量）、列出磁盘、用真仓库备份、**真损坏**（HEAD 指向不存在的分支、分支 ref 被删、
+留下标记文件、一个普通文件的内容被改掉）、列出快照、还原、**撤销还原**、断开并重连后快照
+仍在远端。
+
+`[FACT]` 2026-11-24 补上了**安全快照**这一段（ADR-0025 §2.4）：
+
+- 还原把仓库换回去时，**它替换掉的那份状态被留成一张安全快照**，并且 CLI 把它的 key 打
+  出来 —— 那是用户的退路；
+- 把那张安全快照再还原一次，**损坏态回来了** ⇒ 回滚本身是可逆的，而这次撤销**又**留下
+  了一张自己的安全快照；
+- **没有东西可留的时候就不留**：仓库不在那里时还原照样成功，但**不产生**安全快照，磁盘上
+  的对象数**一个都不多**。
+
+`[FACT]` 2026-11-25 又补了三条断言，它们回答的是一个更基础的问题：**还原出来的东西，
+git 还能不能用**：
+
+- 还原之后，**那个目录仍然是一个 git 肯操作的仓库**（`git rev-parse --git-dir` 成功）✓；
+- 撤销之后，同样 ✓；
+- 撤销之后，**那个 blob 仍然读得到、内容未变** ✓ —— 损坏没有碰过它 ✓，所以撤销必须把它
+  原样留下 ✓。
+
+> `[FACT]` 这三条断言是**被一个真缺陷逼出来的** —— 见下面那一节。
+
+### 这道门禁抓到的真缺陷：还原会丢掉空目录
+
+`[FACT]` 2026-11-25：**还原一个仓库时，一个不含任何文件的目录会消失** ⇒ 裸仓库少了
+`refs/` ⇒ **`git` 不再认它是仓库**（`fatal: not a git repository`）⇒ 还原出来的东西
+**git 用不了**。
+
+- `[FACT]` **它只咬「撤销」那条路**，而那正是回滚的退路。备份那张快照拍的是**完好**的仓库
+  ✓，`refs/heads/main` 是个文件 ✓ ⇒ `refs/` 会被那个文件带回来 ✓ ⇒ 还原出来的是好仓库 ✓。
+  而**安全快照**拍的是**损坏后**那份状态 ✓ —— 损坏把 `refs/heads/main` 删了 ✓，`refs/heads/`
+  成了**空目录** ✓ ⇒ 归档只带文件 ⇒ 空目录不在里面 ⇒ 撤销还原出来的仓库**少了 `refs/`**
+  ⇒ 不是仓库了 ⇒ ⇒ **回滚的退路本身是坏的** ✓。
+- `[FACT]` **为什么之前没被发现**：旧的那条断言问的是「撤销后 blob 还在不在」✓ —— 它以为
+  损坏碰过那个 blob ✓，而损坏**没有**碰 ✓。于是在一个**不被 git 认作仓库**的目录里，
+  `git cat-file` 本来就**失败** ✓ ⇒ blob 读作「不在」✓ ⇒ 断言**因为错误的原因而绿** ✓ ——
+  它测的不是它声称的东西 ✓。
+- `[FACT]` **怎么修的**：快照的**元数据**现在记下**一个文件都没有的目录** ✓（格式版本 2 ✓），
+  还原时把它们建回来 ✓，路径与文件名走**同一条**校验 ✓。版本 1 的快照**仍然读得动** ✓
+  （少的那一项有默认值 ✓），但它**还原不出空目录** ✓ —— 它**从来没记过** ✓。一个**不认识
+  的版本**现在会被**拒绝** ✓，不是猜着读 ✓。
+
+### 断言数契约：为什么是精确值而不是下限
+
+`[FACT]` 脚本在最后断言「这次运行做的断言数正好是多少」。比较的是 **85** 而不是 86，原因
+是求值顺序：这条断言本身也是 86 条里的一条，而 `-Actual` 在 `Add-RegressionCase` 记录它
+**之前**求值 ⇒ 这一刻的计数是另外 85 条。
+
+`[FACT]` 用**精确值**而不是下限，是因为下限留着一个真实的洞：registry 是读进 `$registryDoc`
+再用的，失败路径调的是 `Write-Fail` —— 它**只打印，不记一条 case**
+（`scripts/lib/regression-common.ps1`：`Write-Fail` 是 `Write-Host`，`Add-RegressionCase`
+才是计数的那个）。所以 registry 读不出来时，那条「registry 不再知道这个磁盘」的断言会被
+**跳过**，而整个运行仍然是绿的 —— 报告会说 85 条全过。精确计数把这个洞堵上：那时计数是
+84，这条断言就红了。
+
+> `[FACT]` 改这条之前，原脚本写的是「57 条 / 下限 53」——两个数**都不对**：静态站点是 58
+> 条，条件断言是 **3** 处（每处 1 条），所以绿跑是 58、下限是 55。
+
+### 变异证明
+
+| 变异 | 期望 | 实测 |
+| --- | --- | --- |
+| 还原时**不建回空目录**（修复前的行为） | 失败并点名 | `exit 1`，**2 / 86 条红**：`the undo left a repository git operates on`（`git does not recognise the undone repository as a repository`）、`the undo left the blob readable and unchanged`（expected=`cloud e2e payload` actual=``） |
+| 把安全快照挪到**交换之后**取（于是它抓到的是还原**带进来的**状态，而不是被替换掉的状态） | 失败并点名 | `exit 1`，**7 / 86 条红**：`the undo put the damaged HEAD back`（实际 `ref: refs/heads/main`）、`the undo left the branch ref deleted, as the damage had it`、`the undo put the marker file back`、`the undo brought the damaged content back`、`the undo's safety snapshot is not the one it just restored`、`the restore into a missing repository says there was nothing to replace`、`the restore into a missing repository printed no safety snapshot key` |
+| 还原 | 绿 | `exit 0`，86 条全过 |
+
+`[FACT]` 这两个变异挑的都是**语义**而不是**存在性**：安全快照照样被写了、key 照样被打印
+了、断言照样过了大半 —— 只有「它抓的是**替换前**的状态」与「空目录有没有回来」这两件事变了，
+而那正是 §2.4 要保证的。
+
+### 刻意不验证的部分
+
+- `[FACT]` 不测库层：`src/cloud/backup.rs` 测了，脚本不重复。
+- `[FACT]` 不证明对**托管** S3 服务的回滚：端点是本仓自己的 object store，与
+  `scripts/verify-s3-vault.ps1` 用的是同一个。
+- `[FACT]` 不覆盖**真实**的云盘凭据：`GITGIT_CLOUD_*_ACCESS_KEY` /
+  `GITGIT_CLOUD_*_SECRET_KEY` 走环境变量，脚本每次现铸一个一次性 secret。
+
 ## 触发器定义
 
 > `[FACT]` 2026-10-24 核验：下表逐字段核对自**六个** workflow 的 `on:` 块，不是凭印象写的。

@@ -10,7 +10,7 @@
   escapes it, and this file contains no raw-HTML block, so a provider that
   returns markup or a script tag shows as the characters it emitted.
 
-  `[PROPOSAL]` The four options are always in this order (ADR §3.4.3):
+  `[FACT]` The four options are always in this order (ADR §3.4.3):
   keep ours, keep theirs, hand-edit, and *then* ask the AI. The three
   that do not depend on a credential are available with no key at all —
   the dialog does not degrade because there is no AI.
@@ -91,7 +91,7 @@
   /**
    * Ask the backend whether a key can be resolved for the provider.
    *
-   * `[PROPOSAL]` ADR §3.7.1: the "ask AI" option is shown but disabled
+   * `[FACT]` ADR §3.7.1: the "ask AI" option is shown but disabled
    * when there is no key, and that needs the app to know before the
    * request. The webview cannot see the process environment, so the
    * backend answers — with a presence, never with the key.
@@ -101,7 +101,7 @@
   });
 
   function openManual(): void {
-    // `[PROPOSAL]` ADR §3.7.4: the editor is prefilled with the ours
+    // `[FACT]` ADR §3.7.4: the editor is prefilled with the ours
     // side's text.
     manualText = region.ours;
     manualError = null;
@@ -119,7 +119,7 @@
       manualError = outcome.reason;
       return;
     }
-    // `[PROPOSAL]` ADR §3.7.3: the decision is what produces the audit
+    // `[FACT]` ADR §3.7.3: the decision is what produces the audit
     // record, and the region travels with it so the backend can recompute
     // the id.
     setResolution('manual', outcome.text, region);
@@ -145,7 +145,7 @@
 
   function openDiff(): void {
     openedDiffKey = diffKey;
-    // `[PROPOSAL]` ADR §3.4.3: the accept button unlocks when the user
+    // `[FACT]` ADR §3.4.3: the accept button unlocks when the user
     // has opened the diff, and not before.
     markDiffSeen();
   }
@@ -178,7 +178,7 @@
     {/if}
   </header>
 
-  <!-- The three sides. `[PROPOSAL]` ADR §3.2: the base side is the
+  <!-- The three sides. `[FACT]` ADR §3.2: the base side is the
        user's only reference for "what it was before", so it is shown
        next to the two candidates rather than hidden. -->
   <div class="grid gap-3 md:grid-cols-3">
@@ -205,7 +205,7 @@
     </div>
   </div>
 
-  <!-- `[PROPOSAL]` The four options, in the ADR's order. The AI one is last. -->
+  <!-- `[FACT]` The four options, in the ADR's order. The AI one is last. -->
   <div class="card space-y-3" data-testid="conflict-options">
     <div class="flex flex-wrap gap-2">
       <button
@@ -250,7 +250,7 @@
       </button>
 
       <!--
-        `[PROPOSAL]` ADR §3.4.1: the "ask AI" option is only offered on
+        `[FACT]` ADR §3.4.1: the "ask AI" option is only offered on
         a provider that can stream, so it is not rendered at all for a
         provider that cannot — with the reason stated next to it.
       -->
@@ -277,7 +277,7 @@
     </div>
 
     <!--
-      `[PROPOSAL]` ADR §3.7.1: with no key the option is present but
+      `[FACT]` ADR §3.7.1: with no key the option is present but
       disabled, and it says where the key goes. The dialog does not
       degrade: the three options above stay available.
     -->
@@ -335,7 +335,7 @@
     {/if}
 
     <!--
-      `[PROPOSAL]` ADR §3.4.4: a refused answer is shown as refused,
+      `[FACT]` ADR §3.4.4: a refused answer is shown as refused,
       with its reason. The user can still hand-edit.
     -->
     {#if $conflict.outcome === 'rejected' && $conflict.rejectionReason}
@@ -377,9 +377,9 @@
   </div>
 
   <!--
-    `[PROPOSAL]` ADR §3.7.4: the hand-edit. The editor is prefilled with
-    the ours side's text, and the saved text goes through the same checks
-    as an AI suggestion.
+    `[PROPOSAL]` ADR §3.7.4: the hand-edit. The editor IS prefilled with
+    the ours side's text ✓, but the saved text does **not** go through the
+    same checks as an AI suggestion — see that section's own row.
   -->
   {#if manualOpen}
     <div class="card space-y-2" data-testid="conflict-manual-editor">
@@ -407,7 +407,7 @@
   {/if}
 
   <!--
-    `[PROPOSAL]` ADR §3.4.3: the suggestion is always shown as a diff.
+    `[FACT]` ADR §3.4.3: the suggestion is always shown as a diff.
     The diff starts closed, and the accept button unlocks when the user
     opens it — that is a state-machine constraint, not a style.
   -->
@@ -486,7 +486,7 @@
   {/if}
 
   <!--
-    The replacement the user chose. `[PROPOSAL]` ADR §3.4.4: the decision
+    The replacement the user chose. `[FACT]` ADR §3.4.4: the decision
     is recorded here and nothing is written from this panel — the
     write-back is the apply action's job (ADR §3.6).
   -->
