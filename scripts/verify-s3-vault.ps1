@@ -246,8 +246,18 @@ try {
         # wrong digest or a wrong length has to fail, not merely an entry
         # whose first token is `v1`.
         $secretBytes = [System.Text.Encoding]::UTF8.GetBytes($secretValue)
-        $expectedSha = -join ([System.Security.Cryptography.SHA256]::HashData($secretBytes) |
-            ForEach-Object { $_.ToString('x2') })
+        # `[FACT]` `SHA256.Create()` + `ComputeHash`, NOT the static
+        # `SHA256.HashData` ✓: this script declares `#requires -Version 7` ✓,
+        # and PowerShell 7.0 runs on .NET Core 3.1 ✓, where the static
+        # method does not exist ✓ - it would throw and abort the check ✓.
+        # CI runs a newer pwsh ✓, so nothing there would have caught it ✓.
+        $sha256 = [System.Security.Cryptography.SHA256]::Create()
+        try {
+            $expectedSha = -join ($sha256.ComputeHash($secretBytes) |
+                ForEach-Object { $_.ToString('x2') })
+        } finally {
+            $sha256.Dispose()
+        }
         $expectedBytes = $secretBytes.Length
         $v1Line = ($versions.StdOut -split '\r?\n' | Where-Object { $_ -match '^v1\b' } | Select-Object -First 1)
         Check ($v1Line -match "sha256=$expectedSha(?![0-9a-f])") "the v1 entry does not carry the sha256 of the value that was stored (expected sha256=$expectedSha): '$v1Line'"
