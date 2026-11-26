@@ -82,7 +82,11 @@ if ($port -eq 0) { throw 'could not bind a mock provider port' }
 
 $stdoutFile = Join-Path $work 'stdout.txt'
 $stderrFile = Join-Path $work 'stderr.txt'
-$env:GITGIT_AI_API_KEY = 'sk-test-key-not-a-real-credential'
+# A fake credential, and the only one this script ever uses. It is named
+# in a variable because the assertions below check where it does and does
+# not appear: in the Authorization header, and never in the body.
+$apiKey = 'sk-test-key-not-a-real-credential'
+$env:GITGIT_AI_API_KEY = $apiKey
 
 # -NoNewWindow is a Windows-only switch; on Linux Start-Process rejects it.
 # Build the parameter set conditionally rather than assuming a host.
@@ -137,7 +141,32 @@ if ($captured) {
     if ($captured -notmatch '"model"')      { Add-Failure 'request body missing model' }
     if ($captured -notmatch '"stream":false') { Add-Failure 'request did not pin stream:false' }
     if ($captured -notmatch '<untrusted')    { Add-Failure 'untrusted content was not tagged' }
-    if ($captured -notmatch 'REDACTED')      { Add-Failure 'no redaction marker in the request' }
+
+    # The redaction marker has to be COUNTED, not merely present. The
+    # system prompt's own boilerplate contains the literal "[REDACTED]"
+    # (src/ai/sanitize.rs::UNTRUSTED_SYSTEM_PROMPT), so a presence check
+    # is satisfied even when NOT ONE secret was redacted. One occurrence
+    # comes from that boilerplate and one more from each planted secret,
+    # and this fixture plants exactly two — so a green run carries at
+    # least three, and a run that redacted only one of the two carries
+    # two and fails here.
+    $markers = ([regex]::Matches($captured, [regex]::Escape('[REDACTED]'))).Count
+    if ($markers -lt 3) {
+        Add-Failure ("the request body carries {0} redaction marker(s); expected at least 3 (1 from the system prompt's boilerplate + 1 per planted secret, and the fixture plants 2)" -f $markers)
+    }
+
+    # The positive counterpart of the two leak checks: the diff's OWN text
+    # has to reach the provider. The mock's reply is fixed, so every other
+    # assertion here would still pass if the diff were empty, clamped at
+    # MAX_DIFF_CHARS, or the wrong text — the model would be told nothing
+    # and the gate would be green. Both halves are asserted, so a diff
+    # that is only half-sent is caught too.
+    foreach ($diffMarker in @('line two', 'line three')) {
+        if ($captured -notmatch [regex]::Escape($diffMarker)) {
+            Add-Failure "the request body does not contain '$diffMarker': the diff's own text did not reach the provider"
+        }
+    }
+
     if ($captured -match [regex]::Escape($githubToken)) {
         Add-Failure 'SECRET LEAKED: the planted GitHub token reached the provider'
     }
@@ -146,6 +175,22 @@ if ($captured) {
     }
     # The Authorization header is not in $captured (that is the request
     # body), so check it separately via the request object we already hold.
+    # The product sends the key as a bearer token (src/ai/openai.rs:
+    # `.bearer_auth(api_key)`), so the header has to carry it — and the
+    # key must not appear in the body, which is what gets logged or sent
+    # onward. The observed header is reported with the key masked out.
+    $authHeader = $ctx.Request.Headers['Authorization']
+    $seenAuth = if ($null -eq $authHeader) {
+        '(no Authorization header)'
+    } else {
+        "$authHeader".Replace($apiKey, '<the API key>')
+    }
+    if ($authHeader -cne "Bearer $apiKey") {
+        Add-Failure "the Authorization header is '$seenAuth'; expected 'Bearer ' followed by the GITGIT_AI_API_KEY value"
+    }
+    if ($captured -match [regex]::Escape($apiKey)) {
+        Add-Failure 'SECRET LEAKED: the API key reached the request body'
+    }
 }
 
 if ($failures.Count -gt 0) {

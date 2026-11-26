@@ -217,12 +217,41 @@ try {
         Check ($listKeys.ExitCode -eq 0) "gitgit key list-keys exited $($listKeys.ExitCode): $($listKeys.StdErr)"
         Check ($listKeys.StdOut -match '(?m)^openai$') "gitgit key list-keys did not list openai: $($listKeys.StdOut.Trim())"
 
+        # The listing must carry user keys and NOTHING else. The
+        # versioned vault keeps its own bookkeeping under the same prefix
+        # as the user keys -- the sidecar `<key>.versions.json` and the
+        # attachment slot `<key>.v<N>.bin`
+        # (src/server/vault.rs::is_internal_object) -- and listing them
+        # makes `gitgit key ls` show phantom entries, which can then be
+        # operated on and damage the version history. So the internal
+        # shapes are checked for ABSENCE: a phantom line ADDED to the
+        # listing has to fail, not pass.
+        $listed = @($listKeys.StdOut -split '\r?\n' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+        $phantom = @($listed | Where-Object {
+            $_.EndsWith('.versions.json') -or ($_ -match '\.v\d+\.bin$')
+        })
+        Check ($phantom.Count -eq 0) "gitgit key list-keys listed internal objects ($($phantom -join ', ')); the listing must contain user keys only: $($listKeys.StdOut.Trim())"
+
         # The version timeline has to exist too: the credential's history
         # is the reason the bucket is versioned in the first place.
         $versions = Invoke-External -FilePath $gitgitBin -WorkingDirectory $repoRoot -TimeoutSec 120 `
             -ArgumentList ($vaultArgs + @('key', 'versions', 'openai'))
         Check ($versions.ExitCode -eq 0) "gitgit key versions exited $($versions.ExitCode): $($versions.StdErr)"
         Check ($versions.StdOut -match '(?m)^v1\b') "gitgit key versions printed no v1 entry: $($versions.StdOut.Trim())"
+
+        # The version entry has to identify the bytes it points at. The
+        # timeline records the sha256 and the byte length of the value it
+        # stored (src/server/vault_versioned.rs), and both are derivable
+        # from the literal this script stored -- so an entry carrying a
+        # wrong digest or a wrong length has to fail, not merely an entry
+        # whose first token is `v1`.
+        $secretBytes = [System.Text.Encoding]::UTF8.GetBytes($secretValue)
+        $expectedSha = -join ([System.Security.Cryptography.SHA256]::HashData($secretBytes) |
+            ForEach-Object { $_.ToString('x2') })
+        $expectedBytes = $secretBytes.Length
+        $v1Line = ($versions.StdOut -split '\r?\n' | Where-Object { $_ -match '^v1\b' } | Select-Object -First 1)
+        Check ($v1Line -match "sha256=$expectedSha(?![0-9a-f])") "the v1 entry does not carry the sha256 of the value that was stored (expected sha256=$expectedSha): '$v1Line'"
+        Check ($v1Line -match "\bbytes=$expectedBytes(?!\d)") "the v1 entry does not carry the byte length of the value that was stored (expected bytes=$expectedBytes): '$v1Line'"
 
         $delete = Invoke-External -FilePath $gitgitBin -WorkingDirectory $repoRoot -TimeoutSec 120 `
             -ArgumentList ($vaultArgs + @('key', 'delete', 'openai'))
