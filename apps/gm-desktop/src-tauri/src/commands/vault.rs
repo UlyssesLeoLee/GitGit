@@ -77,7 +77,7 @@ pub async fn vault_list(state: State<'_, DesktopState>) -> AppResult<Vec<String>
 
 /// Fetch a stored credential.
 ///
-/// `[PROPOSAL]` ADR-0024 §3.9 item 3: the `ai/` namespace is excluded from
+/// `[FACT]` ADR-0024 §3.9 item 3: the `ai/` namespace is excluded from
 /// the generic read path, so a provider key can never travel to the
 /// webview. The key is written by `ai_key_set` and read by the AI call
 /// itself, on the Rust side; there is deliberately no `ai_key_get`.

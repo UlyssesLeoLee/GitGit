@@ -34,7 +34,7 @@
   let updating = $state(false);
   let updatesOnStartup = $state(false);
 
-  // `[PROPOSAL]` ADR-0024 §3.9: the provider key is entered here and
+  // `[FACT]` ADR-0024 §3.9: the provider key is entered here and
   // written to the versioned vault under `ai/<provider>`. It lives in a
   // local component state and nowhere else — not in a store, not in
   // localStorage — and the field is cleared the moment it is saved.

@@ -42,7 +42,7 @@
     '/vault': { component: Vault },
     '/graph': { component: Graph },
     '/review': { component: Review },
-    // `[PROPOSAL]` ADR-0024 §3.5: the conflict arbitration is its own
+    // `[FACT]` ADR-0024 §3.5: the conflict arbitration is its own
     // route, not a modal and not an extension of `/review` — the two pages
     // carry different mental models (a diff to comment on vs. a region to
     // decide).

@@ -2,7 +2,7 @@
 
 | 字段 | 值 |
 |---|---|
-| **Status** | Proposed (2026-11-05) — 设计已定稿，实现分三 lane 落地 |
+| **Status** | Proposed (2026-11-05) — 设计已定稿；实现已全部落地（见 §4 的落库状态） |
 | **Supersedes** | (无) |
 | **Superseded by** | (无) |
 | **Authors** | Ulysses — Mavis 接手 agent |
@@ -40,14 +40,18 @@
 2. **弹窗让用户裁决**：文件内发生冲突时，弹窗让用户决定要不要交给「填好 api key 的 AI」。
 3. **AI 是选项不是自动**：用户不选 AI，流程照常跑完。
 
-### 1.2 本仓现状（实测）
+### 1.2 本仓现状（**2026-11-05 的实测快照**）
 
-- `[FACT]` 本仓**目前没有任何冲突处理代码**。全仓 `grep -i conflict`（`*.rs` / `*.ts` / `*.svelte`）只命中若干**无关**文本：`src/server/vault_versioned.rs:257`（`ON CONFLICT` 注释）、`src/remote/mod.rs:8`、`src/ai/registry.rs:5` 与 `:8`（「这两个计数不冲突」之类的散文），以及 `apps/gm-desktop/src-tauri/src/state.rs:286`、`:296`（描述「review session 撞车」的措辞）。**没有 merge driver、没有 index stage 读取、没有冲突区域解析。**
+`[FACT]` 这一节是**设计当天（2026-11-05，见文首的 Status）的测量快照** ✓ —— 它记录的是「**当时**本仓有什么」 ✓。它**不是**「现在本仓有什么」 ✓：ADR-0024 自己的实现已经全部落地 ✓，所以下面两条「目前没有……」的断言**当时为真、现在为假** ✓ ⇒ 每一条都标了现在在哪里 ✓。
+
+- `[FACT]` **当时**本仓**没有任何冲突处理代码**。全仓 `grep -i conflict`（`*.rs` / `*.ts` / `*.svelte`）只命中若干**无关**文本：`src/server/vault_versioned.rs:257`（`ON CONFLICT` 注释）、`src/remote/mod.rs:8`、`src/ai/registry.rs:5` 与 `:8`（「这两个计数不冲突」之类的散文），以及 `apps/gm-desktop/src-tauri/src/state.rs:286`、`:296`（描述「review session 撞车」的措辞）。**当时没有 merge driver、没有 index stage 读取、没有冲突区域解析。**
+  ⇒ `[FACT]` **现在**：区域解析在 `src/repo/conflict.rs` ✓（`conflict_set` ✓），写回路径在同文件的 `compose_resolved` ✓ / `write_resolved` ✓，桌面端的命令在 `apps/gm-desktop/src-tauri/src/commands/conflict.rs` ✓ ⇒ 见 §3.1 与 §3.6 ✓。
 - `[FACT]` 本仓已有的 diff 机器是 `src/repo/status.rs`：`worktree_status`（`:504`）、`worktree_diff`（`:535`）、`DiffTarget` 三目标枚举（`:124`）、`git_output` 白名单 argv 助手（`:448`）。`git_output` 的注释明确写了「参数以 vector 传入，绝不拼 shell 字符串」，并且禁用 `--no-ext-diff` / `--no-textconv`（`:441-447`）。
-- `[FACT]` 本仓已有的 AI 机器是 `src/ai/`：`AiProvider` trait（`src/ai/provider.rs:158`）、`ProviderRegistry` 五个预置（`src/ai/registry.rs:132-175`）、两条线路协议（openai-compatible / anthropic）、`sanitize` 不可信内容纪律（`src/ai/sanitize.rs:36`、`:299`、`:321`）、环境变量密钥规则（`src/ai/mod.rs:56` + 测试 `:151`）。
+- `[FACT]` 本仓已有的 AI 机器是 `src/ai/`：`AiProvider` trait（`src/ai/provider.rs:158`）、`ProviderRegistry` 五个预置（`src/ai/registry.rs:132-175`）、两条线路协议（openai-compatible / anthropic）、`sanitize` 不可信内容纪律（`src/ai/sanitize.rs:36`、`:299`、`:344`）、环境变量密钥规则（`src/ai/mod.rs:57-61` + 测试 `:156`）。
 - `[FACT]` 本仓的桌面端已有 `/review` 路由，走流式 AI（`apps/gm-desktop/src/App.svelte:37-46`、`apps/gm-desktop/src/routes/Review.svelte`、`apps/gm-desktop/src/lib/stores/review.ts`、`apps/gm-desktop/src/lib/api/ai.ts`）。
 - `[FACT]` 本仓的凭据库是 `Vault` trait（`src/server/vault.rs:187-222`）+ `VersionedVault` 子 trait（`src/server/vault_versioned.rs:185`，其中 `set_with_version` 在 `:199`）。
-- `[FACT]` 桌面端目前**没有**任何让用户输入 AI key 的入口。`apps/gm-desktop/src/lib/i18n/en.ts:224` 的文案原话是「the key is never entered here」；`apps/gm-desktop/src-tauri/src/commands/ai.rs:11-18` 的不变量原话是「**The key comes from the environment only.**」。
+- `[FACT]` **当时**桌面端**没有**任何让用户输入 AI key 的入口。`apps/gm-desktop/src/lib/i18n/en.ts:225` 的文案原话是「the key is never entered here」；`apps/gm-desktop/src-tauri/src/commands/ai.rs:11-18` 的不变量原话是「**The key comes from the environment only.**」
+  ⇒ `[FACT]` **现在**：那句文案**还在** ✓，但它说的是 **`/review` 页** ✓（那一页仍然没有输入框 ✓）。而**桌面端整体已经有了那个入口** ✓ —— 设置页的 AI key 输入框（`apps/gm-desktop/src/routes/Settings.svelte:198-201` ✓，保存后清空 ✓ `:76` ✓）—— 那正是本 ADR 要落地的东西 ✓。
 
 > **这最后两条是本 ADR 要改的东西。** 不是改 `GITGIT_AI_API_KEY` 本身（它继续有效、继续是 CLI 的唯一来源），而是给**桌面端**增加第二个来源：版本化凭据库。§3.10 给出交互与优先级。
 
@@ -318,7 +322,7 @@
 | AI 事件桥 | `apps/gm-desktop/src/lib/api/ai.ts:19-23`、`:66-94` | 事件名常量 + `listenReviewEvents` 的「一次 attach 五个、失败全 detach」模式 |
 | 流状态机 | `apps/gm-desktop/src/lib/stores/review.ts:47-79`、`:147-194` | `status` 状态机、sessionId 纪律、终止事件判失败、文本上限 |
 | i18n | `apps/gm-desktop/src/lib/i18n/en.ts`、`zh-CN.ts` | 新增 `conflict.*` 键，两份目录**必须同步**（`apps/gm-desktop/tests/unit/i18n.test.ts` 覆盖 fallback 行为；本仓惯例是双语同增） |
-| dev mock | `apps/gm-desktop/src/mocks/handlers.ts:488` | 新增 `conflict_regions` / `ai_conflict_start` / `ai_conflict_cancel` 的 mock 分支 |
+| dev mock | `apps/gm-desktop/src/mocks/handlers.ts:647-711` | 新增 `conflict_regions` / `ai_conflict_start` / `ai_conflict_cancel` 的 mock 分支 |
 | 错误边界 | `apps/gm-desktop/src/lib/components/ErrorBoundary.svelte` | 路由外层已有 ErrorBoundary（`apps/gm-desktop/src/App.svelte:135`） |
 | 密钥入口 | `apps/gm-desktop/src/routes/Settings.svelte` | 新增一张「AI Provider Key」卡（§3.10） |
 
@@ -370,7 +374,7 @@
 
 #### 3.7.1 没有 key
 
-`[FACT]` 本仓已有 `AiReviewNoKey` 错误（`apps/gm-desktop/src-tauri/src/commands/ai.rs:225`，测试在 `:590-601`）。
+`[FACT]` 本仓已有 `AiReviewNoKey` 错误（`apps/gm-desktop/src-tauri/src/error.rs:87`；命令侧的用法在 `apps/gm-desktop/src-tauri/src/commands/ai.rs:342`、`:748`；测试在同文件 `:1231-1241`、`:2331-2352`）。
 
 `[FACT]` 冲突对话框在无 key 时**仍然完全可用**：保留 ours / 保留 theirs / 手工编辑三项照常。「问 AI」这一项**显示但 disabled**，并说明原因与「key 在哪里填」。**对话框不因为没有 AI 而降级。**（Lane C：`stores/conflict.ts` 的 `canAskAi()` ✓、`ConflictDialog.svelte` 的无 key 说明 ✓，测试断言三项照常可用且「问 AI」显示但 disabled ✓。）
 
@@ -491,9 +495,9 @@ merge-file 产出冲突区域  →  scope 层给每个区域定位 scope  →  �
 
 **现状（`[FACT]`）**：
 
-- `[FACT]` `pub const API_KEY_ENV: &str = "GITGIT_AI_API_KEY";`（`src/ai/mod.rs:56`），模块注释写明理由：「Kept out of the CLI flag surface on purpose: an API key passed as an argument is visible in `ps` output and lands in shell history.」（`:52-55`）
-- `[FACT]` 测试 `api_key_is_an_env_var_not_a_flag`（`src/ai/mod.rs:151-158`）断言的是**常量名的形状**（全大写 + 下划线），**不是**「key 只能来自环境变量」。⇒ **增加第二个来源不会破坏这条测试**，因为规则是「**永不作为 flag**」，vault 不是 flag。
-- `[FACT]` 桌面端目前只读环境变量：`read_api_key_env()`（`apps/gm-desktop/src-tauri/src/commands/ai.rs:165-170`），命令入口传 `read_api_key_env()`（`:398`），缺 key 时报 `AiReviewNoKey`（`:225`）。
+- `[FACT]` `pub const API_KEY_ENV: &str = "GITGIT_AI_API_KEY";`（`src/ai/mod.rs:57-61`），模块注释写明理由：「Kept out of the CLI flag surface on purpose: an API key passed as an argument is visible in `ps` output and lands in shell history.」（`:59-60`）
+- `[FACT]` 测试 `api_key_is_an_env_var_not_a_flag`（`src/ai/mod.rs:156-160`）断言的是**常量名的形状**（全大写 + 下划线），**不是**「key 只能来自环境变量」。⇒ **增加第二个来源不会破坏这条测试**，因为规则是「**永不作为 flag**」，vault 不是 flag。
+- `[FACT]` **2026-11-11 之前（Lane B 落地前）的实测快照**：桌面端当时**只读环境变量** —— `read_api_key_env()`（`apps/gm-desktop/src-tauri/src/commands/ai.rs:282`）、命令入口把它传进去（`:515`）、缺 key 时报 `AiReviewNoKey`（抛出点是 `apps/gm-desktop/src-tauri/src/commands/ai.rs:342`）。⇒ **现在**：`/review` 仍然只读环境变量（`:515` 未变 ✓），而**冲突仲裁这条路**已经是**先读 vault、env 兜底**（`resolve_ai_key`，`:662`；调用点 `:967`）✓ —— 两条路不一样，而 `/review` 的文案本来就写着「the key is never entered here」（`apps/gm-desktop/src/lib/i18n/en.ts:225`）✓，所以对用户不构成矛盾 ✓。错误本身定义在 `apps/gm-desktop/src-tauri/src/error.rs:87`。
 - `[FACT]` 桌面端已有版本化凭据库通道：`vault_set` → `VersionedVault::set_with_version`（`apps/gm-desktop/src-tauri/src/commands/vault.rs:86-94`；上游 `src/server/vault_versioned.rs:199`）。
 
 **决策（`[FACT]`，Lane B 落地）**：
@@ -513,10 +517,10 @@ merge-file 产出冲突区域  →  scope 层给每个区域定位 scope  →  �
    - `[FACT]` **不提供** `ai_key_get`：AI 调用时 Rust 侧直接从 vault 取，**在内存里**用完即弃。（Lane B：`src/ai/keys.rs` ✓。）
    - `[FACT]` 现有 `vault_get`（`apps/gm-desktop/src-tauri/src/commands/vault.rs:79-84`）**会把值返回给前端**，所以 `ai/` 命名空间必须从通用 vault 列表里排除，或至少设置页永不对它调 `vault_get`。`[FACT]` 落地要求已满足：`ai/*` 键在通用 vault 读取路径上被**拒绝** ✓，设置页只调 `ai_key_status`（存在与否）✓。
 4. **key 永不进 flag、永不进日志。**
-   - `[FACT]` 既有防线：`scrub_secret`（`apps/gm-desktop/src-tauri/src/commands/ai.rs:260`、`:356`）把所有离开该模块的错误串过一遍。**新命令必须同样过这道筛**。
+   - `[FACT]` 既有防线：`scrub_secret`（`apps/gm-desktop/src-tauri/src/commands/ai.rs:377`、`:473`、`:791`、`:934`）把所有离开该模块的错误串过一遍。**新命令必须同样过这道筛**。
    - `[FACT]` **不得**在 `tracing` 字段、审计记录、错误消息里出现 key；新增一条门禁测试：对 `ai_key_set` / `ai_conflict_start` 的所有错误路径做断言（key 串不出现）。（Lane B：`scrub_secret` 覆盖新命令的错误路径 ✓，测试断言 key 串不出现 ✓。）
    - `[FACT]` **审计记录**（§3.7.3 ✓）同样受这条约束 ✓：模型回答在入库前被 `scrub_secret` 洗过 ✓，写盘前对整条记录再断言一次 ✓，key 不在记录里 ✓。
-5. **设置页的输入框**：`type="password"`、`autocomplete="off"`（沿用 `apps/gm-desktop/src/routes/Settings.svelte:108-111` 的 admin password 写法），保存后**清空输入框**（`:59` 已有同样做法）。
+5. **设置页的输入框**：`type="password"`、`autocomplete="off"`（沿用 `apps/gm-desktop/src/routes/Settings.svelte:157-159` 的 admin password 写法），保存后**清空输入框**（`:105` 已有同样做法）。
    `[FACT]` 落地要求已满足 ✓：Lane C 的设置页有 AI provider key 卡片 ✓，`type="password"` ✓、`autocomplete="off"` ✓，保存后**立即清空** ✓（`Settings.svelte` 的 `aiKey = ''` ✓）。
 
 **这与仓库既有不变量的关系（必须写明，因为它是冲突点）**：
@@ -609,7 +613,7 @@ merge-file 产出冲突区域  →  scope 层给每个区域定位 scope  →  �
 - `apps/gm-desktop/src/lib/api/conflict.ts`（新桥接：照 `src/lib/api/ai.ts`）。
 - `apps/gm-desktop/src/App.svelte` 加 `/conflicts` 路由 + 侧栏入口。
 - i18n：`en.ts` + `zh-CN.ts` **同步**新增 `conflict.*` 键。
-- `apps/gm-desktop/src/mocks/handlers.ts` 加 mock 分支（照 `:488` 的形状，且**不得**在 anthropic 上假装能流）。
+- `apps/gm-desktop/src/mocks/handlers.ts` 加 mock 分支（照 `:596` 的形状，且**不得**在 anthropic 上假装能流）。
 - 设置页加「AI Provider Key」卡（写入 vault）。
 
 **验收测试（vitest）**：
@@ -749,26 +753,26 @@ merge-file 产出冲突区域  →  scope 层给每个区域定位 scope  →  �
 
 **本仓代码**
 
-- `src/ai/mod.rs:52-56`（`API_KEY_ENV` 与其理由）、`:97-135`（`Invocation::run` 的先拼 prompt 再 sanitize）、`:151-158`（`api_key_is_an_env_var_not_a_flag`）
-- `src/ai/provider.rs:28-35`（`Trust`）、`:81-84`（默认 `Untrusted`）、`:99-105`（`ChatMessage::untrusted`）、`:142-154`（`ProviderCapabilities`）、`:175-209`（流式契约与拒绝立场）
+- `src/ai/mod.rs:57-61`（`API_KEY_ENV` 与其理由）、`:102-140`（`Invocation::run` 的先拼 prompt 再 sanitize）、`:156-160`（`api_key_is_an_env_var_not_a_flag`）
+- `src/ai/provider.rs:28-35`（`Trust`）、`:81-84`（默认 `Untrusted`）、`:99-105`（`ChatMessage::untrusted`）、`:143-154`（`ProviderCapabilities`）、`:175-209`（流式契约与拒绝立场）
 - `src/ai/registry.rs:98-103`（Anthropic 不支持流式）、`:132-175`（五个预置）
-- `src/ai/sanitize.rs:18-23`（脱敏是启发式）、`:36-42`（`UNTRUSTED_SYSTEM_PROMPT`）、`:299-308`（`wrap_untrusted`）、`:321`（`sanitize_request`）
-- `src/ai/prompt.rs:5-8`（system/user 分离的理由）、`:78`（`MAX_DIFF_CHARS`）、`:86-96`（夹紧与可见告知）、`:104-125`（既有断言形状）
+- `src/ai/sanitize.rs:18-23`（脱敏是启发式）、`:36-42`（`UNTRUSTED_SYSTEM_PROMPT`）、`:299-308`（`wrap_untrusted`）、`:344`（`sanitize_request`）
+- `src/ai/prompt.rs:5-8`（system/user 分离的理由）、`:193`（`MAX_DIFF_CHARS`）、`:195-211`（夹紧与可见告知）、`:279-315`（既有断言形状）
 - `src/ai/stream.rs:128-130`（`StreamEvent::Token`）
 - `src/ai/diff.rs:38-70`（白名单 argv 的 `git_output`）
 - `src/server/subprocess.rs:3-6`（不重实现 Git 设施）、`:130-150`（`run_capture`）
 - `src/repo/status.rs:124-128`（`DiffTarget`）、`:413-437`（`validate_rel_path`）、`:441-447` + `:448`（`git_output` 白名单）、`:504`（`worktree_status`）、`:535-578`（`worktree_diff`）、`:614-622`（`unique_temp` 约定）
 - `src/server/vault.rs:187-222`（`Vault` trait）
-- `src/server/vault_versioned.rs:185-199`（`VersionedVault` + `set_with_version`）
-- `apps/gm-desktop/src-tauri/src/commands/ai.rs:11-18`（key 只来自环境的不变量）、`:165-170`（`read_api_key_env`）、`:225`（`AiReviewNoKey`）、`:260`、`:356`（`scrub_secret`）、`:398`、`:590-601`（既有测试形状）
+- `src/server/vault_versioned.rs:185`（`VersionedVault` + `set_with_version` 在 `:199`）
+- `apps/gm-desktop/src-tauri/src/commands/ai.rs:11-18`（key 只来自环境的不变量）、`:282`（`read_api_key_env`）、`:377`、`:473`（`scrub_secret`）、`:503-526`（既有命令的形状）、`:81-93`（既有事件的形状）、`:588-602`（冲突启动结果的形状）、`:1055`（测试模块的形状）、`apps/gm-desktop/src-tauri/src/error.rs:87`（`AiReviewNoKey`）
 - `apps/gm-desktop/src-tauri/src/commands/vault.rs:79-84`（`vault_get` 回流前端）、`:86-94`（`vault_set` → `set_with_version`）
 - `apps/gm-desktop/src/lib/api/ai.ts:19-23`、`:66-94`（事件桥与 detach 纪律）
 - `apps/gm-desktop/src/lib/stores/review.ts:8-20`、`:36`、`:147-194`（状态机纪律）
 - `apps/gm-desktop/src/routes/Review.svelte:1-16`（页面而非弹窗的先例与理由）、`:13-15`（无 `{@html}`）
-- `apps/gm-desktop/src/App.svelte:37-46`（路由表）、`:135`（ErrorBoundary）
-- `apps/gm-desktop/src/lib/i18n/en.ts:203-227`（`review.*` 键族）、`:224`（`review.noKey`：「the key is never entered here」）
-- `apps/gm-desktop/src/mocks/handlers.ts:488`（`ai_review_start` mock 形状）
-- `apps/gm-desktop/src/routes/Settings.svelte:59`、`:107-112`（admin password 的清空 / password 输入框写法）
+- `apps/gm-desktop/src/App.svelte:37-46`（路由表）、`:127`（ErrorBoundary）
+- `apps/gm-desktop/src/lib/i18n/en.ts:203-227`（`review.*` 键族）、`:225`（`review.noKey`：「the key is never entered here」）
+- `apps/gm-desktop/src/mocks/handlers.ts:596`（`ai_review_start` mock 形状）
+- `apps/gm-desktop/src/routes/Settings.svelte:105`（admin password 的清空）、`:157-159`（password 输入框写法）
 - `apps/gm-desktop/tests/unit/i18n.test.ts`（i18n 行为测试）
 - `docs/adr/0020-v0-gui-tauri-svelte.md:88`（Git 2.41.0 环境核实）
 - `docs/plan/v0-tasks.md:358`（同源环境记录）

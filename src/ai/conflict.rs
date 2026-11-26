@@ -42,23 +42,23 @@ use crate::repo::conflict::region_id;
 
 /// The most context lines sent on either side of the region.
 ///
-/// `[PROPOSAL]` ADR §3.3: "the context is up to 20 lines before and after the
-/// conflict region in the base file, and no other region". Twenty is a
-/// conservative value: enough to see whether the region sits in a function
-/// signature, an import list or a string literal, without putting the whole
-/// file in the prompt.
+/// `[FACT]` ADR §3.3: "the context is up to 20 lines before and after the
+/// conflict region in the base file, and no other region" ✓ — clamped to by
+/// `src/ai/prompt.rs` ✓, and the desktop hands over the same 20 lines ✓.
+/// Twenty is a conservative value: enough to see whether the region sits in
+/// a function signature, an import list or a string literal, not the file.
 pub const MAX_CONTEXT_LINES: usize = 20;
 
 /// The most characters a suggestion may contain.
 ///
-/// `[PROPOSAL]` ADR §3.4.2's third check: "bounded in length (at most the
+/// `[FACT]` ADR §3.4.2's third check: "bounded in length (at most the
 /// region's ours side lines times 10, or at most 20,000 characters, whichever
-/// is smaller)".
+/// is smaller)" ✓ — enforced by `validate_replacement` before display.
 pub const MAX_SUGGESTION_CHARS: usize = 20_000;
 
 /// How many suggestion lines one line of the region's ours side buys.
-///
-/// `[PROPOSAL]` ADR §3.4.2's third check, the line bound.
+/// `validate_replacement` applies it to the suggestion's line count.
+/// `[FACT]` ADR §3.4.2's third check, the line bound ✓ — the multiplier.
 pub const SUGGESTION_LINES_PER_OURS_LINE: usize = 10;
 
 /// The conflict-marker families ADR §3.4.2's second check rejects.
@@ -121,10 +121,10 @@ impl ConflictRegion {
 
     /// The file's language, derived from its extension.
     ///
-    /// `[PROPOSAL]` ADR §3.3 sends the file's language ("rust" /
-    /// "typescript") alongside the region. An unknown extension is reported
-    /// as "unknown" rather than guessed: a wrong language hint is worse than
-    /// none, because the model will style the suggestion after it.
+    /// `[FACT]` ADR §3.3 sends the file's language ("rust" /
+    /// "typescript") alongside the region ✓ — the prompt puts it in the
+    /// untrusted segment ✓. An unknown extension is reported as "unknown"
+    /// rather than guessed: a wrong language hint is worse than none.
     pub fn language(&self) -> &'static str {
         let ext = self
             .path
@@ -166,11 +166,11 @@ impl ConflictRegion {
 
     /// True when the two sides carry the same text.
     ///
-    /// `[PROPOSAL]` ADR §3.7.4: "the region's ours and theirs text are the
+    /// `[FACT]` ADR §3.7.4: "the region's ours and theirs text are the
     /// same — the region exists but the two sides are equivalent; the default
-    /// suggestion is keep ours". The comparison ignores **trailing**
-    /// whitespace: two sides that differ only in a trailing newline are the
-    /// same text for a human reader.
+    /// suggestion is keep ours" ✓ — decided once, in the backend, by this
+    /// function ✓. The comparison ignores **trailing** whitespace: two sides
+    /// that differ only in a trailing newline are the same text for a reader.
     ///
     /// `[FACT]` The comparison does **not** ignore **leading** whitespace,
     /// and that is the whole point of the trailing-only trim.
@@ -228,9 +228,9 @@ impl ConflictRegion {
 
     /// The replacement text for a choice that does not need the model.
     ///
-    /// `[PROPOSAL]` ADR §3.7.1: "the conflict dialog stays fully usable
+    /// `[FACT]` ADR §3.7.1: "the conflict dialog stays fully usable
     /// without a key: keep ours / keep theirs / hand-edit all work as
-    /// usual". This is that guarantee on the Rust side — the three options
+    /// usual" ✓. This is that guarantee on the Rust side — the three options
     /// are a function of the region alone, so a missing credential cannot
     /// take them away.
     ///
@@ -252,11 +252,11 @@ impl ConflictRegion {
     }
 }
 
-/// The options the conflict dialog always offers (ADR §3.4.3).
-///
-/// `[PROPOSAL]` ADR §3.4.3: "the dialog always offers three options that do
+/// The options the conflict dialog always offers (ADR §3.4.3) — this enum
+/// is the library's side of that rule; the webview has its own choice type.
+/// `[FACT]` ADR §3.4.3: "the dialog always offers three options that do
 /// not depend on the AI: keep ours / keep theirs / hand-edit. The AI
-/// suggestion is a **fourth** option, and it is always last."
+/// suggestion is a **fourth** option, and it is always last" ✓
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DialogChoice {
     /// Keep the ours side's text.
@@ -270,8 +270,8 @@ pub enum DialogChoice {
 impl DialogChoice {
     /// The three choices that work with no key configured.
     ///
-    /// `[PROPOSAL]` ADR §3.7.1: the dialog does not degrade when there is
-    /// no credential.
+    /// `[FACT]` ADR §3.7.1: the dialog does not degrade when there is
+    /// no credential ✓ — this list is the library's expression of that.
     pub const NO_AI: [DialogChoice; 3] = [
         DialogChoice::KeepOurs,
         DialogChoice::KeepTheirs,
@@ -292,11 +292,11 @@ pub struct ArbitrationUnit {
 
 /// Split a file's regions into one arbitration unit per region.
 ///
-/// `[PROPOSAL]` ADR §3.7.2: "a request carries exactly one region. Several
-/// regions are never merged into one request (otherwise the model would
-/// 'harmonize the style' across regions, which is exactly overreach)". This
-/// function is the Rust side of that rule: the caller arbitrates one unit
-/// at a time, and each unit carries the id its answer has to echo.
+/// `[FACT]` ADR §3.7.2: a request carries exactly one region, and several
+/// regions are never merged into one request ✓ — implemented on the product
+/// path (the desktop's `ai_conflict_start` takes one region) ✓. This
+/// function is the library's side of that rule: the caller arbitrates one
+/// unit at a time, and each unit carries the id its answer has to echo.
 pub fn arbitration_units(regions: Vec<ConflictRegion>) -> Vec<ArbitrationUnit> {
     regions
         .into_iter()
@@ -343,9 +343,9 @@ pub enum SuggestionRejection {
 impl SuggestionRejection {
     /// The reason shown to the user.
     ///
-    /// `[PROPOSAL]` ADR §3.4.2 names a reason per check ("empty suggestion",
+    /// `[FACT]` ADR §3.4.2 names a reason per check ("empty suggestion",
     /// "the suggestion carries a conflict marker", "the suggestion is too
-    /// long", "the suggestion mixed in the base section"). The reasons are
+    /// long", "the suggestion mixed in the base section") ✓. The reasons are
     /// user-facing text, not error codes: the dialog shows them next to the
     /// region so the user knows why the fourth option is empty.
     pub fn reason(self) -> &'static str {

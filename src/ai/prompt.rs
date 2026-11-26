@@ -81,10 +81,10 @@ pub fn review(diff: &str) -> Vec<ChatMessage> {
 /// would silently opt it out of both the structural tag and the secret
 /// redaction, which is the same property the other builders here hold.
 ///
-/// `[PROPOSAL]` The reply format is part of the contract: the model's first
+/// `[FACT]` The reply format is part of the contract: the model's first
 /// line is the region id, copied verbatim, and the replacement text follows.
 /// [`crate::ai::conflict::validate_answer`] refuses an answer that does not
-/// carry the id rather than guessing which region it was meant for.
+/// carry the id rather than guessing which region it was meant for ✓.
 pub fn conflict(region: &ConflictRegion) -> Vec<ChatMessage> {
     vec![
         ChatMessage::system(
